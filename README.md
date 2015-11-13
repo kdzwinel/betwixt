@@ -1,2 +1,5 @@
 # betwixt
-Web Debugging Proxy based on Chrome DevTools Network panel - PLACEHOLDER
+
+**This repository is a placeholder for an upcomming tool.**
+
+![Betwixt in action](https://i.imgur.com/BrDHNy6.gifv)
