@@ -1,0 +1,25 @@
+{
+    "extensions": [
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "devices.dialog.show",
+            "className": "WebInspector.DevicesDialog.ActionDelegate",
+            "title": "Inspect devices\u2026"
+        },
+        {
+            "type": "context-menu-item",
+            "location": "mainMenu/tools/open",
+            "order": 50,
+            "actionId": "devices.dialog.show"
+        }
+    ],
+    "dependencies": ["platform", "ui", "host", "components"],
+    "experiment": "inspectDevicesDialog",
+    "scripts": [
+        "DevicesView.js",
+        "DevicesDialog.js"
+    ],
+    "resources": [
+        "devicesView.css"
+    ]
+}

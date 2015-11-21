@@ -1,0 +1,23 @@
+{
+    "extensions": [
+        {
+            "type": "@WebInspector.ToolbarItem.Provider",
+            "className": "WebInspector.AnimationControlPane.ButtonProvider",
+            "order": 2,
+            "location": "styles-sidebarpane-toolbar"
+        }
+    ],
+    "dependencies": [
+        "elements"
+    ],
+    "scripts": [
+        "AnimationModel.js",
+        "AnimationGroupPreviewUI.js",
+        "AnimationTimeline.js",
+        "AnimationUI.js",
+        "AnimationControlPane.js"
+    ],
+    "resources": [
+        "animationTimeline.css"
+    ]
+}

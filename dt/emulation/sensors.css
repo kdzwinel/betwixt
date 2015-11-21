@@ -1,0 +1,151 @@
+/*
+ * Copyright (c) 2015 The Chromium Authors. All rights reserved.
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+.sensors-view {
+    padding: 12px;
+}
+
+.sensors-view label {
+    margin-bottom: 10px;
+}
+
+.sensors-view input {
+    text-align: right;
+}
+
+.sensors-view input[type=text]:enabled:focus,
+.sensors-view select:enabled:focus {
+    border-color: rgb(77, 144, 254);
+    outline: none;
+}
+
+.sensors-view input[type=text],
+.sensors-view select {
+    border: 1px solid #bfbfbf;
+    border-radius: 2px;
+    box-sizing: border-box;
+    color: #444;
+    font: inherit;
+    border-width: 1px;
+}
+
+.sensors-view input[type=text] {
+    margin-left: 3px;
+    min-height: 2em;
+    padding: 3px;
+}
+
+.sensors-view input[readonly] {
+    background-color: rgb(235, 235, 228);
+}
+
+.sensors-view fieldset {
+    border: none;
+    padding: 0 0 5px 15px;
+    flex: 0 0 auto;
+}
+
+.sensors-view fieldset[disabled] {
+    opacity: 0.5;
+}
+
+.sensors-view .field-error-message {
+    display: none;
+}
+
+.sensors-view input[type='text']:focus::-webkit-input-placeholder {
+    color: transparent !important;
+}
+
+/* Accelerometer */
+
+.accelerometer-stage {
+    -webkit-perspective: 700px;
+    -webkit-perspective-origin: 50% 50%;
+    width: 200px;
+    height: 130px;
+}
+
+fieldset.device-orientation-override-section[disabled] .accelerometer-stage {
+    cursor: default !important;
+}
+
+.accelerometer-box {
+    pointer-events:none;
+    margin-top: -54px;
+    margin-left: -40px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 80px;
+    height: 108px;
+    -webkit-transform-style: preserve-3d;
+}
+
+.accelerometer-box section {
+    margin-top: -54px;
+    margin-left: -40px;
+    position: absolute;
+    display: block;
+    overflow: hidden;
+    top: 50%;
+    left: 50%;
+    -webkit-transform-style: flat;
+    -webkit-box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.7);
+}
+
+.accelerometer-box .front {
+    border:15px solid black;
+    width: 80px;
+    height: 107px;
+    background-color: gray;
+    transform: translate3d(0, 0, 10px);
+}
+
+.accelerometer-box .back {
+    width: 80px;
+    height: 107px;
+    background-color: black;
+    transform: rotateY(-180deg) translate3d(0, 0, 10px);
+}
+
+.accelerometer-box .top {
+    overflow: hidden;
+    width: 80px;
+    height: 20px;
+    background-color: #75CE89;
+    transform: rotateX(-90deg) translate3d(0, 0, -10px);
+}
+
+.accelerometer-box .bottom {
+    overflow: hidden;
+    width: 80px;
+    height: 20px;
+    background-color: #865C6C;
+    transform: rotateX(90deg) translate3d(0, 0, -97px);
+}
+
+.accelerometer-box .left {
+    width: 20px;
+    height: 107px;
+    background-color: #7992CB;
+    transform: rotateY(90deg) translate3d(0, 0, 70px);
+}
+
+.accelerometer-box .right {
+    width: 20px;
+    height: 107px;
+    background-color: #7992CB;
+    transform: rotateY(-90deg) translate3d(0, 0, 10px);
+}
+
+.accelerometer-axis-input-container {
+    margin-bottom: 10px;
+}
+
+fieldset.device-orientation-override-section {
+    display: flex;
+}

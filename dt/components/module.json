@@ -1,0 +1,73 @@
+{
+    "extensions": [
+        {
+            "type": "setting",
+            "category": "Console",
+            "title": "Enable custom formatters",
+            "settingName": "customFormatters",
+            "settingType": "boolean",
+            "defaultValue": false
+        },
+        {
+            "type": "@WebInspector.DOMPresentationUtils.MarkerDecorator",
+            "className": "WebInspector.DOMPresentationUtils.GenericDecorator",
+            "marker": "breakpoint-marker",
+            "title": "DOM Breakpoint",
+            "color": "rgb(105, 140, 254)"
+        },
+        {
+            "type": "setting",
+            "settingName": "networkConditionsCustomProfiles",
+            "settingType": "array",
+            "defaultValue": []
+        },
+        {
+            "type": "settings-view",
+            "name": "network-conditions",
+            "title": "Throttling",
+            "order": "35",
+            "className": "WebInspector.NetworkConditionsSettingsTab",
+            "settings": [
+                "networkConditionsCustomProfiles"
+            ]
+        }
+    ],
+    "dependencies": [
+        "bindings",
+        "platform",
+        "ui"
+    ],
+    "scripts": [
+        "BreakpointsSidebarPaneBase.js",
+        "CustomPreviewSection.js",
+        "DataSaverInfobar.js",
+        "DebuggerPresentationUtils.js",
+        "DOMBreakpointsSidebarPane.js",
+        "DOMPresentationUtils.js",
+        "DockController.js",
+        "Drawer.js",
+        "ExecutionContextSelector.js",
+        "ExecutionContextModel.js",
+        "HandlerRegistry.js",
+        "InspectorView.js",
+        "Linkifier.js",
+        "NetworkConditionsSelector.js",
+        "ObjectPopoverHelper.js",
+        "ObjectPropertiesSection.js",
+        "RemoteObjectPreviewFormatter.js",
+        "ShortcutsScreen.js",
+        "EventListenersUtils.js",
+        "EventListenersView.js",
+        "Reload.js"
+    ],
+    "resources": [
+        "breakpointsList.css",
+        "customPreviewSection.css",
+        "eventListenersView.css",
+        "domUtils.css",
+        "inspectorViewTabbedPane.css",
+        "networkConditionsSettingsTab.css",
+        "objectPropertiesSection.css",
+        "objectValue.css"
+    ]
+}

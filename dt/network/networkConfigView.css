@@ -1,0 +1,93 @@
+/*
+ * Copyright (c) 2015 The Chromium Authors. All rights reserved.
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+.network-config {
+    padding: 12px;
+}
+
+.network-config-group {
+    display: flex;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+    min-height: 30px;
+}
+
+.network-config-title {
+    flex: 0 0 130px;
+    margin-right: 17px;
+    color: hsla(0,0%,40%,1);
+}
+
+.network-config-fields {
+    flex: 1 0 200px;
+}
+
+/* Disable cache */
+
+.network-config-disable-cache {
+    line-height: 28px;
+}
+
+/* Network throttling */
+
+.network-config-throttling .chrome-select {
+    width: 100%;
+    max-width: 250px;
+}
+
+.network-config-throttling > .network-config-title {
+    line-height: 24px;
+}
+
+/* User agent */
+
+.network-config-ua > .network-config-title {
+    line-height: 20px;
+}
+
+.network-config-ua label[is="dt-radio"].checked > * {
+    display: none
+}
+
+.network-config-ua input:not(.dt-radio-button) {
+    display: block;
+    width: calc(100% - 20px);
+    max-width: 400px;
+    border: 1px solid #bfbfbf;
+    border-radius: 2px;
+    box-sizing: border-box;
+    color: #444;
+    font: inherit;
+    border-width: 1px;
+    min-height: 2em;
+    padding: 3px;
+}
+
+.network-config-ua input[readonly] {
+    background-color: rgb(235, 235, 228);
+}
+
+.network-config-ua input[type=text], .network-config-ua .chrome-select {
+    margin: 5px 0 5px 20px;
+}
+
+.network-config-ua .chrome-select {
+    width: calc(100% - 20px);
+    max-width: 230px;
+}
+
+.network-config-ua label[is="dt-radio"] {
+    display: block;
+}
+
+.network-config-ua-auto, .network-config-ua-custom {
+    opacity: 0.5;
+}
+
+.network-config-ua-auto.checked, .network-config-ua-custom.checked {
+    opacity: 1;
+}

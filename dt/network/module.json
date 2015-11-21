@@ -1,0 +1,167 @@
+{
+    "extensions": [
+        {
+            "type": "@WebInspector.PanelFactory",
+            "name": "network",
+            "title": "Network",
+            "order": 40,
+            "className": "WebInspector.NetworkPanelFactory"
+        },
+        {
+            "type": "@WebInspector.ContextMenu.Provider",
+            "contextTypes": ["WebInspector.NetworkRequest", "WebInspector.Resource", "WebInspector.UISourceCode"],
+            "className": "WebInspector.NetworkPanel.ContextMenuProvider"
+        },
+        {
+            "type": "@WebInspector.Revealer",
+            "contextTypes": ["WebInspector.NetworkRequest"],
+            "className": "WebInspector.NetworkPanel.RequestRevealer"
+        },
+        {
+            "type": "setting",
+            "category": "Network",
+            "title": "Show primary load waterfall",
+            "settingName": "networkShowPrimaryLoadWaterfall",
+            "settingType": "boolean",
+            "experiment": "showPrimaryLoadWaterfallInNetworkTimeline",
+            "defaultValue": false
+        },
+        {
+            "type": "setting",
+            "category": "Network",
+            "title": "Color-code resource types",
+            "settingName": "networkColorCodeResourceTypes",
+            "settingType": "boolean",
+            "defaultValue": false
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "network.blocked-urls.show",
+            "className": "WebInspector.BlockedURLsPane.ActionDelegate",
+            "iconClass": "block-toolbar-item",
+            "title": "Block network requests"
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "network.toggle-recording",
+            "iconClass": "record-toolbar-item",
+            "contextTypes": ["WebInspector.NetworkPanel"],
+            "className": "WebInspector.NetworkPanel.RecordActionDelegate",
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Ctrl+E"
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+E"
+                }
+            ]
+        },
+        {
+            "type": "drawer-view",
+            "name": "network.blocked-urls",
+            "title": "Request blocking",
+            "persistence": "closeable",
+            "order": 60,
+            "className": "WebInspector.BlockedURLsPane"
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "network.show-config",
+            "title": "Network conditions",
+            "className": "WebInspector.NetworkConfigView.ShowActionDelegate"
+        },
+        {
+            "type": "context-menu-item",
+            "location": "mainMenu/tools/open",
+            "order": 60,
+            "actionId": "network.show-config"
+        },
+        {
+            "type": "drawer-view",
+            "name": "network.config",
+            "title": "Network conditions",
+            "persistence": "closeable",
+            "order": 40,
+            "className": "WebInspector.NetworkConfigView"
+        },
+        {
+            "type": "setting",
+            "category": "Sources",
+            "title": "Detect indentation",
+            "settingName": "textEditorAutoDetectIndent",
+            "settingType": "boolean",
+            "defaultValue": true
+        },
+        {
+            "type": "setting",
+            "category": "Sources",
+            "title": "Autocompletion",
+            "settingName": "textEditorAutocompletion",
+            "settingType": "boolean",
+            "defaultValue": true
+        },
+        {
+            "type": "setting",
+            "category": "Sources",
+            "title": "Bracket matching",
+            "settingName": "textEditorBracketMatching",
+            "settingType": "boolean",
+            "defaultValue": true
+        },
+        {
+            "type": "setting",
+            "category": "Sources",
+            "title": "Show whitespace characters:",
+            "settingName": "showWhitespacesInEditor",
+            "settingType": "enum",
+            "defaultValue": "original",
+            "options": [
+                ["None", "none"],
+                ["All", "all"],
+                ["Trailing", "trailing"]
+            ]
+        }
+    ],
+    "dependencies": [
+        "source_frame",
+        "components",
+        "components_lazy",
+        "ui_lazy"
+    ],
+    "scripts": [
+        "BlockedURLsPane.js",
+        "EventSourceMessagesView.js",
+        "FilterSuggestionBuilder.js",
+        "HARWriter.js",
+        "RequestView.js",
+        "NetworkConfigView.js",
+        "NetworkDataGridNode.js",
+        "NetworkItemView.js",
+        "NetworkTimeCalculator.js",
+        "NetworkLogView.js",
+        "NetworkOverview.js",
+        "RequestCookiesView.js",
+        "RequestHeadersView.js",
+        "RequestHTMLView.js",
+        "RequestJSONView.js",
+        "RequestPreviewView.js",
+        "RequestResponseView.js",
+        "RequestTimingView.js",
+        "ResourceWebSocketFrameView.js",
+        "NetworkPanel.js",
+        "XMLView.js"
+    ],
+    "resources": [
+        "blockedURLsPane.css",
+        "eventSourceMessagesView.css",
+        "networkConfigView.css",
+        "networkLogView.css",
+        "networkPanel.css",
+        "requestCookiesView.css",
+        "requestHeadersView.css",
+        "webSocketFrameView.css",
+        "xmlView.css"
+    ]
+}

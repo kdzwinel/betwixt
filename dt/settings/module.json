@@ -1,0 +1,63 @@
+{
+    "extensions": [
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "settings.show",
+            "title": "Settings",
+            "className": "WebInspector.SettingsController.ActionDelegate",
+            "bindings": [
+                {
+                    "shortcut": "F1 Shift+?"
+                }
+            ]
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "settings.help",
+            "title": "Help",
+            "className": "WebInspector.SettingsController.ActionDelegate"
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "settings.shortcuts",
+            "title": "Shortcuts",
+            "className": "WebInspector.SettingsController.ActionDelegate"
+        },
+        {
+            "type": "@WebInspector.Revealer",
+            "contextTypes": ["WebInspector.Setting"],
+            "className": "WebInspector.SettingsController.Revealer"
+        },
+        {
+            "type": "context-menu-item",
+            "location": "mainMenu/footer",
+            "order": 10,
+            "actionId": "settings.shortcuts"
+        },
+        {
+            "type": "context-menu-item",
+            "location": "mainMenu/footer",
+            "order": 20,
+            "actionId": "settings.show"
+        },
+        {
+            "type": "context-menu-item",
+            "location": "mainMenu/footer",
+            "order": 30,
+            "actionId": "settings.help"
+        }
+    ],
+    "dependencies": [
+        "components"
+    ],
+    "scripts": [
+        "EditFileSystemView.js",
+        "SettingsScreen.js",
+        "FrameworkBlackboxSettingsTab.js"
+    ],
+    "resources": [
+        "editFileSystemView.css",
+        "frameworkBlackboxSettingsTab.css",
+        "settingsScreen.css"
+    ]
+}

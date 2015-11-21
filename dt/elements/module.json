@@ -1,0 +1,170 @@
+{
+    "extensions": [
+        {
+            "type": "@WebInspector.PanelFactory",
+            "name": "elements",
+            "title": "Elements",
+            "order": 10,
+            "className": "WebInspector.ElementsPanelFactory"
+        },
+        {
+            "type": "@WebInspector.ContextMenu.Provider",
+            "contextTypes": ["WebInspector.RemoteObject", "WebInspector.DOMNode", "WebInspector.DeferredDOMNode"],
+            "className": "WebInspector.ElementsPanel.ContextMenuProvider"
+        },
+        {
+            "type": "@WebInspector.Renderer",
+            "contextTypes": ["WebInspector.DOMNode", "WebInspector.RemoteObject"],
+            "className": "WebInspector.ElementsTreeOutline.Renderer"
+        },
+        {
+            "type": "@WebInspector.Revealer",
+            "contextTypes": ["WebInspector.DOMNode", "WebInspector.DeferredDOMNode", "WebInspector.RemoteObject" ],
+            "className": "WebInspector.ElementsPanel.DOMNodeRevealer"
+        },
+        {
+            "type": "setting",
+            "category": "Elements",
+            "title": "Color format:",
+            "settingName": "colorFormat",
+            "settingType": "enum",
+            "defaultValue": "original",
+            "options": [
+                ["As authored", "original"],
+                ["HEX: #DAC0DE", "hex", true],
+                ["RGB: rgb(128, 255, 255)", "rgb", true],
+                ["HSL: hsl(300, 80%, 90%)", "hsl", true]
+            ]
+        },
+        {
+            "type": "setting",
+            "category": "Elements",
+            "title": "Show user agent shadow DOM",
+            "settingName": "showUAShadowDOM",
+            "settingType": "boolean",
+            "defaultValue": false
+        },
+        {
+            "type": "setting",
+            "category": "Elements",
+            "title": "Word wrap",
+            "settingName": "domWordWrap",
+            "settingType": "boolean",
+            "defaultValue": true
+        },
+        {
+            "type": "setting",
+            "category": "Elements",
+            "title": "Show rulers",
+            "settingName": "showMetricsRulers",
+            "settingType": "boolean",
+            "defaultValue": false
+        },
+        {
+            "type": "@WebInspector.ToolbarItem.Provider",
+            "className": "WebInspector.ElementStatePaneWidget.ButtonProvider",
+            "order": 1,
+            "location": "styles-sidebarpane-toolbar"
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "elements.hide-element",
+            "contextTypes": ["WebInspector.ElementsPanel"],
+            "className": "WebInspector.ElementsActionDelegate",
+            "bindings": [
+                {
+                    "shortcut": "H"
+                }
+            ]
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "elements.edit-as-html",
+            "contextTypes": ["WebInspector.ElementsPanel"],
+            "className": "WebInspector.ElementsActionDelegate",
+            "bindings": [
+                {
+                    "shortcut": "F2"
+                }
+            ]
+        },
+        {
+            "type": "@WebInspector.DOMPresentationUtils.MarkerDecorator",
+            "className": "WebInspector.ElementsPanel.PseudoStateMarkerDecorator",
+            "marker": "pseudo-state-marker"
+        },
+        {
+            "type": "@WebInspector.DOMPresentationUtils.MarkerDecorator",
+            "className": "WebInspector.DOMPresentationUtils.GenericDecorator",
+            "marker": "hidden-marker",
+            "title": "Element is hidden",
+            "color": "#555"
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "elements.toggle-element-search",
+            "className": "WebInspector.InspectElementModeController.ToggleSearchActionDelegate",
+            "title": "Select an element in the page to inspect it",
+            "iconClass": "node-search-toolbar-item",
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Ctrl+Shift+C"
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+Shift+C"
+                }
+            ]
+        },
+        {
+            "type": "@WebInspector.ToolbarItem.Provider",
+            "actionId": "elements.toggle-element-search",
+            "location": "main-toolbar-left",
+            "order": 0
+        },
+        {
+            "type": "@WebInspector.ToolbarItem.Provider",
+            "className": "WebInspector.InspectElementModeController.LayoutEditorButtonProvider",
+            "order": 4,
+            "location": "styles-sidebarpane-toolbar",
+            "experiment": "layoutEditor"
+        }
+    ],
+    "dependencies": [
+        "components",
+        "extensions"
+    ],
+    "scripts": [
+        "InspectElementModeController.js",
+        "BezierUI.js",
+        "StylesPopoverHelper.js",
+        "BezierEditor.js",
+        "Spectrum.js",
+        "ElementsBreadcrumbs.js",
+        "ElementsSidebarPane.js",
+        "ElementsSidebarView.js",
+        "ElementsTreeElement.js",
+        "ElementsTreeOutline.js",
+        "SharedSidebarModel.js",
+        "EventListenersWidget.js",
+        "MetricsSidebarPane.js",
+        "PlatformFontsWidget.js",
+        "PropertiesWidget.js",
+        "PropertyChangeHighlighter.js",
+        "StylesSectionModel.js",
+        "StylesSidebarPane.js",
+        "ComputedStyleWidget.js",
+        "ElementsPanel.js",
+        "ElementStatePaneWidget.js",
+        "ElementsTreeElementHighlighter.js"
+    ],
+    "resources": [
+        "bezierEditor.css",
+        "breadcrumbs.css",
+        "computedStyleSidebarPane.css",
+        "elementsPanel.css",
+        "elementsTreeOutline.css",
+        "spectrum.css"
+    ]
+}

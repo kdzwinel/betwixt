@@ -1,0 +1,97 @@
+{
+    "extensions": [
+        {
+            "type": "drawer-view",
+            "name": "emulation",
+            "title": "Emulation",
+            "order": 10,
+            "persistence": "closeable",
+            "className": "WebInspector.OverridesView"
+        },
+        {
+            "type": "@WebInspector.ToolbarItem.Provider",
+            "className": "WebInspector.DeviceModeButtonProvider",
+            "condition": "can_dock",
+            "order": 1,
+            "location": "main-toolbar-left"
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "emulation.toggle-device-mode",
+            "className": "WebInspector.ToggleDeviceModeActionDelegate",
+            "iconClass": "emulation-toolbar-item",
+            "title": "Toggle device mode",
+            "condition": "can_dock",
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Shift+Ctrl+M"
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Shift+Meta+M"
+                }
+            ]
+        },
+        {
+            "type": "@WebInspector.Revealer",
+            "contextTypes": ["WebInspector.OverridesSupport"],
+            "className": "WebInspector.OverridesView.Revealer"
+        },
+        {
+            "type": "settings-view",
+            "name": "devices",
+            "title": "Devices",
+            "order": "30",
+            "className": "WebInspector.DevicesSettingsTab",
+            "settings": [
+                "standardEmulatedDeviceList",
+                "customEmulatedDeviceList"
+            ]
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "emulation.show-sensors",
+            "title": "Sensors",
+            "className": "WebInspector.SensorsView.ShowActionDelegate"
+        },
+        {
+            "type": "context-menu-item",
+            "location": "mainMenu/tools/open",
+            "order": 100,
+            "actionId": "emulation.show-sensors"
+        },
+        {
+            "type": "drawer-view",
+            "name": "sensors",
+            "title": "Sensors",
+            "persistence": "closeable",
+            "order": 100,
+            "className": "WebInspector.SensorsView"
+        }
+    ],
+    "dependencies": [
+        "bindings",
+        "components",
+        "platform",
+        "ui"
+    ],
+    "scripts": [
+        "OverridesSupport.js",
+        "EmulatedDevices.js",
+        "DevicesSettingsTab.js",
+        "DeviceModeButton.js",
+        "OverridesUI.js",
+        "InspectedPagePlaceholder.js",
+        "MediaQueryInspector.js",
+        "ResponsiveDesignView.js",
+        "OverridesView.js",
+        "SensorsView.js"
+    ],
+    "resources": [
+        "devicesSettingsTab.css",
+        "responsiveDesignView.css",
+        "overrides.css",
+        "sensors.css"
+    ]
+}
