@@ -44,7 +44,6 @@ WebInspector.NetworkLogView = function(filterBar, progressBarContainer, networkL
     this.registerRequiredCSS("network/networkLogView.css");
     this.registerRequiredCSS("ui/filter.css");
 
-    this._networkHideDataURLSetting = WebInspector.settings.createSetting("networkHideDataURL", false);
     this._networkResourceTypeFiltersSetting = WebInspector.settings.createSetting("networkResourceTypeFilters", {});
     this._networkShowPrimaryLoadWaterfallSetting = WebInspector.settings.createSetting("networkShowPrimaryLoadWaterfall", false);
 
@@ -257,11 +256,6 @@ WebInspector.NetworkLogView.prototype = {
         this._textFilterUI.addEventListener(WebInspector.FilterUI.Events.FilterChanged, this._filterChanged, this);
         this._filterBar.addFilter(this._textFilterUI);
 
-        var dataURLSetting = this._networkHideDataURLSetting;
-        this._dataURLFilterUI = new WebInspector.CheckboxFilterUI("hide-data-url", WebInspector.UIString("Hide data URLs"), true, dataURLSetting);
-        this._dataURLFilterUI.addEventListener(WebInspector.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
-        this._filterBar.addFilter(this._dataURLFilterUI);
-
         var filterItems = [];
         for (var categoryId in WebInspector.resourceCategories) {
             var category = WebInspector.resourceCategories[categoryId];
@@ -313,18 +307,14 @@ WebInspector.NetworkLogView.prototype = {
         this._hideRecordingHint();
         this._recordingHint = this.element.createChild("div", "network-status-pane fill");
         var hintText = this._recordingHint.createChild("div", "recording-hint");
-        var reloadShortcutNode = this._recordingHint.createChild("b");
-        reloadShortcutNode.textContent = WebInspector.shortcutRegistry.shortcutDescriptorsForAction("main.reload")[0].name;
 
         if (this._recording) {
             var recordingText = hintText.createChild("span");
             recordingText.textContent = WebInspector.UIString("Recording network activity\u2026");
-            hintText.createChild("br");
-            hintText.appendChild(WebInspector.formatLocalized(WebInspector.UIString("Perform a request or hit %s to record the reload."), [reloadShortcutNode], null));
         } else {
             var recordNode = hintText.createChild("b");
             recordNode.textContent = WebInspector.shortcutRegistry.shortcutTitleForAction("network.toggle-recording");
-            hintText.appendChild(WebInspector.formatLocalized(WebInspector.UIString("Record (%s) or reload (%s) to display network activity."), [recordNode, reloadShortcutNode], null));
+            hintText.appendChild(WebInspector.formatLocalized(WebInspector.UIString("Record (%s) to display network activity."), [recordNode], null));
         }
     },
 
@@ -1361,10 +1351,6 @@ WebInspector.NetworkLogView.prototype = {
         contextMenu.appendSeparator();
         contextMenu.appendItem(WebInspector.UIString.capitalize("Save as HAR with ^content"), this._exportAll.bind(this));
 
-        contextMenu.appendSeparator();
-        contextMenu.appendItem(WebInspector.UIString.capitalize("Clear ^browser ^cache"), this._clearBrowserCache.bind(this));
-        contextMenu.appendItem(WebInspector.UIString.capitalize("Clear ^browser ^cookies"), this._clearBrowserCookies.bind(this));
-
         var blockedSetting = WebInspector.moduleSetting("blockedURLs");
         if (request && Runtime.experiments.isEnabled("requestBlocking")) {  // Disabled until ready.
             contextMenu.appendSeparator();
@@ -1634,8 +1620,6 @@ WebInspector.NetworkLogView.prototype = {
             return false;
         var categoryName = request.resourceType().category().title;
         if (!this._resourceCategoryFilterUI.accept(categoryName))
-            return false;
-        if (this._dataURLFilterUI.checked() && request.parsedURL.isDataURL())
             return false;
         for (var i = 0; i < this._filters.length; ++i) {
             if (!this._filters[i](request))
