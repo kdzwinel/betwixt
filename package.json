@@ -4,7 +4,11 @@
   "description": "Web Debugging Proxy based on Chrome DevTools Network panel",
   "main": "main.js",
   "scripts": {
-    "build": "electron-packager ./ Betwixt --platform=darwin --arch=x64 --version=0.35.0 --overwrite --out ./bin/",
+    "build": "npm run build:custom -- --platform=all --arch=all",
+    "build:custom": "electron-packager ./ Betwixt --overwrite --out ./bin/ --version=0.35.0",
+    "build:linux": "npm run build:custom -- --platform=linux --arch=all",
+    "build:osx": "npm run build:custom -- --platform=darwin --arch=x64",
+    "build:win": "npm run build:custom -- --platform=win32 --arch=all",
     "start": "electron main.js",
     "test": "jshint main.js lib/ && jscs main.js lib/"
   },
