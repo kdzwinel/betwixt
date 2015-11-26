@@ -139,7 +139,6 @@ WebInspector.NetworkPanel.prototype = {
 
         this._panelToolbar.appendSeparator();
         this._panelToolbar.appendToolbarItem(this._createBlockedURLsButton());
-        this._panelToolbar.appendToolbarItem(this._createNetworkConditionsSelect());
         this._panelToolbar.appendToolbarItem(new WebInspector.ToolbarItem(this._progressBarContainer));
     },
 
