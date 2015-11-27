@@ -123,8 +123,6 @@ WebInspector.NetworkPanel.prototype = {
         this._clearButton.addEventListener("click", this._onClearButtonClicked, this);
         this._panelToolbar.appendToolbarItem(this._clearButton);
         this._panelToolbar.appendSeparator();
-        var recordFilmStripButton = new WebInspector.ToolbarSettingToggle(this._networkRecordFilmStripSetting, "camera-toolbar-item", WebInspector.UIString("Capture screenshots"));
-        this._panelToolbar.appendToolbarItem(recordFilmStripButton);
 
         this._panelToolbar.appendToolbarItem(this._filterBar.filterButton());
         this._panelToolbar.appendSeparator();
@@ -139,16 +137,8 @@ WebInspector.NetworkPanel.prototype = {
         this._panelToolbar.appendToolbarItem(showOverviewButton);
         this._panelToolbar.appendSeparator();
 
-        this._preserveLogCheckbox = new WebInspector.ToolbarCheckbox(WebInspector.UIString("Preserve log"), WebInspector.UIString("Do not clear log on page reload / navigation"));
-        this._preserveLogCheckbox.inputElement.addEventListener("change", this._onPreserveLogCheckboxChanged.bind(this), false);
-        this._panelToolbar.appendToolbarItem(this._preserveLogCheckbox);
-
-        this._disableCacheCheckbox = new WebInspector.ToolbarCheckbox(WebInspector.UIString("Disable cache"), WebInspector.UIString("Disable cache (while DevTools is open)"), WebInspector.moduleSetting("cacheDisabled"));
-        this._panelToolbar.appendToolbarItem(this._disableCacheCheckbox);
-
         this._panelToolbar.appendSeparator();
         this._panelToolbar.appendToolbarItem(this._createBlockedURLsButton());
-        this._panelToolbar.appendToolbarItem(this._createNetworkConditionsSelect());
         this._panelToolbar.appendToolbarItem(new WebInspector.ToolbarItem(this._progressBarContainer));
     },
 
@@ -183,7 +173,7 @@ WebInspector.NetworkPanel.prototype = {
 
     _toggleRecording: function()
     {
-        if (!this._preserveLogCheckbox.checked() && !this._recordButton.toggled())
+        if (!this._recordButton.toggled())
             this._reset();
         this._toggleRecordButton(!this._recordButton.toggled());
     },
@@ -225,14 +215,6 @@ WebInspector.NetworkPanel.prototype = {
     },
 
     /**
-     * @param {!Event} event
-     */
-    _onPreserveLogCheckboxChanged: function(event)
-    {
-        this._networkLogView.setPreserveLog(this._preserveLogCheckbox.checked());
-    },
-
-    /**
      * @param {!WebInspector.Event} event
      */
     _onClearButtonClicked: function(event)
@@ -255,8 +237,7 @@ WebInspector.NetworkPanel.prototype = {
      */
     _willReloadPage: function(event)
     {
-        if (!this._preserveLogCheckbox.checked())
-            this._reset();
+        this._reset();
         this._toggleRecordButton(true);
         if (this._pendingStopTimer) {
             clearTimeout(this._pendingStopTimer);
