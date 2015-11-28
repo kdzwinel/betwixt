@@ -6,11 +6,20 @@ This tool will help you analyze web traffic outside the browser using familiar C
 
 **This project is in an early stage of development, things may break, values may not be accurate. All contributors are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) fore more details.**
 
-## How To Use
+
+## How To Install
+
+On the releases tab, you will find several packages. Choose the correct one to your operating system.
+
+## How to Build
 
 To clone and run this repository you'll need [Git](https://git-scm.com) and [Node.js 5.x](https://nodejs.org/en/download/) (which comes with [npm](http://npmjs.com)) installed on your computer. From your command line:
 
-### How To Install
+There are a few build scripts included in the `package.json` that allows you to create some binaries/bundles to your operating system.
+
+The files created by the following scripts are placed in a folder inside the `bin` folder.
+
+So from your command line:
 
 ```bash
 # Clone this repository
@@ -19,19 +28,7 @@ $ git clone https://github.com/kdzwinel/betwixt.git
 $ cd betwixt
 # Install nodeJS dependencies
 $ npm install
-# Build your the package application
 ```
-
-### Build application to your system
-
-There are a few build scripts included in the `package.json` that allows you to create some binaries/bundles to your operating system.
-
-The files created by the following scripts are placed in a folder inside the `bin` folder.
-
-So in your command line:
-
-* change to the directory where you clone this repository
-* run one (or more) of the options below
 
 #### Linux
 
