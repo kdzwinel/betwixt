@@ -184,7 +184,7 @@ WebInspector.InspectorFrontendHostStub.prototype = {
         const fs = remote.require('fs');
 
         dialog.showSaveDialog(remote.getCurrentWindow(), {
-            title: url
+            defaultPath: url
         }, (path) => {
             if (!path) {
                 this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
