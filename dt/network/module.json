@@ -122,6 +122,14 @@
                 ["All", "all"],
                 ["Trailing", "trailing"]
             ]
+        },
+        {
+            "type": "setting",
+            "title": "Auto-reload generated CSS",
+            "parentSettingName": "cssSourceMapsEnabled",
+            "settingName": "cssReloadEnabled",
+            "settingType": "boolean",
+            "defaultValue": false
         }
     ],
     "dependencies": [

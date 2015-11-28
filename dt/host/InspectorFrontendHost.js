@@ -35,6 +35,8 @@
  */
 WebInspector.InspectorFrontendHostStub = function()
 {
+    this._urlSavePath = {};
+
     /**
      * @param {!Event} event
      */
@@ -184,18 +186,28 @@ WebInspector.InspectorFrontendHostStub.prototype = {
         dialog.showSaveDialog(remote.getCurrentWindow(), {
             title: url
         }, (path) => {
-            if(path) {
-                fs.writeFile(path, content, (err) => {
-                    if(err) {
-                        this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
-                        return;
-                    }
-
-                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.SavedURL, url);
-                });
-            } else {
+            if (!path) {
                 this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
+                return;
             }
+
+            this._urlSavePath[url] = path;
+
+            fs.writeFile(path, content, (err) => {
+                if (err) {
+                    dialog.showMessageBox(remote.getCurrentWindow(), {
+                        type: 'warning',
+                        buttons: ['OK'],
+                        title: 'Error',
+                        message: 'Error writing to file',
+                        detail: err.message
+                    });
+                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
+                    return;
+                }
+
+                this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.SavedURL, url);
+            });
         });
     },
 
@@ -206,7 +218,19 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     append: function(url, content)
     {
-        WebInspector.console.error("Saving files is not enabled in hosted mode. Please inspect using chrome://inspect");
+        const remote = require('remote');
+        const fs = remote.require('fs');
+        const path = this._urlSavePath[url];
+
+        if(path) {
+            fs.appendFile(path, content, (err) => {
+                if (err) {
+                    return;
+                }
+
+                this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.AppendedToURL, url);
+            });
+        }
     },
 
     /**
