@@ -149,7 +149,6 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     inspectedURLChanged: function(url)
     {
-        document.title = WebInspector.UIString("Developer Tools - %s", url);
     },
 
     /**
@@ -182,32 +181,44 @@ WebInspector.InspectorFrontendHostStub.prototype = {
         const remote = require('remote');
         const dialog = remote.require('dialog');
         const fs = remote.require('fs');
+        const window = remote.getCurrentWindow();
 
-        dialog.showSaveDialog(remote.getCurrentWindow(), {
-            defaultPath: url
-        }, (path) => {
+        function saveToPath(path) {
             if (!path) {
-                this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
-                return;
+                return Promise.reject();
             }
 
-            this._urlSavePath[url] = path;
-
-            fs.writeFile(path, content, (err) => {
-                if (err) {
-                    dialog.showMessageBox(remote.getCurrentWindow(), {
-                        type: 'warning',
-                        buttons: ['OK'],
-                        title: 'Error',
-                        message: 'Error writing to file',
-                        detail: err.message
-                    });
-                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
-                    return;
-                }
-
-                this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.SavedURL, url);
+            return new Promise((resolve, reject) => {
+                fs.writeFile(path, content, (err) => {
+                    if (err) {
+                        reject(err.message);
+                    }
+                    resolve();
+                });
             });
+        }
+
+        dialog.showSaveDialog(window, {
+            defaultPath: url
+        }, (path) => {
+            saveToPath(path)
+                .then(() => {
+                    this._urlSavePath[url] = path;
+                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.SavedURL, url);
+                })
+                .catch((msg) => {
+                    if(msg) {
+                        dialog.showMessageBox(window, {
+                            type: 'warning',
+                            buttons: ['OK'],
+                            title: 'Error',
+                            message: 'Error writing to file',
+                            detail: msg
+                        });
+                    }
+
+                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
+                });
         });
     },
 
