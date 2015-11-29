@@ -296,6 +296,11 @@ WebInspector.Main.prototype = {
     {
         console.timeStamp("Main._createConnection");
 
+        if (Runtime.queryParam("electron")) {
+            InspectorBackendClass.ElectronConnection.Create(this._connectionEstablished.bind(this));
+            return;
+        }
+
         if (Runtime.queryParam("ws")) {
             var ws = "ws://" + Runtime.queryParam("ws");
             InspectorBackendClass.WebSocketConnection.Create(ws, this._connectionEstablished.bind(this));
