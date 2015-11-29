@@ -28,6 +28,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+const clipboard = require('clipboard');
+const remote = require('remote');
+const dialog = remote.require('dialog');
+const fs = remote.require('fs');
+const electronWindow = remote.getCurrentWindow();
+
 /**
  * @constructor
  * @implements {InspectorFrontendHostAPI}
@@ -157,7 +163,6 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     copyText: function(text)
     {
-        const clipboard = require('clipboard');
         clipboard.writeText(text);
     },
 
@@ -178,11 +183,6 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     save: function(url, content, forceSaveAs)
     {
-        const remote = require('remote');
-        const dialog = remote.require('dialog');
-        const fs = remote.require('fs');
-        const window = remote.getCurrentWindow();
-
         function saveToPath(path) {
             if (!path) {
                 return Promise.reject();
@@ -198,7 +198,7 @@ WebInspector.InspectorFrontendHostStub.prototype = {
             });
         }
 
-        dialog.showSaveDialog(window, {
+        dialog.showSaveDialog(electronWindow, {
             defaultPath: url
         }, (path) => {
             saveToPath(path)
@@ -208,7 +208,7 @@ WebInspector.InspectorFrontendHostStub.prototype = {
                 })
                 .catch((msg) => {
                     if(msg) {
-                        dialog.showMessageBox(window, {
+                        dialog.showMessageBox(electronWindow, {
                             type: 'warning',
                             buttons: ['OK'],
                             title: 'Error',
@@ -229,8 +229,6 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     append: function(url, content)
     {
-        const remote = require('remote');
-        const fs = remote.require('fs');
         const path = this._urlSavePath[url];
 
         if(path) {
