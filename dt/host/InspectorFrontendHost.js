@@ -28,6 +28,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+const clipboard = require('clipboard');
+const remote = require('remote');
+const dialog = remote.require('dialog');
+const fs = remote.require('fs');
+const electronWindow = remote.getCurrentWindow();
+
 /**
  * @constructor
  * @implements {InspectorFrontendHostAPI}
@@ -35,6 +41,8 @@
  */
 WebInspector.InspectorFrontendHostStub = function()
 {
+    this._urlSavePath = {};
+
     /**
      * @param {!Event} event
      */
@@ -147,7 +155,6 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     inspectedURLChanged: function(url)
     {
-        document.title = WebInspector.UIString("Developer Tools - %s", url);
     },
 
     /**
@@ -156,7 +163,7 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     copyText: function(text)
     {
-        WebInspector.console.error("Clipboard is not enabled in hosted mode. Please inspect using chrome://inspect");
+        clipboard.writeText(text);
     },
 
     /**
@@ -176,8 +183,43 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     save: function(url, content, forceSaveAs)
     {
-        WebInspector.console.error("Saving files is not enabled in hosted mode. Please inspect using chrome://inspect");
-        this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
+        function saveToPath(path) {
+            if (!path) {
+                return Promise.reject();
+            }
+
+            return new Promise((resolve, reject) => {
+                fs.writeFile(path, content, (err) => {
+                    if (err) {
+                        reject(err.message);
+                    }
+                    resolve();
+                });
+            });
+        }
+
+        dialog.showSaveDialog(electronWindow, {
+            defaultPath: url
+        }, (path) => {
+            saveToPath(path)
+                .then(() => {
+                    this._urlSavePath[url] = path;
+                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.SavedURL, url);
+                })
+                .catch((msg) => {
+                    if(msg) {
+                        dialog.showMessageBox(electronWindow, {
+                            type: 'warning',
+                            buttons: ['OK'],
+                            title: 'Error',
+                            message: 'Error writing to file',
+                            detail: msg
+                        });
+                    }
+
+                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
+                });
+        });
     },
 
     /**
@@ -187,7 +229,17 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      */
     append: function(url, content)
     {
-        WebInspector.console.error("Saving files is not enabled in hosted mode. Please inspect using chrome://inspect");
+        const path = this._urlSavePath[url];
+
+        if(path) {
+            fs.appendFile(path, content, (err) => {
+                if (err) {
+                    return;
+                }
+
+                this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.AppendedToURL, url);
+            });
+        }
     },
 
     /**
