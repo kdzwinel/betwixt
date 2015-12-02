@@ -6,64 +6,9 @@ This tool will help you analyze web traffic outside the browser using familiar C
 
 **This project is in an early stage of development, things may break, values may not be accurate. All contributors are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) fore more details.**
 
+## Install package
 
-## How To Install
-
-On the releases tab, you will find several packages. Choose the correct one to your operating system.
-
-## How to Build
-
-To clone and run this repository you'll need [Git](https://git-scm.com) and [Node.js 5.x](https://nodejs.org/en/download/) (which comes with [npm](http://npmjs.com)) installed on your computer. From your command line:
-
-There are a few build scripts included in the `package.json` that allows you to create some binaries/bundles to your operating system.
-
-The files created by the following scripts are placed in a folder inside the `bin` folder.
-
-So from your command line:
-
-```bash
-# Clone this repository
-$ git clone https://github.com/kdzwinel/betwixt.git
-# Go into the repository
-$ cd betwixt
-# Install nodeJS dependencies
-$ npm install
-```
-
-#### Linux
-
-```bash
-npm run build:linux
-```
-
-The output directory is `bin/Betwixt-linux-x64`
-
-#### Mac OS X
-
-```bash
-npm run build:osx
-```
-
-The output directory is `bin/Betwixt-darwin-x64`
-
-#### Windows
-
-```bash
-npm run build:win
-```
-
-It generates two directories, for 32 and 64 bits architectures. The folders are `bin/Betwixt-win32-ia32` or `bin/Betwixt-win32-x64`
-
-#### Custom build
-
-```bash
-npm run build:custom -- --platform=<all, linux, darwin, win32> --arch=<all, x86, x64>
-```
-
-If none of this builds mets your requirements, you can use the custom build script.
-You can send the `platform` and `arch` that you want to build. 
-
-So for example, if you want to build a binary for windows 32 bits only, you can run `npm run build:custom -- --platform=win32 --arch=x86`
+Download the [latest release](https://github.com/kdzwinel/betwixt/releases/latest) for your operating system or [build your own bundle](docs/building.md).
 
 ## Setting up
 
