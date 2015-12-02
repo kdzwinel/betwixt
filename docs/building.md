@@ -9,15 +9,17 @@ To clone and run this repository you'll need [Git](https://git-scm.com) and [Nod
 $ git clone https://github.com/kdzwinel/betwixt.git
 # Go into the repository
 $ cd betwixt
-# Install nodeJS dependencies
+# Install dependencies
 $ npm install
 ```
 
-You can run Betwixt right away using `npm start` or create a bundle.
+### Running
 
-### Bundles
+You can run Betwixt right away using `npm start`.
 
-To create bundles you should use included npm build scripts.
+### Creating a bundle
+
+To create installable bundles you should use included npm build scripts.
 
 #### Linux
 

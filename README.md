@@ -6,9 +6,9 @@ This tool will help you analyze web traffic outside the browser using familiar C
 
 **This project is in an early stage of development, things may break, values may not be accurate. All contributors are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) fore more details.**
 
-## Install package
+## Installing
 
-Download the [latest release](https://github.com/kdzwinel/betwixt/releases/latest) for your operating system or [build your own bundle](docs/building.md).
+Download the [latest release](https://github.com/kdzwinel/betwixt/releases/latest) for your operating system, [build your own bundle](docs/building.md) or [run Betwixt from the source code](docs/building.md).
 
 ## Setting up
 
@@ -19,7 +19,7 @@ If you wish to analyze traffic system wide:
 - on Ubuntu - `All Settings → Network → Network Proxy`
 - on Windows - `PC Settings → Network → Proxy`
 
-![Setting up proxy on OS X](http://i.imgur.com/A8qPJ4F.png)
+![Setting up proxy on OS X](http://i.imgur.com/QL3cE6L.png)
 
 If you want to capture traffic coming from a single terminal (e.g. wget, npm) use `export http_proxy=http://localhost:8008`.
 
