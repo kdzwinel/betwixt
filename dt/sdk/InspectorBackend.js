@@ -28,6 +28,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+const ipc = require('ipc');
+
 /**
  * @constructor
  */
@@ -620,6 +622,53 @@ InspectorBackendClass.MainConnection.prototype = {
             this._messageBuffer = "";
             this._messageSize = 0;
         }
+    },
+
+    __proto__: InspectorBackendClass.Connection.prototype
+}
+
+/**
+ * @constructor
+ * @extends {InspectorBackendClass.Connection}
+ * @param {string} url
+ * @param {function(!InspectorBackendClass.Connection)} onConnectionReady
+ */
+InspectorBackendClass.ElectronConnection = function(onConnectionReady)
+{
+    InspectorBackendClass.Connection.call(this);
+
+    ipc.on('backend-message', this._onMessage.bind(this));
+
+    onConnectionReady.call(null, this);
+}
+
+/**
+ * @param {string} url
+ * @param {function(!InspectorBackendClass.Connection)} onConnectionReady
+ */
+InspectorBackendClass.ElectronConnection.Create = function(onConnectionReady)
+{
+    new InspectorBackendClass.ElectronConnection(onConnectionReady);
+}
+
+InspectorBackendClass.ElectronConnection.prototype = {
+
+    /**
+     * @param {!MessageEvent} message
+     */
+    _onMessage: function(message)
+    {
+        var data = /** @type {string} */ (message.data);
+        this.dispatch(data);
+    },
+
+    /**
+     * @override
+     * @param {!Object} messageObject
+     */
+    sendMessage: function(messageObject)
+    {
+        ipc.send('frontend-message', messageObject);
     },
 
     __proto__: InspectorBackendClass.Connection.prototype
