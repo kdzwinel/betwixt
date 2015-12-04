@@ -27,7 +27,7 @@ To create installable bundles you should use included npm build scripts.
 npm run build:linux
 ```
 
-The output directory is `betwixt-bin/Betwixt-linux-x64`.
+The output directory is `bin/Betwixt-linux-x64`.
 
 #### Mac OS X
 
@@ -35,7 +35,7 @@ The output directory is `betwixt-bin/Betwixt-linux-x64`.
 npm run build:osx
 ```
 
-The output directory is `betwixt-bin/Betwixt-darwin-x64`.
+The output directory is `bin/Betwixt-darwin-x64`.
 
 #### Windows
 
@@ -43,7 +43,7 @@ The output directory is `betwixt-bin/Betwixt-darwin-x64`.
 npm run build:win
 ```
 
-It generates two directories, for 32 and 64 bits architectures. The folders are `betwixt-bin/Betwixt-win32-ia32` or `betwixt-bin/Betwixt-win32-x64`
+It generates two directories, for 32 and 64 bits architectures. The folders are `bin/Betwixt-win32-ia32` or `bin/Betwixt-win32-x64`
 
 #### Custom build
 
