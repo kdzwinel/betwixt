@@ -6,9 +6,10 @@ const chalk = require('chalk');
 const FrontEndConnection = require('./lib/front-end-connection');
 const TrafficInterceptor = require('./lib/traffic-interceptor');
 const RDPMessageFormatter = require('./lib/rdp-message-formatter');
+const argv = require('minimist')(process.argv.slice(2));
 
-function init(webContents, proxyPort) {
-    let trafficInterceptor = new TrafficInterceptor(proxyPort);
+function init(webContents, opts) {
+    let trafficInterceptor = new TrafficInterceptor(opts);
     let frontEndConnection = new FrontEndConnection(webContents);
 
     // this part is responsible for answering devtools requests
@@ -60,6 +61,12 @@ function init(webContents, proxyPort) {
 // Report crashes to our server.
 require('crash-reporter').start();
 
+const opts = {
+    proxyPort: argv['proxy-port'] || 8008,
+    proxyHost: argv['proxy-host'],
+    reverseProxy: argv['reverse-proxy']
+};
+
 app.on('ready', () => {
 
     let mainWindow = new BrowserWindow({
@@ -68,7 +75,7 @@ app.on('ready', () => {
         height: 600
     });
 
-    init(mainWindow.webContents, 8008);
+    init(mainWindow.webContents, opts);
 
     mainWindow.loadUrl('file://' + __dirname + '/dt/inspector.html?electron=true');
 
