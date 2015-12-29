@@ -13,9 +13,13 @@ $ cd betwixt
 $ npm install
 ```
 
-### Running
+### Running (regular proxy mode)
 
 You can run Betwixt right away using `npm start`.
+
+### Running with binding options and reverse proxy mode
+
+`npm start -- --proxy-port=8010 --proxy-host=0.0.0.0 --reverse-proxy=http://127.0.0.1:8081`
 
 ### Creating a bundle
 
