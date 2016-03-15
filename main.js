@@ -3,12 +3,16 @@
 const app = require('app');
 const BrowserWindow = require('browser-window');
 const chalk = require('chalk');
+const path = require('path');
 const FrontEndConnection = require('./lib/front-end-connection');
 const TrafficInterceptor = require('./lib/traffic-interceptor');
 const RDPMessageFormatter = require('./lib/rdp-message-formatter');
 
 function init(webContents, proxyPort) {
-    let trafficInterceptor = new TrafficInterceptor(proxyPort);
+    let trafficInterceptor = new TrafficInterceptor({
+        port: proxyPort,
+        sslCaDir: path.resolve(app.getPath('userData'), 'ssl')
+    });
     let frontEndConnection = new FrontEndConnection(webContents);
 
     // this part is responsible for answering devtools requests
