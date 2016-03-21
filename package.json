@@ -1,6 +1,6 @@
 {
   "name": "betwixt",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Web Debugging Proxy based on Chrome DevTools Network panel",
   "main": "main.js",
   "scripts": {
