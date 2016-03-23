@@ -19,41 +19,4 @@ You can run Betwixt right away using `npm start`.
 
 ### Creating a bundle
 
-To create installable bundles you should use included npm build scripts.
-
-#### Linux
-
-```bash
-npm run build:linux
-```
-
-The output directory is `bin/Betwixt-linux-x64`.
-
-#### Mac OS X
-
-```bash
-npm run build:osx
-```
-
-The output directory is `bin/Betwixt-darwin-x64`.
-
-#### Windows
-
-```bash
-npm run build:win
-```
-
-It generates two directories, for 32 and 64 bits architectures. The folders are `bin/Betwixt-win32-ia32` or `bin/Betwixt-win32-x64`
-
-#### Custom build
-
-If none of above builds meets your requirements, you can use the custom build script.
-
-
-```bash
-npm run build:custom -- --platform=<all, linux, darwin, win32> --arch=<all, x86, x64>
-```
-
-Adjust `platform` and `arch` parameters to your needs.
-
-For example, if you want to build a binary for windows 32 bits only, you can run `npm run build:custom -- --platform=win32 --arch=x86`.
+[build.sh](https://github.com/kdzwinel/betwixt/blob/master/build.sh) is responsible for creating bundles for all supported platforms and architectures. You should be able to easily adjust it to your needs.
