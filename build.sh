@@ -19,4 +19,4 @@ npm i --production
 cd ..
 
 # build packages for all supported OS versions
-electron-packager ./build/ Betwixt --out ./bin/ --version=0.37.2 --platform=all --arch=all
+electron-packager ./build/ Betwixt --out ./bin/ --version=0.35.0 --platform=all --arch=all
