@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron main.js",
-    "test": "jshint main.js lib/ && jscs main.js lib/"
+    "test": "jshint main.js lib/ plugins/ && jscs main.js lib/ plugins/"
   },
   "repository": {
     "type": "git",
@@ -24,7 +24,8 @@
   "dependencies": {
     "chalk": "^1.1.1",
     "http-mitm-proxy": "^0.4.0",
-    "istextorbinary": "^1.0.2"
+    "istextorbinary": "^1.0.2",
+    "node-static": "^0.7.7"
   },
   "devDependencies": {
     "electron-packager": "^5.1.1",
