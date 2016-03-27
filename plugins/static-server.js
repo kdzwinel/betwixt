@@ -1,7 +1,5 @@
 //'use strict';
 
-
-
 const static = require('node-static');
 
 const app = require('app');
@@ -22,20 +20,19 @@ for (var k in interfaces) {
     }
 }
 
-function RunStaticServer(){
+function RunStaticServer() {
 
     var port = 9090;
-    require('http').createServer(function (request, response) {
-        request.addListener('end', function () {
-            console.log(request);
-            if(request.url == '/' || request.url == ''){
+    require('http').createServer(function(request, response) {
+        request.addListener('end', function() {
+            if (request.url === '/' || request.url === '') {
                 response.setHeader('Content-Type', 'text/html');
                 response.write('click <a href="./ca.pem">THIS</a> to install');
                 response.end();
-            }else{
-                fileServer.serve(request, response, function (err, result) {
+            }else {
+                fileServer.serve(request, response, function(err, result) {
                     if (err) { // There was an error serving the file
-                        console.error("Error serving " + request.url + " - " + err.message);
+                        console.error('Error serving ' + request.url + ' - ' + err.message);
 
                         // Respond to the client
                         response.writeHead(err.status, err.headers);
@@ -43,19 +40,17 @@ function RunStaticServer(){
                     }
                 });
             }
-            
+
         }).resume();
-    }).listen(port, function(){
-        console.log('If you want to capture HTTPS package, you need download certs files and intall them in mobile, the download urls are below:');
-        for(var i =0, ilen = addresses.length; i < ilen; i++){
+    }).listen(port, function() {
+        console.log('If you want to capture HTTPS package,' +
+            ' you need download certs files and intall them in mobile, the download urls are below:');
+        for (var i = 0, ilen = addresses.length; i < ilen; i++) {
             console.log('\t http://' + addresses[i] +  ':' + port);
         }
         console.log('\n');
     });
 
-
-
 }
-
 
 module.exports = RunStaticServer;

@@ -7,8 +7,7 @@ const path = require('path');
 const FrontEndConnection = require('./lib/front-end-connection');
 const TrafficInterceptor = require('./lib/traffic-interceptor');
 const RDPMessageFormatter = require('./lib/rdp-message-formatter');
-let RunStaticServer = require('./plugins/static-server');
-
+const RunStaticServer = require('./plugins/static-server');
 
 function init(webContents, proxyPort) {
     let trafficInterceptor = new TrafficInterceptor({
@@ -16,7 +15,6 @@ function init(webContents, proxyPort) {
         sslCaDir: path.resolve(app.getPath('userData'), 'ssl')
     });
     let frontEndConnection = new FrontEndConnection(webContents);
-    
     RunStaticServer();
     // this part is responsible for answering devtools requests
     frontEndConnection
