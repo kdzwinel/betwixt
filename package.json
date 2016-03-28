@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "electron-packager": "^5.1.1",
-    "electron-prebuilt": "^0.34.0",
+    "electron-prebuilt": "^0.36.12",
     "jscs": "^2.6.0",
     "jshint": "^2.8.0"
   }

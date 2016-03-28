@@ -1,6 +1,6 @@
 'use strict';
 
-const ipc = require('ipc');
+const ipc = require('electron').ipcMain;
 const EventEmitter = require('events');
 
 /**

@@ -62,9 +62,6 @@ function init(webContents, proxyPort) {
         });
 }
 
-// Report crashes to our server.
-require('crash-reporter').start();
-
 app.on('ready', () => {
 
     let mainWindow = new BrowserWindow({
@@ -75,7 +72,7 @@ app.on('ready', () => {
 
     init(mainWindow.webContents, 8008);
 
-    mainWindow.loadUrl('file://' + __dirname + '/dt/inspector.html?electron=true');
+    mainWindow.loadURL('file://' + __dirname + '/dt/inspector.html?electron=true');
 
     mainWindow.on('closed', () => {
         app.quit();
