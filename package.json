@@ -31,6 +31,5 @@
     "electron-prebuilt": "^0.34.0",
     "jscs": "^2.6.0",
     "jshint": "^2.8.0"
-  },
-  "engine": "node >= 5.0.0"
+  }
 }
