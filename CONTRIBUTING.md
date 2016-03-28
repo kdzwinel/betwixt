@@ -21,9 +21,9 @@ DevTools will do the rest.
 
 ## Folder structure
 
-- `/dt` - customized snapshot of Chrome DevTools
-- `/lib` - Betwixt files
-- `main.js` - app entry point
+- `/src` - Betwixt source files
+- `/src/dt` - customized snapshot of Chrome DevTools
+- `/src/main.js` - app entry point
 
 ## Tips and tricks
 
