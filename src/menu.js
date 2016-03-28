@@ -1,6 +1,9 @@
 'use strict';
 
-function buildMenu(app) {
+const shell = require('electron').shell;
+const path = require('path');
+
+function buildMenu(app, options) {
     const template = [
         {
             label: 'Edit',
@@ -39,19 +42,28 @@ function buildMenu(app) {
                     role: 'selectall'
                 }
             ]
+        },
+        {
+            label: 'Tools',
+            submenu: [
+                {
+                    label: 'Root Certificate',
+                    click: () => {
+                        shell.showItemInFolder(path.resolve(options.sslCaDir, 'certs', 'ca.pem'));
+                    }
+                }
+            ]
         }
     ];
 
-    if (process.platform == 'darwin') {
+    if (process.platform === 'darwin') {
         template.unshift({
             label: app.getName(),
             submenu: [
                 {
                     label: 'Quit',
                     accelerator: 'Command+Q',
-                    click: function() {
-                        app.quit();
-                    }
+                    click: () => app.quit()
                 }
             ]
         });

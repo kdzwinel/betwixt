@@ -81,7 +81,7 @@ app.on('ready', () => {
         app.quit();
     });
 
-    const menuTemplate = require('./menu')(app);
+    const menuTemplate = require('./menu')(app, options);
 
     Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 });
