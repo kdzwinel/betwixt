@@ -24,7 +24,8 @@
   "dependencies": {
     "chalk": "^1.1.1",
     "http-mitm-proxy": "^0.4.0",
-    "istextorbinary": "^1.0.2"
+    "istextorbinary": "^1.0.2",
+    "minimist": "^1.2.0"
   },
   "devDependencies": {
     "electron-packager": "^5.1.1",

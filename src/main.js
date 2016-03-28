@@ -5,15 +5,13 @@ const BrowserWindow = require('browser-window');
 const Menu = require('menu');
 const chalk = require('chalk');
 const path = require('path');
+const argv = require('minimist')(process.argv.slice(2));
 const FrontEndConnection = require('./lib/front-end-connection');
 const TrafficInterceptor = require('./lib/traffic-interceptor');
 const RDPMessageFormatter = require('./lib/rdp-message-formatter');
 
-function init(webContents, proxyPort) {
-    let trafficInterceptor = new TrafficInterceptor({
-        port: proxyPort,
-        sslCaDir: path.resolve(app.getPath('userData'), 'ssl')
-    });
+function init(webContents, options) {
+    let trafficInterceptor = new TrafficInterceptor(options);
     let frontEndConnection = new FrontEndConnection(webContents);
 
     // this part is responsible for answering devtools requests
@@ -62,6 +60,11 @@ function init(webContents, proxyPort) {
         });
 }
 
+const options = {
+    port: argv['proxy-port'] || 8008,
+    sslCaDir: argv['ssl-ca-dir'] || path.resolve(app.getPath('userData'), 'ssl')
+};
+
 app.on('ready', () => {
 
     let mainWindow = new BrowserWindow({
@@ -70,7 +73,7 @@ app.on('ready', () => {
         height: 600
     });
 
-    init(mainWindow.webContents, 8008);
+    init(mainWindow.webContents, options);
 
     mainWindow.loadURL('file://' + __dirname + '/dt/inspector.html?electron=true');
 
