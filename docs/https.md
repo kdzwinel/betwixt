@@ -3,13 +3,11 @@
 ### Root Certificate
 
 In order to capture encrypted traffic, you'll have to install root certificate provided by Betwixt.
-The certificate is generated for you when you first launch Betwixt. You will find it in the application data directory:
+The certificate is generated for you when you first launch Betwixt. You can quickly locate it on disk using `Tools > Root Certificate` menu.
 
-- OS X - `~/Library/Application Support/betwixt/ssl/certs/`
-- Windows - `%APPDATA%\betwixt\ssl\certs\`
-- Linux - `$XDG_CONFIG_HOME/betwxit/ssl/certs/` or `~/.config/betwxit/ssl/certs/`
+![Finding certificate file](http://i.imgur.com/xFMBStj.png)
 
-When you find the right folder, import `ca.pem` and mark it as trusted.
+`ca.pem` has to be imported and marked as trusted.
 
 On OS X this is done via Keychain app as shown below.
 
