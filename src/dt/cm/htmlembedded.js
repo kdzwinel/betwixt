@@ -5,7 +5,7 @@
   if (typeof exports == "object" && typeof module == "object") // CommonJS
     mod(require("../../lib/codemirror"), require("../htmlmixed/htmlmixed"));
   else if (typeof define == "function" && define.amd) // AMD
-    define(["../../lib/codemirror", "../htmlmixed/htmlmixed"], mod);
+    define(["../../src/lib/codemirror", "../htmlmixed/htmlmixed"], mod);
   else // Plain browser env
     mod(CodeMirror);
 })(function(CodeMirror) {

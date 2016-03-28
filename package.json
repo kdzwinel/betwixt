@@ -2,10 +2,10 @@
   "name": "betwixt",
   "version": "1.0.0",
   "description": "Web Debugging Proxy based on Chrome DevTools Network panel",
-  "main": "main.js",
+  "main": "src/main.js",
   "scripts": {
-    "start": "electron main.js",
-    "test": "jshint main.js lib/ && jscs main.js lib/"
+    "start": "electron src/main.js",
+    "test": "jshint src/lib/ src/*.js && jscs src/lib/ src/*.js"
   },
   "repository": {
     "type": "git",
