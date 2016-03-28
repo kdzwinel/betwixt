@@ -8,7 +8,6 @@ mkdir build/
 mkdir bin/
 
 # move files required by production app to the /build folder
-cp -r dt/ build/dt/
 cp -r src/ build/src/
 cp package.json build/
 
