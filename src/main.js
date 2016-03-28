@@ -2,6 +2,7 @@
 
 const app = require('app');
 const BrowserWindow = require('browser-window');
+const Menu = require('menu');
 const chalk = require('chalk');
 const path = require('path');
 const FrontEndConnection = require('./lib/front-end-connection');
@@ -79,4 +80,8 @@ app.on('ready', () => {
     mainWindow.on('closed', () => {
         app.quit();
     });
+
+    const menuTemplate = require('./menu')(app);
+
+    Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 });
