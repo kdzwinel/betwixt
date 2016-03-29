@@ -28,7 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-const ipc = require('ipc');
+const ipc = require('electron').ipcRenderer;
 
 /**
  * @constructor
@@ -656,7 +656,7 @@ InspectorBackendClass.ElectronConnection.prototype = {
     /**
      * @param {!MessageEvent} message
      */
-    _onMessage: function(message)
+    _onMessage: function(event, message)
     {
         var data = /** @type {string} */ (message.data);
         this.dispatch(data);
