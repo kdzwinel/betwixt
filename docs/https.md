@@ -13,6 +13,10 @@ On OS X this is done via Keychain app as shown below.
 
 ![Installing certificate on OS X](http://i.imgur.com/lm2TIw4.png)
 
+On Windows use certmgr.
+
+![Installing certificate on Windows 10](http://i.imgur.com/8IWpKR0.png)
+
 ### Proxy
 
 Direct the traffic to the proxy created by Betwixt in the background (`http://localhost:8008`).
@@ -20,8 +24,10 @@ Direct the traffic to the proxy created by Betwixt in the background (`http://lo
 If you wish to analyze traffic system wide:
 - on OS X - `System Preferences → Network → Advanced → Proxies → Secure Web Proxy (HTTPS)`
 - on Ubuntu - `All Settings → Network → Network Proxy`
-- on Windows - `PC Settings → Network → Proxy`
+- on Windows - `Settings → Network & Internet → Proxy`
 
 ![Setting up proxy on OS X](http://i.imgur.com/JslKSz8.png)
+
+![Setting up proxy on Windows 10](http://i.imgur.com/ihSZEVb.png)
 
 If you want to capture traffic coming from a single terminal use `export https_proxy=http://localhost:8008`.
