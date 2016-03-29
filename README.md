@@ -1,8 +1,9 @@
-# Betwixt
+![Betwixt](http://i.imgur.com/kFJmjYR.png)
 
-This tool will help you analyze web traffic outside the browser using familiar Chrome DevTools interface.
+Betwixt will help you analyze web traffic outside the browser using familiar Chrome DevTools interface.
 
 ![Betwixt in action](http://i.imgur.com/ccgmL2C.gif)
+![Some more action...](http://i.imgur.com/HfQAAN1.png)
 
 ## Installing
 
@@ -14,8 +15,8 @@ In order to capture traffic, you'll have to direct it to the proxy created by Be
 
 If you wish to analyze traffic system wide:
 - on OS X - `System Preferences → Network → Advanced → Proxies → Web Proxy (HTTP)`
-- on Ubuntu - `All Settings → Network → Network Proxy`
 - on Windows - `Settings → Network & Internet → Proxy`
+- on Ubuntu - `All Settings → Network → Network Proxy`
 
 ![Setting up proxy on Windows 10 and OS X](http://i.imgur.com/ZVldO35.png)
 
