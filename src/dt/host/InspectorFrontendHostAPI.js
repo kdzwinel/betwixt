@@ -288,6 +288,11 @@ InspectorFrontendHostAPI.prototype = {
     isHostedMode: function() { },
 
     /**
+     * @return {boolean}
+     */
+    isElectron: function() { },
+
+    /**
      * @param {string} message
      */
     sendFrontendAPINotification: function(message) { }

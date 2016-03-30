@@ -401,7 +401,9 @@ WebInspector.ContextMenu.prototype = {
         var menuObject = this._buildDescriptors();
 
         WebInspector._contextMenu = this;
-        if (this._useSoftMenu || WebInspector.ContextMenu._useSoftMenu || InspectorFrontendHost.isHostedMode()) {
+        if (InspectorFrontendHost.isElectron()) {
+            InspectorFrontendHost.showContextMenuAtPoint(this._x, this._y, menuObject, this._event.target.ownerDocument, this._itemSelected.bind(this));
+        } else if (this._useSoftMenu || WebInspector.ContextMenu._useSoftMenu || InspectorFrontendHost.isHostedMode()) {
             this._softMenu = new WebInspector.SoftContextMenu(menuObject, this._itemSelected.bind(this));
             this._softMenu.show(this._event.target.ownerDocument, this._x, this._y);
         } else {

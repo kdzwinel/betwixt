@@ -28,10 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-const clipboard = require('clipboard');
-const remote = require('remote');
-const dialog = remote.require('dialog');
-const fs = remote.require('fs');
+const clipboard = require("clipboard");
+const remote = require("remote");
+const dialog = remote.require("dialog");
+const fs = remote.require("fs");
+const Menu = remote.Menu;
 const electronWindow = remote.getCurrentWindow();
 
 /**
@@ -207,12 +208,12 @@ WebInspector.InspectorFrontendHostStub.prototype = {
                     this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.SavedURL, url);
                 })
                 .catch((msg) => {
-                    if(msg) {
+                    if (msg) {
                         dialog.showMessageBox(electronWindow, {
-                            type: 'warning',
-                            buttons: ['OK'],
-                            title: 'Error',
-                            message: 'Error writing to file',
+                            type: "warning",
+                            buttons: ["OK"],
+                            title: "Error",
+                            message: "Error writing to file",
                             detail: msg
                         });
                     }
@@ -231,7 +232,7 @@ WebInspector.InspectorFrontendHostStub.prototype = {
     {
         const path = this._urlSavePath[url];
 
-        if(path) {
+        if (path) {
             fs.appendFile(path, content, (err) => {
                 if (err) {
                     return;
@@ -306,9 +307,9 @@ WebInspector.InspectorFrontendHostStub.prototype = {
     {
         loadResourcePromise(url).then(function(text) {
             WebInspector.ResourceLoader.streamWrite(streamId, text);
-            callback({statusCode : 200});
+            callback({statusCode: 200});
         }).catch(function() {
-            callback({statusCode : 404});
+            callback({statusCode: 404});
         });
     },
 
@@ -466,10 +467,29 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      * @param {number} y
      * @param {!Array.<!InspectorFrontendHostAPI.ContextMenuDescriptor>} items
      * @param {!Document} document
+     * @param {function(number)} callback
      */
-    showContextMenuAtPoint: function(x, y, items, document)
+    showContextMenuAtPoint: function(x, y, items, document, callback)
     {
-        throw "Soft context menu should be used";
+        //TODO does not support checkboxes, radio and submenus yet
+        const menu = Menu.buildFromTemplate(items.map(item => {
+            if (item.type === "separator") {
+                return {
+                   type: "separator"
+                };
+            }
+
+            return {
+                id: item.id,
+                label: item.label,
+                enabled: item.enabled,
+                click: () => callback(item.id)
+            };
+        }));
+
+        menu.popup(electronWindow);
+
+        window.getSelection().removeAllRanges();
     },
 
     /**
@@ -477,6 +497,15 @@ WebInspector.InspectorFrontendHostStub.prototype = {
      * @return {boolean}
      */
     isHostedMode: function()
+    {
+        return true;
+    },
+
+    /**
+     * @override
+     * @return {boolean}
+     */
+    isElectron: function()
     {
         return true;
     },
@@ -495,7 +524,7 @@ WebInspector.InspectorFrontendHostStub.prototype = {
  */
 var InspectorFrontendHost = window.InspectorFrontendHost || null;
 
-(function(){
+(function() {
 
     function initializeInspectorFrontendHost()
     {
