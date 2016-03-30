@@ -311,6 +311,23 @@ WebInspector.NetworkLogView.prototype = {
         if (this._recording) {
             var recordingText = hintText.createChild("span");
             recordingText.textContent = WebInspector.UIString("Recording network activity\u2026");
+
+            hintText.createChild("br");
+
+            recordingText = hintText.createChild("span");
+            recordingText.textContent = WebInspector.UIString("Not sure how to start?") + " ";
+
+            var docsLink = hintText.createChild("a");
+            docsLink.addEventListener("click", e => {
+                var shell = require("electron").shell;
+                shell.openExternal("https://github.com/kdzwinel/betwixt/blob/master/README.md#setting-up");
+
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            });
+            docsLink.href = "#";
+            docsLink.textContent = WebInspector.UIString("Read the docs.");
         } else {
             var recordNode = hintText.createChild("b");
             recordNode.textContent = WebInspector.shortcutRegistry.shortcutTitleForAction("network.toggle-recording");
