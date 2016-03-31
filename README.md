@@ -1,4 +1,4 @@
-![Betwixt](http://i.imgur.com/kFJmjYR.png)
+![Betwixt](http://i.imgur.com/G8RHbW5.png)
 
 [![Build Status](https://travis-ci.org/kdzwinel/betwixt.svg?branch=master)](https://travis-ci.org/kdzwinel/betwixt)
 [![Dependency Status](https://david-dm.org/kdzwinel/betwixt.svg)](https://david-dm.org/kdzwinel/betwixt)
@@ -6,7 +6,7 @@
 Betwixt will help you analyze web traffic outside the browser using familiar Chrome DevTools interface.
 
 ![Betwixt in action](http://i.imgur.com/ccgmL2C.gif)
-![Some more action...](http://i.imgur.com/HfQAAN1.png)
+![Some more action...](http://i.imgur.com/9mvhdPq.png)
 
 ## Installing
 
