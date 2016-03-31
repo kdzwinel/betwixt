@@ -28,7 +28,7 @@
     "minimist": "^1.2.0"
   },
   "devDependencies": {
-    "electron-packager": "^5.1.1",
+    "electron-packager": "^6.0.0",
     "electron-prebuilt": "^0.36.12",
     "jscs": "^2.6.0",
     "jshint": "^2.8.0"
