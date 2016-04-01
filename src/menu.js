@@ -2,6 +2,7 @@
 
 const shell = require('electron').shell;
 const path = require('path');
+const proxy = require('system-proxy');
 
 function buildMenu(app, options) {
     const template = [
@@ -50,6 +51,22 @@ function buildMenu(app, options) {
                     label: 'Root Certificate',
                     click: () => {
                         shell.showItemInFolder(path.resolve(options.sslCaDir, 'certs', 'ca.pem'));
+                    }
+                },
+                {
+                    label: 'Enable system proxy',
+                    click: () => {
+                        proxy.setProxyOn('localhost', options.port)
+                            .then(() => console.log('Proxy enable OK'))
+                            .catch(() => console.log('Proxy enable FAIL'));
+                    }
+                },
+                {
+                    label: 'Disable system proxy',
+                    click: () => {
+                        proxy.setProxyOff('localhost', options.port)
+                            .then(() => console.log('Proxy disable OK'))
+                            .catch(() => console.log('Proxy enable FAIL'));
                     }
                 }
             ]

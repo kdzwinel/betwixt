@@ -25,7 +25,8 @@
     "chalk": "^1.1.1",
     "http-mitm-proxy": "^0.4.0",
     "istextorbinary": "^1.0.2",
-    "minimist": "^1.2.0"
+    "minimist": "^1.2.0",
+    "system-proxy": "https://github.com/kdzwinel/system-proxy"
   },
   "devDependencies": {
     "electron-packager": "^6.0.0",

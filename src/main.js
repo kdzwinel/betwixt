@@ -67,6 +67,8 @@ const options = {
 
 app.on('ready', () => {
 
+    process.title = 'betwixt';
+
     let mainWindow = new BrowserWindow({
         title: 'Betwixt ⚡',
         width: 800,
