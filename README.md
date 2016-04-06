@@ -1,4 +1,4 @@
-![Betwixt](http://i.imgur.com/G8RHbW5.png)
+![Betwixt](http://i.imgur.com/TKNRxnx.png)
 
 [![Build Status](https://travis-ci.org/kdzwinel/betwixt.svg?branch=master)](https://travis-ci.org/kdzwinel/betwixt)
 [![Dependency Status](https://david-dm.org/kdzwinel/betwixt.svg)](https://david-dm.org/kdzwinel/betwixt)
