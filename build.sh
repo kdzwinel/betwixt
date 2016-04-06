@@ -9,6 +9,7 @@ mkdir bin/
 
 # move files required by production app to the /build folder
 cp -r src/ build/src/
+cp -r gfx/ build/gfx/
 cp package.json build/
 
 # install all dependencies
@@ -17,4 +18,4 @@ npm i --production
 cd ..
 
 # build packages for all supported OS versions
-electron-packager ./build/ Betwixt --out ./bin/ --version=0.36.12 --platform=all --arch=all
+electron-packager ./build/ Betwixt --out ./bin/ --version=0.36.12 --platform=all --arch=all --icon=./gfx/icon

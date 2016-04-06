@@ -68,7 +68,8 @@ const options = {
 app.on('ready', () => {
 
     let mainWindow = new BrowserWindow({
-        title: 'Betwixt ⚡',
+        title: 'Betwixt',
+        icon: 'gfx/icon.png',
         width: 800,
         height: 600
     });
