@@ -58,7 +58,7 @@ function buildMenu(app, options) {
                     click: () => {
                         proxy.setProxyOn('localhost', options.port)
                             .then(() => console.log('Proxy enable OK'))
-                            .catch(() => console.log('Proxy enable FAIL'));
+                            .catch((e) => console.log('Proxy enable FAIL', e));
                     }
                 },
                 {
@@ -66,7 +66,7 @@ function buildMenu(app, options) {
                     click: () => {
                         proxy.setProxyOff('localhost', options.port)
                             .then(() => console.log('Proxy disable OK'))
-                            .catch(() => console.log('Proxy enable FAIL'));
+                            .catch((e) => console.log('Proxy disable FAIL', e));
                     }
                 }
             ]
