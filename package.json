@@ -1,6 +1,6 @@
 {
   "name": "betwixt",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Web Debugging Proxy based on Chrome DevTools Network panel",
   "main": "src/main.js",
   "scripts": {
@@ -13,7 +13,9 @@
   },
   "keywords": [
     "traffic",
-    "proxy"
+    "proxy",
+    "mitm",
+    "devtools"
   ],
   "author": "Konrad Dzwinel",
   "license": "MIT",
@@ -23,8 +25,8 @@
   "homepage": "https://github.com/kdzwinel/betwixt",
   "dependencies": {
     "chalk": "^1.1.1",
-    "http-mitm-proxy": "^0.4.0",
-    "istextorbinary": "^1.0.2",
+    "http-mitm-proxy": "^0.5.0",
+    "istextorbinary": "^2.0.0",
     "minimist": "^1.2.0"
   },
   "devDependencies": {
