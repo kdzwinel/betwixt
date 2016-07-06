@@ -12,6 +12,18 @@ Betwixt will help you analyze web traffic outside the browser using familiar Chr
 
 Download the [latest release](https://github.com/kdzwinel/betwixt/releases/latest) for your operating system, [build your own bundle](docs/building.md) or [run Betwixt from the source code](docs/building.md).
 
+### Installing on macOS
+
+You can also install the latest release using [Homebrew Cask](https://caskroom.github.io/).
+
+Before installing make sure you have the latest brews:
+
+`brew update`
+
+Then, install Betwixt with:
+
+`brew cask install betwixt`
+
 ## Setting up
 
 In order to capture traffic, you'll have to direct it to the proxy created by Betwixt in the background (`http://localhost:8008`).
