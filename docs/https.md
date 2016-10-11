@@ -30,4 +30,4 @@ If you wish to analyze traffic system wide:
 
 ![Setting up proxy on Windows 10](http://i.imgur.com/ihSZEVb.png)
 
-If you want to capture traffic coming from a single terminal use `export https_proxy=http://localhost:8008`.
+If you want to capture traffic coming from a single terminal use `export https_proxy=http://localhost:8008`. Note that NodeJS has a hardcoded list of CA certificates so it doesn't care for Keychain/certmgr/etc. You may need to use `export NODE_TLS_REJECT_UNAUTHORIZED=0` to overcome this issue.
