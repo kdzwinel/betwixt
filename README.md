@@ -6,7 +6,7 @@
 Betwixt will help you analyze web traffic outside the browser using familiar Chrome DevTools interface.
 
 <p align="center"><img src="http://i.imgur.com/8uWwYoc.gif" alt="Betwixt in action" /></p>
-![Even more Betwixt action!](http://i.imgur.com/9mvhdPq.png)
+<img src="http://i.imgur.com/9mvhdPq.png" alt="Even more Betwixt action!" />
 
 ## Installing
 
