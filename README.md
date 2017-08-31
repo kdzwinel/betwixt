@@ -21,7 +21,7 @@ If you wish to analyze traffic system wide:
 - on Windows - `Settings → Network & Internet → Proxy`
 - on Ubuntu - `All Settings → Network → Network Proxy`
 
-![Setting up proxy on Windows 10 and OS X](http://i.imgur.com/ZVldO35.png)
+![Setting up proxy on Windows 10 and OS X](https://i.imgur.com/irjeELo.png)
 
 If you want to capture traffic coming from a single terminal use `export http_proxy=http://localhost:8008`.
 
