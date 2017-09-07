@@ -17,11 +17,11 @@ Download the [latest release](https://github.com/kdzwinel/betwixt/releases/lates
 In order to capture traffic, you'll have to direct it to the proxy created by Betwixt in the background (`http://localhost:8008`).
 
 If you wish to analyze traffic system wide:
-- on OS X - `System Preferences → Network → Advanced → Proxies → Web Proxy (HTTP)`
+- on macOS - `System Preferences → Network → Advanced → Proxies → Web Proxy (HTTP)`
 - on Windows - `Settings → Network & Internet → Proxy`
 - on Ubuntu - `All Settings → Network → Network Proxy`
 
-![Setting up proxy on Windows 10 and OS X](https://i.imgur.com/irjeELo.png)
+![Setting up proxy on Windows 10 and macOS](https://i.imgur.com/irjeELo.png)
 
 If you want to capture traffic coming from a single terminal use `export http_proxy=http://localhost:8008`.
 
