@@ -13,7 +13,7 @@ On OS X this is done via Keychain app as shown below.
 
 ![Installing certificate on OS X](http://i.imgur.com/lm2TIw4.png)
 
-...Open the certificate, expand the `Trust` section and toggle the first dropdown to `Always Trust`:
+After certificate is installed, expand the `Trust` section and toggle the first dropdown to `Always Trust`:
 
 ![Always trust](https://i.imgur.com/rQyHMUG.png)
 
