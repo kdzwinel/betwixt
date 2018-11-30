@@ -152,7 +152,15 @@ function unpackBody(buffer, encoding) {
         }
     } else if (encoding === 'deflate') {
         try {
-            return zlib.inflateSync(buffer);
+            // differentiate whether encoding is zlib or raw deflate
+            // RFC 1950 Section 2.2
+            // CM field (least-significant 4 bits) must be 8
+            // FCHECK field ensures first 16-bit BE int is a multiple of 31
+            if (((buffer[0] & 0x0f) === 8) && (((buffer[0] << 8) + buffer[1]) % 31 === 0)) {
+                return zlib.inflateSync(buffer);
+            } else {
+                return zlib.inflateRawSync(buffer);
+            }
         } catch (e) {
             return buffer;
         }
