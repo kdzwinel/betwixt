@@ -177,7 +177,7 @@ function isBinary(contentType, buffer) {
         return true;
     }
 
-    if (type === 'Other' && isTextOrBinary.isBinarySync(buffer)) {
+    if (type === 'Other' && isTextOrBinary.isBinarySync(null, buffer)) {
         return true;
     }
 

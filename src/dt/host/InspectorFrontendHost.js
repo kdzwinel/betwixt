@@ -28,10 +28,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-const clipboard = require("clipboard");
-const remote = require("remote");
-const dialog = remote.require("dialog");
-const fs = remote.require("fs");
+const {clipboard, remote} = require('electron');
+const {dialog} = remote;
+const fs = remote.require('fs');
 const Menu = remote.Menu;
 const electronWindow = remote.getCurrentWindow();
 

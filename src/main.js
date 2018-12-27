@@ -1,8 +1,4 @@
-'use strict';
-
-const app = require('app');
-const BrowserWindow = require('browser-window');
-const Menu = require('menu');
+const {app, BrowserWindow, Menu} = require('electron');
 const chalk = require('chalk');
 const path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
@@ -79,8 +75,10 @@ app.on('ready', () => {
     mainWindow.loadURL('file://' + __dirname + '/dt/inspector.html?electron=true');
 
     mainWindow.on('closed', () => {
-        app.quit();
+        mainWindow = null;
     });
+
+    mainWindow.webContents.openDevTools();
 
     const menuTemplate = require('./menu')(app, options);
 
