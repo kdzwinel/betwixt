@@ -1,0 +1,14 @@
+{
+  "dependencies": [
+    "common",
+    "host"
+  ],
+  "scripts": [
+    "NodeURL.js",
+    "InspectorBackend.js",
+    "../InspectorBackendCommands.js"
+  ],
+  "skip_compilation": [
+    "../InspectorBackendCommands.js"
+  ]
+}

@@ -1,31 +1,58 @@
 {
     "extensions": [
         {
-            "type": "@WebInspector.PanelFactory",
-            "name": "timeline",
-            "title": "Timeline",
+            "type": "view",
+            "location": "panel",
+            "id": "timeline",
+            "title": "Performance",
             "order": 50,
-            "className": "WebInspector.TimelinePanelFactory"
+            "className": "Timeline.TimelinePanel"
         },
         {
             "type": "setting",
-            "category": "Profiler",
+            "category": "Performance",
             "title": "Hide chrome frame in Layers view",
             "settingName": "frameViewerHideChromeWindow",
             "settingType": "boolean",
             "defaultValue": false
         },
         {
-            "type": "@WebInspector.QueryParamHandler",
+            "type": "@Common.QueryParamHandler",
             "name": "loadTimelineFromURL",
-            "className": "WebInspector.LoadTimelineHandler"
+            "className": "Timeline.LoadTimelineHandler"
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "context-menu-item",
+            "location": "timelineMenu/open",
+            "actionId": "timeline.load-from-file",
+            "order": 10
+        },
+        {
+            "type": "context-menu-item",
+            "location": "timelineMenu/open",
+            "actionId": "timeline.save-to-file",
+            "order": 15
+        },
+        {
+            "type": "action",
             "actionId": "timeline.toggle-recording",
-            "iconClass": "record-toolbar-item",
-            "contextTypes": ["WebInspector.TimelinePanel"],
-            "className": "WebInspector.TimelinePanel.ActionDelegate",
+            "iconClass": "largeicon-start-recording",
+            "toggledIconClass": "largeicon-stop-recording",
+            "toggleWithRedColor": true,
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "className": "Timeline.TimelinePanel.ActionDelegate",
+            "options": [
+                {
+                    "value": true,
+                    "title": "Record"
+                },
+                {
+                    "value": false,
+                    "title": "Stop"
+                }
+            ],
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -38,10 +65,35 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
+            "actionId": "timeline.record-reload",
+            "iconClass": "largeicon-refresh",
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "category": "Performance",
+            "title": "Start profiling and reload page",
+            "className": "Timeline.TimelinePanel.ActionDelegate",
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Ctrl+Shift+E"
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+Shift+E"
+                }
+            ]
+        },
+        {
+            "type": "action",
+            "category": "Timeline",
             "actionId": "timeline.save-to-file",
-            "contextTypes": ["WebInspector.TimelinePanel"],
-            "className": "WebInspector.TimelinePanel.ActionDelegate",
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "className": "Timeline.TimelinePanel.ActionDelegate",
+            "title": "Save profile\u2026",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -54,11 +106,14 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
+            "category": "Timeline",
             "actionId": "timeline.load-from-file",
-            "contextTypes": ["WebInspector.TimelinePanel"],
-            "order": "10",
-            "className": "WebInspector.TimelinePanel.ActionDelegate",
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "className": "Timeline.TimelinePanel.ActionDelegate",
+            "title": "Load profile\u2026",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -71,10 +126,12 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "timeline.jump-to-previous-frame",
-            "contextTypes": ["WebInspector.TimelinePanel"],
-            "className": "WebInspector.TimelinePanel.ActionDelegate",
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "className": "Timeline.TimelinePanel.ActionDelegate",
             "bindings": [
                 {
                     "shortcut": "["
@@ -82,48 +139,122 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "timeline.jump-to-next-frame",
-            "contextTypes": ["WebInspector.TimelinePanel"],
-            "className": "WebInspector.TimelinePanel.ActionDelegate",
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "className": "Timeline.TimelinePanel.ActionDelegate",
             "bindings": [
                 {
                     "shortcut": "]"
+                }
+            ]
+        },
+        {
+            "type": "action",
+            "actionId": "timeline.show-history",
+            "className": "Timeline.TimelinePanel.ActionDelegate",
+            "category": "Performance",
+            "title": "Show recent timeline sessions",
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Ctrl+H"
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+Y"
+                }
+            ]
+        },
+        {
+            "type": "view",
+            "location": "panel",
+            "id": "js_profiler",
+            "title": "JavaScript Profiler",
+            "persistence": "closeable",
+            "order": 65,
+            "className": "Profiler.JSProfilerPanel"
+        },
+        {
+            "type": "action",
+            "actionId": "timeline.previous-recording",
+            "className": "Timeline.TimelinePanel.ActionDelegate",
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Alt+Left"
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+Left"
+                }
+            ]
+        },
+        {
+            "type": "action",
+            "actionId": "timeline.next-recording",
+            "className": "Timeline.TimelinePanel.ActionDelegate",
+            "contextTypes": [
+                "Timeline.TimelinePanel"
+            ],
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Alt+Right"
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+Right"
                 }
             ]
         }
     ],
     "dependencies": [
         "components",
-        "components_lazy",
-        "ui_lazy"
+        "layer_viewer",
+        "timeline_model",
+        "perf_ui",
+        "extensions",
+        "data_grid",
+        "product_registry",
+        "profiler",
+        "mobile_throttling"
     ],
     "scripts": [
-        "LayerTreeModel.js",
         "CountersGraph.js",
-        "LayerDetailsView.js",
-        "LayerTreeOutline.js",
-        "LayerViewHost.js",
-        "Layers3DView.js",
-        "MemoryCountersGraph.js",
-        "TimelineModel.js",
-        "TimelineJSProfile.js",
-        "TimelinePresentationModel.js",
-        "TimelineFrameModel.js",
+        "ExtensionTracingSession.js",
+        "PerformanceModel.js",
+        "TimelineController.js",
+        "TimelineDetailsView.js",
+        "TimelineLoader.js",
         "TimelineEventOverview.js",
-        "TimelineFlameChart.js",
+        "TimelineFilters.js",
+        "TimelineFlameChartDataProvider.js",
+        "TimelineFlameChartNetworkDataProvider.js",
+        "TimelineFlameChartView.js",
+        "TimelineHistoryManager.js",
         "TimelineTreeView.js",
+        "EventsTimelineTreeView.js",
         "TimelineUIUtils.js",
-        "TimelineView.js",
         "TimelineLayersView.js",
         "TimelinePaintProfilerView.js",
-        "TransformController.js",
-        "PaintProfilerView.js",
         "TimelinePanel.js"
     ],
     "resources": [
+        "historyToolbarButton.css",
         "invalidationsTree.css",
+        "timelineFlamechartPopover.css",
+        "timelineHistoryManager.css",
         "timelinePanel.css",
+        "timelinePaintProfiler.css",
         "timelineStatusDialog.css"
     ]
 }

@@ -4,6 +4,16 @@
  * found in the LICENSE file.
  */
 
+:host {
+    flex: 1 1 auto;
+    padding: 2px 0 0 0;
+}
+
+.tree-outline-disclosure:not(.tree-outline-disclosure-hide-overflow) {
+    min-width: 100%;
+    display: inline-block;
+}
+
 .tree-outline {
     padding: 0 0 4px 4px;
     margin: 0;
@@ -11,7 +21,7 @@
     position: relative;
 }
 
-.tree-outline li.hovered:not(.selected) .selection {
+.tree-outline:not(.hide-selection-when-blurred) li.hovered:not(.selected) .selection {
     display: block;
     left: 3px;
     right: 3px;
@@ -22,31 +32,31 @@
 .tree-outline li .selection {
     display: none;
     z-index: -1;
-    margin-top: -1px;
     margin-left: -10000px;
 }
 
-.tree-outline li.selected .selection {
+.tree-outline:not(.hide-selection-when-blurred) li.selected .selection {
     display: block;
-    background-color: #ddd;
+    background-color: var(--selection-inactive-bg-color);
 }
 
-.tree-outline li.in-clipboard .highlight {
+.tree-outline:not(.hide-selection-when-blurred) li.in-clipboard .highlight {
     outline: 1px dotted darkgrey;
 }
 
-.tree-outline li.elements-drag-over .selection {
+.tree-outline:not(.hide-selection-when-blurred) li.elements-drag-over .selection {
     display: block;
     margin-top: -2px;
-    border-top: 2px solid rgb(56, 121, 217);
+    border-top: 2px solid;
+    border-top-color: var(--selection-bg-color);
 }
 
-ol.tree-outline:focus li.selected .selection {
-    background-color: rgb(56, 121, 217);
+ol.tree-outline:not(.hide-selection-when-blurred) li.selected:focus .selection {
+    background-color: var(--selection-bg-color);
 }
 
-ol.tree-outline:focus li.parent.selected::before {
-    background-color: white;
+ol.tree-outline:not(.hide-selection-when-blurred) li.parent.selected:focus::before {
+    background-color: var(--selection-fg-color);
 }
 
 ol.tree-outline,
@@ -65,52 +75,62 @@ ol.tree-outline,
 .tree-outline li {
     text-overflow: ellipsis;
     white-space: nowrap;
-    overflow: hidden;
-    min-height: 17px;
-    padding-top: 2px;
     position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 16px;
 }
 
-ol.tree-outline:focus li.selected {
-    color: white;
+ol.tree-outline:not(.hide-selection-when-blurred) li.selected:focus {
+    color: var(--selection-fg-color);
 }
 
-ol.tree-outline:focus li.selected * {
+ol.tree-outline:not(.hide-selection-when-blurred) li.selected:focus * {
     color: inherit;
 }
 
+.tree-outline li .icons-container {
+    align-self: center;
+    display: flex;
+    align-items: center;
+}
+
+.tree-outline li .leading-icons {
+    margin-right: 4px;
+}
+
+.tree-outline li .trailing-icons {
+    margin-left: 4px;
+}
+
 .tree-outline li::before {
-    float: left;
     -webkit-user-select: none;
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs.png);
-    -webkit-mask-size: 352px 168px;
-    content: "a";
-    color: transparent;
+    -webkit-mask-image: url(Images/treeoutlineTriangles.png);
+    -webkit-mask-size: 32px 24px;
+    content: "\00a0\00a0";
     text-shadow: none;
-    position: relative;
-    margin-right: 1px;
-    top: 1px;
-    width: 10px;
-    height: 10px;
+    margin-right: -2px;
+    height: 12px;
+    width: 13px;
 }
 
 .tree-outline li:not(.parent)::before {
     background-color: transparent;
 }
 
-@media (-webkit-min-device-pixel-ratio: 1.5) {
+@media (-webkit-min-device-pixel-ratio: 1.1) {
 .tree-outline li::before {
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs_2x.png);
+    -webkit-mask-image: url(Images/treeoutlineTriangles_2x.png);
 }
 } /* media */
 
 .tree-outline li::before {
-    -webkit-mask-position: -4px -96px;
-    background-color: rgb(110, 110, 110);
+    -webkit-mask-position: 0 0;
+    background-color: #727272;
 }
 
 .tree-outline li.parent.expanded::before {
-    -webkit-mask-position: -20px -96px;
+    -webkit-mask-position: -16px 0;
 }
 
 .tree-outline ol.children {
@@ -119,4 +139,31 @@ ol.tree-outline:focus li.selected * {
 
 .tree-outline ol.children.expanded {
     display: block;
+}
+
+.tree-outline.tree-outline-dense li {
+    margin-top: 1px;
+    min-height: 12px;
+}
+
+.tree-outline.tree-outline-dense li.parent {
+    margin-top: 0;
+}
+
+.tree-outline.tree-outline-dense li.parent::before {
+    top: 0;
+}
+
+.tree-outline.tree-outline-dense ol {
+    padding-left: 10px;
+}
+
+.tree-outline.hide-selection-when-blurred .selected:focus[data-keyboard-focus="true"] {
+    background: var(--focus-bg-color);
+    border-radius: 2px;
+}
+
+.tree-outline-disclosure:not(.tree-outline-disclosure-hide-overflow) .tree-outline.hide-selection-when-blurred .selected:focus[data-keyboard-focus="true"] {
+    width: fit-content;
+    padding-right: 3px;
 }

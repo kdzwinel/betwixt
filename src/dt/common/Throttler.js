@@ -1,100 +1,114 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 /**
- * @constructor
- * @param {number} timeout
+ * @unrestricted
  */
-WebInspector.Throttler = function(timeout)
-{
+Common.Throttler = class {
+  /**
+   * @param {number} timeout
+   */
+  constructor(timeout) {
     this._timeout = timeout;
     this._isRunningProcess = false;
     this._asSoonAsPossible = false;
     /** @type {?function():(!Promise.<?>)} */
     this._process = null;
-}
+    this._lastCompleteTime = 0;
 
-WebInspector.Throttler.prototype = {
-    _processCompleted: function()
-    {
-        this._isRunningProcess = false;
-        if (this._process)
-            this._innerSchedule(false);
-        this._processCompletedForTests();
-    },
+    this._schedulePromise = new Promise(fulfill => {
+      this._scheduleResolve = fulfill;
+    });
+  }
 
-    _processCompletedForTests: function()
-    {
-        // For sniffing in tests.
-    },
+  _processCompleted() {
+    this._lastCompleteTime = this._getTime();
+    this._isRunningProcess = false;
+    if (this._process)
+      this._innerSchedule(false);
+    this._processCompletedForTests();
+  }
 
-    _onTimeout: function()
-    {
-        delete this._processTimeout;
-        this._asSoonAsPossible = false;
-        this._isRunningProcess = true;
+  _processCompletedForTests() {
+    // For sniffing in tests.
+  }
 
-        Promise.resolve()
-            .then(this._process)
-            .catch(console.error.bind(console))
-            .then(this._processCompleted.bind(this));
-        this._process = null;
-    },
+  _onTimeout() {
+    delete this._processTimeout;
+    this._asSoonAsPossible = false;
+    this._isRunningProcess = true;
 
-    /**
-     * @param {function():(!Promise.<?>)} process
-     * @param {boolean=} asSoonAsPossible
-     */
-    schedule: function(process, asSoonAsPossible)
-    {
-        // Deliberately skip previous process.
-        this._process = process;
+    Promise.resolve()
+        .then(this._process)
+        .catch(console.error.bind(console))
+        .then(this._processCompleted.bind(this))
+        .then(this._scheduleResolve);
+    this._schedulePromise = new Promise(fulfill => {
+      this._scheduleResolve = fulfill;
+    });
+    this._process = null;
+  }
 
-        // Run the first scheduled task instantly.
-        var hasScheduledTasks = !!this._processTimeout || this._isRunningProcess;
-        asSoonAsPossible = !!asSoonAsPossible || !hasScheduledTasks;
+  /**
+   * @param {function():(!Promise.<?>)} process
+   * @param {boolean=} asSoonAsPossible
+   * @return {!Promise}
+   */
+  schedule(process, asSoonAsPossible) {
+    // Deliberately skip previous process.
+    this._process = process;
 
-        var forceTimerUpdate = asSoonAsPossible && !this._asSoonAsPossible;
-        this._asSoonAsPossible = this._asSoonAsPossible || asSoonAsPossible;
+    // Run the first scheduled task instantly.
+    const hasScheduledTasks = !!this._processTimeout || this._isRunningProcess;
+    const okToFire = this._getTime() - this._lastCompleteTime > this._timeout;
+    asSoonAsPossible = !!asSoonAsPossible || (!hasScheduledTasks && okToFire);
 
-        this._innerSchedule(forceTimerUpdate);
-    },
+    const forceTimerUpdate = asSoonAsPossible && !this._asSoonAsPossible;
+    this._asSoonAsPossible = this._asSoonAsPossible || asSoonAsPossible;
 
-    /**
-     * @param {boolean} forceTimerUpdate
-     */
-    _innerSchedule: function(forceTimerUpdate)
-    {
-        if (this._isRunningProcess)
-            return;
-        if (this._processTimeout && !forceTimerUpdate)
-            return;
-        if (this._processTimeout)
-            this._clearTimeout(this._processTimeout);
+    this._innerSchedule(forceTimerUpdate);
 
-        var timeout = this._asSoonAsPossible ? 0 : this._timeout;
-        this._processTimeout = this._setTimeout(this._onTimeout.bind(this), timeout);
-    },
+    return this._schedulePromise;
+  }
 
-    /**
-     *  @param {number} timeoutId
-     */
-    _clearTimeout: function(timeoutId)
-    {
-        clearTimeout(timeoutId);
-    },
+  /**
+   * @param {boolean} forceTimerUpdate
+   */
+  _innerSchedule(forceTimerUpdate) {
+    if (this._isRunningProcess)
+      return;
+    if (this._processTimeout && !forceTimerUpdate)
+      return;
+    if (this._processTimeout)
+      this._clearTimeout(this._processTimeout);
 
-    /**
-     * @param {function()} operation
-     * @param {number} timeout
-     * @return {number}
-     */
-    _setTimeout: function(operation, timeout)
-    {
-        return setTimeout(operation, timeout);
-    }
-}
+    const timeout = this._asSoonAsPossible ? 0 : this._timeout;
+    this._processTimeout = this._setTimeout(this._onTimeout.bind(this), timeout);
+  }
+
+  /**
+   *  @param {number} timeoutId
+   */
+  _clearTimeout(timeoutId) {
+    clearTimeout(timeoutId);
+  }
+
+  /**
+   * @param {function()} operation
+   * @param {number} timeout
+   * @return {number}
+   */
+  _setTimeout(operation, timeout) {
+    return setTimeout(operation, timeout);
+  }
+
+  /**
+   * @return {number}
+   */
+  _getTime() {
+    return window.performance.now();
+  }
+};
 
 /** @typedef {function(!Error=)} */
-WebInspector.Throttler.FinishCallback;
+Common.Throttler.FinishCallback;

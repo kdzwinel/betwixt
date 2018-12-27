@@ -1,55 +1,88 @@
 {
     "extensions": [
         {
-            "type": "@WebInspector.AppProvider",
-            "condition": "can_dock",
-            "className": "WebInspector.AdvancedAppProvider",
-            "order": 0
-        },
-        {
-            "type": "@WebInspector.AppProvider",
-            "className": "WebInspector.SimpleAppProvider",
+            "type": "@Common.AppProvider",
+            "className": "Main.SimpleAppProvider",
             "order": 10
         },
         {
-            "type": "@WebInspector.ContextMenu.Provider",
-            "contextTypes": ["WebInspector.UISourceCode", "WebInspector.Resource", "WebInspector.NetworkRequest", "Node"],
-            "className": "WebInspector.HandlerRegistry.ContextMenuProvider"
+            "type": "@UI.ContextMenu.Provider",
+            "contextTypes": [
+                "Workspace.UISourceCode",
+                "SDK.Resource",
+                "SDK.NetworkRequest"
+            ],
+            "className": "Components.Linkifier.ContentProviderContextMenuProvider"
         },
         {
-            "type": "@WebInspector.ActionDelegate",
-            "actionId": "main.reload",
-            "className": "WebInspector.Main.ReloadActionDelegate",
+            "type": "@UI.ContextMenu.Provider",
+            "contextTypes": [
+                "Node"
+            ],
+            "className": "UI.XLink.ContextMenuProvider"
+        },
+        {
+            "type": "@UI.ContextMenu.Provider",
+            "contextTypes": [
+                "Node"
+            ],
+            "className": "Components.Linkifier.LinkContextMenuProvider"
+        },
+        {
+            "type": "action",
+            "category": "Drawer",
+            "actionId": "inspector_main.focus-debuggee",
+            "className": "InspectorMain.FocusDebuggeeActionDelegate",
+            "order": 100,
+            "title": "Focus debuggee"
+        },
+        {
+            "type": "action",
+            "category": "Drawer",
+            "actionId": "main.toggle-drawer",
+            "className": "UI.InspectorView.ActionDelegate",
+            "order": 101,
+            "title": "Toggle drawer",
             "bindings": [
                 {
-                    "platform": "windows,linux",
-                    "shortcut": "F5 Ctrl+R"
-                },
-                {
-                    "platform": "mac",
-                    "shortcut": "Meta+R"
+                    "shortcut": "Esc"
                 }
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
-            "actionId": "main.hard-reload",
-            "className": "WebInspector.Main.ReloadActionDelegate",
+            "type": "action",
+            "actionId": "main.next-tab",
+            "className": "UI.InspectorView.ActionDelegate",
             "bindings": [
                 {
                     "platform": "windows,linux",
-                    "shortcut": "Shift+F5 Ctrl+F5 Ctrl+Shift+F5 Shift+Ctrl+R"
+                    "shortcut": "Ctrl+]"
                 },
                 {
                     "platform": "mac",
-                    "shortcut": "Shift+Meta+R"
+                    "shortcut": "Meta+]"
                 }
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
+            "actionId": "main.previous-tab",
+            "className": "UI.InspectorView.ActionDelegate",
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Ctrl+["
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+["
+                }
+            ]
+        },
+        {
+            "type": "action",
             "actionId": "main.debug-reload",
-            "className": "WebInspector.Main.ReloadActionDelegate",
+            "className": "Main.ReloadActionDelegate",
             "bindings": [
                 {
                     "shortcut": "Alt+R"
@@ -57,9 +90,11 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
+            "category": "DevTools",
+            "title": "Restore last dock position",
             "actionId": "main.toggle-dock",
-            "className": "WebInspector.DockController.ToggleDockActionDelegate",
+            "className": "Components.DockController.ToggleDockActionDelegate",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -72,9 +107,9 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "main.zoom-in",
-            "className": "WebInspector.Main.ZoomActionDelegate",
+            "className": "Main.Main.ZoomActionDelegate",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -87,9 +122,9 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "main.zoom-out",
-            "className": "WebInspector.Main.ZoomActionDelegate",
+            "className": "Main.Main.ZoomActionDelegate",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -102,9 +137,9 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "main.zoom-reset",
-            "className": "WebInspector.Main.ZoomActionDelegate",
+            "className": "Main.Main.ZoomActionDelegate",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -117,9 +152,9 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "main.search-in-panel.find",
-            "className": "WebInspector.Main.SearchActionDelegate",
+            "className": "Main.Main.SearchActionDelegate",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -132,9 +167,9 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "main.search-in-panel.cancel",
-            "className": "WebInspector.Main.SearchActionDelegate",
+            "className": "Main.Main.SearchActionDelegate",
             "order": 10,
             "bindings": [
                 {
@@ -143,9 +178,9 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "main.search-in-panel.find-next",
-            "className": "WebInspector.Main.SearchActionDelegate",
+            "className": "Main.Main.SearchActionDelegate",
             "bindings": [
                 {
                     "platform": "mac",
@@ -154,9 +189,9 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "action",
             "actionId": "main.search-in-panel.find-previous",
-            "className": "WebInspector.Main.SearchActionDelegate",
+            "className": "Main.Main.SearchActionDelegate",
             "bindings": [
                 {
                     "platform": "mac",
@@ -165,63 +200,49 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
-            "actionId": "main.inspect-devices",
-            "title": "Inspect devices\u2026",
-            "className": "WebInspector.Main.InspectDevicesActionDelegate",
-            "experiment": "!inspectDevicesDialog"
-        },
-        {
-            "type": "@WebInspector.ActionDelegate",
-            "actionId": "main.show-rendering-options",
-            "title": "Rendering settings",
-            "className": "WebInspector.RenderingOptionsView.ShowActionDelegate"
-        },
-        {
-            "type": "@WebInspector.ToolbarItem.Provider",
+            "type": "@UI.ToolbarItem.Provider",
             "separator": true,
             "location": "main-toolbar-left",
             "order": 100
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.Main.WarningErrorCounter",
-            "order": 1,
-            "location": "main-toolbar-right"
-        },
-        {
-            "type": "@WebInspector.ToolbarItem.Provider",
+            "type": "@UI.ToolbarItem.Provider",
             "separator": true,
             "order": 98,
             "location": "main-toolbar-right"
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.DockController.CloseButtonProvider",
+            "type": "@UI.ToolbarItem.Provider",
+            "className": "Main.Main.MainMenuItem",
+            "order": 99,
+            "location": "main-toolbar-right"
+        },
+        {
+            "type": "@UI.ToolbarItem.Provider",
+            "className": "Components.DockController.CloseButtonProvider",
             "order": 100,
             "location": "main-toolbar-right"
         },
         {
             "type": "setting",
-            "category": "",
-            "title": "Disable cache (while DevTools is open)",
-            "settingName": "cacheDisabled",
-            "settingType": "boolean",
-            "defaultValue": false
-        },
-        {
-            "type": "setting",
-            "settingName": "networkConditions",
-            "settingType": "object",
-            "defaultValue": { "throughput": -1, "latency": 0 }
-        },
-        {
-            "type": "setting",
-            "category": "",
-            "title": "Disable JavaScript",
-            "settingName": "javaScriptDisabled",
-            "settingType": "boolean",
-            "defaultValue": false
+            "category": "Appearance",
+            "title": "Theme:",
+            "settingName": "uiTheme",
+            "settingType": "enum",
+            "defaultValue": "default",
+            "options": [
+                {
+                    "title": "Switch to light theme",
+                    "text": "Light",
+                    "value": "default"
+                },
+                {
+                    "title": "Switch to dark theme",
+                    "text": "Dark",
+                    "value": "dark"
+                }
+            ],
+            "tags": "dark, light"
         },
         {
             "type": "setting",
@@ -231,76 +252,78 @@
             "settingType": "enum",
             "defaultValue": "auto",
             "options": [
-                ["horizontal", "bottom"],
-                ["vertical", "right"],
-                ["auto", "auto"]
+                {
+                    "title": "Use horizontal panel layout",
+                    "text": "horizontal",
+                    "value": "bottom"
+                },
+                {
+                    "title": "Use vertical panel layout",
+                    "text": "vertical",
+                    "value": "right"
+                },
+                {
+                    "title": "Use automatic panel layout",
+                    "text": "auto",
+                    "value": "auto"
+                }
             ]
         },
         {
             "type": "setting",
             "category": "Appearance",
             "title": "Enable Ctrl + 1-9 shortcut to switch panels",
-            "title-mac": "Enable Cmd + 1-9 shortcut to switch panels",
+            "title-mac": "Enable \u2318 + 1-9 shortcut to switch panels",
             "settingName": "shortcutPanelSwitch",
             "settingType": "boolean",
             "defaultValue": false
         },
         {
-            "type": "setting",
-            "category": "Appearance",
-            "title": "Don't show emulation warnings",
-            "settingName": "disableOverridesWarning",
-            "settingType": "boolean",
-            "defaultValue": false
-        },
-        {
-            "type": "setting",
-            "category": "Appearance",
-            "title": "Don't show Chrome Data Saver warning",
-            "settingName": "disableDataSaverInfobar",
-            "settingType": "boolean",
-            "defaultValue": false
-        },
-        {
-            "type": "setting",
-            "category": "Appearance",
-            "title": "Disable paused state overlay",
-            "settingName": "disablePausedStateOverlay",
-            "settingType": "boolean",
-            "defaultValue": false
-        },
-        {
-            "type": "@WebInspector.SettingUI",
+            "type": "@UI.SettingUI",
             "category": "Extensions",
-            "className": "WebInspector.HandlerRegistry.OpenAnchorLocationSettingUI"
+            "className": "Components.Linkifier.LinkHandlerSettingUI"
         },
         {
-            "type": "context-menu-item",
-            "location": "mainMenu/tools/open",
-            "order": 50,
-            "actionId": "main.inspect-devices",
-            "experiment": "!inspectDevicesDialog"
+            "type": "setting",
+            "category": "DevTools",
+            "settingName": "currentDockState",
+            "settingType": "enum",
+            "defaultValue": "right",
+            "options": [
+                {
+                    "value": "right",
+                    "text": "Right",
+                    "title": "Dock to right"
+                },
+                {
+                    "value": "bottom",
+                    "text": "Bottom",
+                    "title": "Dock to bottom"
+                },
+                {
+                    "value": "undocked",
+                    "text": "Undocked",
+                    "title": "Undock into separate window"
+                }
+            ]
         },
         {
-            "type": "context-menu-item",
-            "location": "mainMenu/navigate",
-            "title": "More tools",
-            "subMenuId": "mainMenu/tools",
-            "order": 80
+            "type": "@UI.ViewLocationResolver",
+            "name": "drawer-view",
+            "category": "Drawer",
+            "className": "UI.InspectorView"
         },
         {
-            "type": "context-menu-item",
-            "location": "mainMenu/tools/open",
-            "order": 80,
-            "actionId": "main.show-rendering-options"
+            "type": "@UI.ViewLocationResolver",
+            "name": "drawer-sidebar",
+            "category": "Drawer sidebar",
+            "className": "UI.InspectorView"
         },
         {
-            "type": "drawer-view",
-            "name": "rendering",
-            "title": "Rendering",
-            "persistence": "closeable",
-            "order": 50,
-            "className": "WebInspector.RenderingOptionsView"
+            "type": "@UI.ViewLocationResolver",
+            "name": "panel",
+            "category": "Panel",
+            "className": "UI.InspectorView"
         }
     ],
     "dependencies": [
@@ -308,23 +331,11 @@
         "host",
         "platform",
         "sdk",
-        "emulation"
+        "persistence"
     ],
     "scripts": [
-        "AdvancedApp.js",
-        "FrontendWebSocketAPI.js",
-        "RenderingOptions.js",
         "SimpleApp.js",
-        "Tests.js",
-        "OverlayController.js",
+        "ExecutionContextSelector.js",
         "Main.js"
-    ],
-    "skip_compilation": [
-        "Tests.js"
-    ],
-    "resources": [
-        "remoteDebuggingTerminatedScreen.css",
-        "renderingOptions.css",
-        "targetCrashedScreen.css"
     ]
 }

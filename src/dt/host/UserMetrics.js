@@ -29,67 +29,95 @@
  */
 
 /**
- * @constructor
+ * @unrestricted
  */
-WebInspector.UserMetrics = function()
-{
-}
+Host.UserMetrics = class {
+  /**
+   * @param {string} panelName
+   */
+  panelShown(panelName) {
+    const code = Host.UserMetrics._PanelCodes[panelName] || 0;
+    const size = Object.keys(Host.UserMetrics._PanelCodes).length + 1;
+    InspectorFrontendHost.recordEnumeratedHistogram('DevTools.PanelShown', code, size);
+  }
+
+  /**
+   * @param {string} drawerId
+   */
+  drawerShown(drawerId) {
+    this.panelShown('drawer-' + drawerId);
+  }
+
+  /**
+   * @param {!Host.UserMetrics.Action} action
+   */
+  actionTaken(action) {
+    const size = Object.keys(Host.UserMetrics.Action).length + 1;
+    InspectorFrontendHost.recordEnumeratedHistogram('DevTools.ActionTaken', action, size);
+  }
+};
 
 // Codes below are used to collect UMA histograms in the Chromium port.
 // Do not change the values below, additional actions are needed on the Chromium side
 // in order to add more codes.
 
 /** @enum {number} */
-WebInspector.UserMetrics.Action = {
-    WindowDocked: 1,
-    WindowUndocked: 2,
-    ScriptsBreakpointSet: 3,
-    TimelineStarted: 4,
-    ProfilesCPUProfileTaken: 5,
-    ProfilesHeapProfileTaken: 6,
-    AuditsStarted: 7,
-    ConsoleEvaluated: 8,
-    FileSavedInWorkspace: 9,
-    DeviceModeEnabled: 10,
-    AnimationsPlaybackRateChanged: 11,
-    RevisionApplied: 12,
-    FileSystemDirectoryContentReceived: 13,
-    StyleRuleEdited: 14,
-    CommandEvaluatedInConsolePanel: 15
-}
+Host.UserMetrics.Action = {
+  WindowDocked: 1,
+  WindowUndocked: 2,
+  ScriptsBreakpointSet: 3,
+  TimelineStarted: 4,
+  ProfilesCPUProfileTaken: 5,
+  ProfilesHeapProfileTaken: 6,
+  AuditsStarted: 7,
+  ConsoleEvaluated: 8,
+  FileSavedInWorkspace: 9,
+  DeviceModeEnabled: 10,
+  AnimationsPlaybackRateChanged: 11,
+  RevisionApplied: 12,
+  FileSystemDirectoryContentReceived: 13,
+  StyleRuleEdited: 14,
+  CommandEvaluatedInConsolePanel: 15,
+  DOMPropertiesExpanded: 16,
+  ResizedViewInResponsiveMode: 17,
+  TimelinePageReloadStarted: 18,
+  ConnectToNodeJSFromFrontend: 19,
+  ConnectToNodeJSDirectly: 20,
+  CpuThrottlingEnabled: 21,
+  CpuProfileNodeFocused: 22,
+  CpuProfileNodeExcluded: 23,
+  SelectFileFromFilePicker: 24,
+  SelectCommandFromCommandMenu: 25,
+  ChangeInspectedNodeInElementsPanel: 26,
+  StyleRuleCopied: 27,
+  CoverageStarted: 28,
+  Audits2Started: 29,
+  Audits2Finished: 30,
+  ShowedThirdPartyBadges: 31,
+  Audits2ViewTrace: 32,
+  FilmStripStartedRecording: 33,
+};
 
-WebInspector.UserMetrics._PanelCodes = {
-    elements: 1,
-    resources: 2,
-    network: 3,
-    sources: 4,
-    timeline: 5,
-    profiles: 6,
-    audits: 7,
-    console: 8,
-    layers: 9
-}
+Host.UserMetrics._PanelCodes = {
+  elements: 1,
+  resources: 2,
+  network: 3,
+  sources: 4,
+  timeline: 5,
+  heap_profiler: 6,
+  audits: 7,
+  console: 8,
+  layers: 9,
+  'drawer-console-view': 10,
+  'drawer-animations': 11,
+  'drawer-network.config': 12,
+  'drawer-rendering': 13,
+  'drawer-sensors': 14,
+  'drawer-sources.search': 15,
+  security: 16,
+  js_profiler: 17,
+  audits2: 18,
+};
 
-WebInspector.UserMetrics.prototype = {
-    /**
-     * @param {string} panelName
-     */
-    panelShown: function(panelName)
-    {
-        var code = WebInspector.UserMetrics._PanelCodes[panelName] || 0;
-        var size = Object.keys(WebInspector.UserMetrics._PanelCodes).length + 1;
-        InspectorFrontendHost.recordEnumeratedHistogram("DevTools.PanelShown", code, size);
-    },
-
-    /**
-     * @param {!WebInspector.UserMetrics.Action} action
-     */
-    actionTaken: function(action)
-    {
-        var size = Object.keys(WebInspector.UserMetrics.Action).length + 1;
-        InspectorFrontendHost.recordEnumeratedHistogram("DevTools.ActionTaken", action, size);
-    }
-}
-
-/** @type {!WebInspector.UserMetrics} */
-WebInspector.userMetrics = new WebInspector.UserMetrics();
+/** @type {!Host.UserMetrics} */
+Host.userMetrics = new Host.UserMetrics();

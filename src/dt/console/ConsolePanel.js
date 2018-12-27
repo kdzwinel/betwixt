@@ -27,166 +27,105 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.Panel}
+ * @unrestricted
  */
-WebInspector.ConsolePanel = function()
-{
-    WebInspector.Panel.call(this, "console");
-    this._view = WebInspector.ConsolePanel._view();
-}
+Console.ConsolePanel = class extends UI.Panel {
+  constructor() {
+    super('console');
+    this._view = Console.ConsoleView.instance();
+  }
+
+  /**
+   * @return {!Console.ConsolePanel}
+   */
+  static instance() {
+    return /** @type {!Console.ConsolePanel} */ (self.runtime.sharedInstance(Console.ConsolePanel));
+  }
+
+  /**
+   * @override
+   */
+  wasShown() {
+    super.wasShown();
+    const wrapper = Console.ConsolePanel.WrapperView._instance;
+    if (wrapper && wrapper.isShowing())
+      UI.inspectorView.setDrawerMinimized(true);
+    this._view.show(this.element);
+  }
+
+  /**
+   * @override
+   */
+  willHide() {
+    super.willHide();
+    // The minimized drawer has 0 height, and showing Console inside may set
+    // Console's scrollTop to 0. Unminimize before calling show to avoid this.
+    UI.inspectorView.setDrawerMinimized(false);
+    if (Console.ConsolePanel.WrapperView._instance)
+      Console.ConsolePanel.WrapperView._instance._showViewInWrapper();
+  }
+
+  /**
+   * @override
+   * @return {?UI.SearchableView}
+   */
+  searchableView() {
+    return Console.ConsoleView.instance().searchableView();
+  }
+};
 
 /**
- * @return {!WebInspector.ConsoleView}
+ * @unrestricted
  */
-WebInspector.ConsolePanel._view = function()
-{
-    if (!WebInspector.ConsolePanel._consoleView)
-        WebInspector.ConsolePanel._consoleView = new WebInspector.ConsoleView();
+Console.ConsolePanel.WrapperView = class extends UI.VBox {
+  constructor() {
+    super();
+    this.element.classList.add('console-view-wrapper');
 
-    return WebInspector.ConsolePanel._consoleView;
-}
+    Console.ConsolePanel.WrapperView._instance = this;
 
-WebInspector.ConsolePanel.prototype = {
-    /**
-     * @override
-     * @return {!Element}
-     */
-    defaultFocusedElement: function()
-    {
-        return this._view.defaultFocusedElement();
-    },
+    this._view = Console.ConsoleView.instance();
+  }
 
-    /**
-     * @override
-     */
-    wasShown: function()
-    {
-        WebInspector.Panel.prototype.wasShown.call(this);
-        this._view.show(this.element);
-    },
+  /**
+   * @override
+   */
+  wasShown() {
+    if (!Console.ConsolePanel.instance().isShowing())
+      this._showViewInWrapper();
+    else
+      UI.inspectorView.setDrawerMinimized(true);
+  }
 
-    /**
-     * @override
-     */
-    willHide: function()
-    {
-        WebInspector.Panel.prototype.willHide.call(this);
-        if (WebInspector.ConsolePanel.WrapperView._instance)
-            WebInspector.ConsolePanel.WrapperView._instance._showViewInWrapper();
-    },
+  /**
+   * @override
+   */
+  willHide() {
+    UI.inspectorView.setDrawerMinimized(false);
+  }
 
-    /**
-     * @override
-     * @return {?WebInspector.SearchableView}
-     */
-    searchableView: function()
-    {
-        return WebInspector.ConsolePanel._view().searchableView();
-    },
-
-    __proto__: WebInspector.Panel.prototype
-}
+  _showViewInWrapper() {
+    this._view.show(this.element);
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.VBox}
+ * @implements {Common.Revealer}
+ * @unrestricted
  */
-WebInspector.ConsolePanel.WrapperView = function()
-{
-    WebInspector.VBox.call(this);
-    this.element.classList.add("console-view-wrapper");
-
-    WebInspector.ConsolePanel.WrapperView._instance = this;
-
-    this._view = WebInspector.ConsolePanel._view();
-}
-
-WebInspector.ConsolePanel.WrapperView.prototype = {
-    wasShown: function()
-    {
-        if (!WebInspector.inspectorView.currentPanel() || WebInspector.inspectorView.currentPanel().name !== "console")
-            this._showViewInWrapper();
-    },
-
-    /**
-     * @override
-     * @return {!Element}
-     */
-    defaultFocusedElement: function()
-    {
-        return this._view.defaultFocusedElement();
-    },
-
-    focus: function()
-    {
-        this._view.focus();
-    },
-
-    _showViewInWrapper: function()
-    {
-        this._view.show(this.element);
-    },
-
-    __proto__: WebInspector.VBox.prototype
-}
-
-/**
- * @constructor
- * @implements {WebInspector.Revealer}
- */
-WebInspector.ConsolePanel.ConsoleRevealer = function()
-{
-}
-
-WebInspector.ConsolePanel.ConsoleRevealer.prototype = {
-    /**
-     * @override
-     * @param {!Object} object
-     * @return {!Promise}
-     */
-    reveal: function(object)
-    {
-        var consoleView = WebInspector.ConsolePanel._view();
-        if (consoleView.isShowing()) {
-            consoleView.focus();
-            return Promise.resolve();
-        }
-        WebInspector.inspectorView.showViewInDrawer("console");
-        return Promise.resolve();
+Console.ConsolePanel.ConsoleRevealer = class {
+  /**
+   * @override
+   * @param {!Object} object
+   * @return {!Promise}
+   */
+  reveal(object) {
+    const consoleView = Console.ConsoleView.instance();
+    if (consoleView.isShowing()) {
+      consoleView.focus();
+      return Promise.resolve();
     }
-}
-
-WebInspector.ConsolePanel.show = function()
-{
-    WebInspector.inspectorView.setCurrentPanel(WebInspector.ConsolePanel._instance());
-}
-
-/**
- * @return {!WebInspector.ConsolePanel}
- */
-WebInspector.ConsolePanel._instance = function()
-{
-    if (!WebInspector.ConsolePanel._instanceObject)
-        WebInspector.ConsolePanel._instanceObject = new WebInspector.ConsolePanel();
-    return WebInspector.ConsolePanel._instanceObject;
-}
-
-/**
- * @constructor
- * @implements {WebInspector.PanelFactory}
- */
-WebInspector.ConsolePanelFactory = function()
-{
-}
-
-WebInspector.ConsolePanelFactory.prototype = {
-    /**
-     * @override
-     * @return {!WebInspector.Panel}
-     */
-    createPanel: function()
-    {
-        return WebInspector.ConsolePanel._instance();
-    }
-}
+    UI.viewManager.showView('console-view');
+    return Promise.resolve();
+  }
+};

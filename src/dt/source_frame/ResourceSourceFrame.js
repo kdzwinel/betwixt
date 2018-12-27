@@ -28,34 +28,81 @@
  */
 
 /**
- * @extends {WebInspector.SourceFrame}
- * @constructor
- * @param {!WebInspector.ContentProvider} resource
+ * @unrestricted
  */
-WebInspector.ResourceSourceFrame = function(resource)
-{
+SourceFrame.ResourceSourceFrame = class extends SourceFrame.SourceFrame {
+  /**
+   * @param {!Common.ContentProvider} resource
+   * @param {boolean=} autoPrettyPrint
+   */
+  constructor(resource, autoPrettyPrint) {
+    super(async () => {
+      let content = await resource.requestContent();
+      if (await resource.contentEncoded())
+        content = window.atob(content);
+      return content;
+    });
     this._resource = resource;
-    WebInspector.SourceFrame.call(this, resource);
-}
+    this.setCanPrettyPrint(this._resource.contentType().isDocumentOrScriptOrStyleSheet(), autoPrettyPrint);
+  }
 
-WebInspector.ResourceSourceFrame.prototype = {
-    get resource()
-    {
-        return this._resource;
-    },
+  /**
+   * @param {!Common.ContentProvider} resource
+   * @param {string} highlighterType
+   * @param {boolean=} autoPrettyPrint
+   * @return {!UI.Widget}
+   */
+  static createSearchableView(resource, highlighterType, autoPrettyPrint) {
+    return new SourceFrame.ResourceSourceFrame.SearchableContainer(resource, highlighterType, autoPrettyPrint);
+  }
 
-    /**
-     * @override
-     * @param {!WebInspector.ContextMenu} contextMenu
-     * @param {number} lineNumber
-     * @param {number} columnNumber
-     * @return {!Promise}
-     */
-    populateTextAreaContextMenu: function(contextMenu, lineNumber, columnNumber)
-    {
-        contextMenu.appendApplicableItems(this._resource);
-        return Promise.resolve();
-    },
+  get resource() {
+    return this._resource;
+  }
 
-    __proto__: WebInspector.SourceFrame.prototype
-}
+  /**
+   * @override
+   * @param {!UI.ContextMenu} contextMenu
+   * @param {number} lineNumber
+   * @param {number} columnNumber
+   * @return {!Promise}
+   */
+  populateTextAreaContextMenu(contextMenu, lineNumber, columnNumber) {
+    contextMenu.appendApplicableItems(this._resource);
+    return Promise.resolve();
+  }
+};
+
+SourceFrame.ResourceSourceFrame.SearchableContainer = class extends UI.VBox {
+  /**
+   * @param {!Common.ContentProvider} resource
+   * @param {string} highlighterType
+   * @param {boolean=} autoPrettyPrint
+   * @return {!UI.Widget}
+   */
+  constructor(resource, highlighterType, autoPrettyPrint) {
+    super(true);
+    this.registerRequiredCSS('source_frame/resourceSourceFrame.css');
+    const sourceFrame = new SourceFrame.ResourceSourceFrame(resource, autoPrettyPrint);
+    this._sourceFrame = sourceFrame;
+    sourceFrame.setHighlighterType(highlighterType);
+    const searchableView = new UI.SearchableView(sourceFrame);
+    searchableView.element.classList.add('searchable-view');
+    searchableView.setPlaceholder(ls`Find`);
+    sourceFrame.show(searchableView.element);
+    sourceFrame.setSearchableView(searchableView);
+    searchableView.show(this.contentElement);
+
+    const toolbar = new UI.Toolbar('toolbar', this.contentElement);
+    for (const item of sourceFrame.syncToolbarItems())
+      toolbar.appendToolbarItem(item);
+  }
+
+  /**
+   * @param {number} lineNumber
+   * @param {number=} columnNumber
+   */
+  async revealPosition(lineNumber, columnNumber) {
+    this._sourceFrame.revealPosition(lineNumber, columnNumber, true);
+  }
+};

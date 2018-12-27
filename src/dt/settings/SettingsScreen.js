@@ -27,549 +27,331 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
- * @constructor
- * @extends {WebInspector.VBox}
+ * @implements {UI.ViewLocationResolver}
+ * @unrestricted
  */
-WebInspector.SettingsScreen = function()
-{
-    WebInspector.VBox.call(this, true);
-    this.registerRequiredCSS("settings/settingsScreen.css");
-    this.element.id = "settings-screen";
+Settings.SettingsScreen = class extends UI.VBox {
+  constructor() {
+    super(true);
+    this.registerRequiredCSS('settings/settingsScreen.css');
 
     this.contentElement.tabIndex = 0;
-    this.contentElement.classList.add("help-window-main");
-    this.contentElement.classList.add("vbox");
-    var settingsLabelElement = createElementWithClass("div", "help-window-label");
-    settingsLabelElement.createTextChild(WebInspector.UIString("Settings"));
+    this.contentElement.classList.add('settings-window-main');
+    this.contentElement.classList.add('vbox');
 
-    this._tabbedPane = new WebInspector.TabbedPane();
-    this._tabbedPane.insertBeforeTabStrip(settingsLabelElement);
-    this._tabbedPane.setShrinkableTabs(false);
-    this._tabbedPane.setVerticalTabLayout(true);
-    this._tabbedPane.appendTab("general", WebInspector.UIString("General"), new WebInspector.GenericSettingsTab());
-    this._tabbedPane.appendTab("workspace", WebInspector.UIString("Workspace"), new WebInspector.WorkspaceSettingsTab());
-    this._tabbedPane.appendTab("blackbox", WebInspector.manageBlackboxingSettingsTabLabel(), new WebInspector.FrameworkBlackboxSettingsTab());
-    if (Runtime.experiments.supportEnabled())
-        this._tabbedPane.appendTab("experiments", WebInspector.UIString("Experiments"), new WebInspector.ExperimentsSettingsTab());
-    this._tabbedPaneController = new WebInspector.ExtensibleTabbedPaneController(this._tabbedPane, "settings-view");
-    this._tabbedPane.appendTab("shortcuts", WebInspector.UIString("Shortcuts"), WebInspector.shortcutsScreen.createShortcutsTabView());
+    const settingsLabelElement = createElement('div');
+    UI.createShadowRootWithCoreStyles(settingsLabelElement, 'settings/settingsScreen.css')
+        .createChild('div', 'settings-window-title')
+        .textContent = Common.UIString('Settings');
 
-    this.element.addEventListener("keydown", this._keyDown.bind(this), false);
+    this._tabbedLocation =
+        UI.viewManager.createTabbedLocation(() => Settings.SettingsScreen._showSettingsScreen(), 'settings-view');
+    const tabbedPane = this._tabbedLocation.tabbedPane();
+    tabbedPane.leftToolbar().appendToolbarItem(new UI.ToolbarItem(settingsLabelElement));
+    tabbedPane.setShrinkableTabs(false);
+    tabbedPane.makeVerticalTabLayout();
+    const shortcutsView = new UI.SimpleView(Common.UIString('Shortcuts'));
+    UI.shortcutsScreen.createShortcutsTabView().show(shortcutsView.element);
+    this._tabbedLocation.appendView(shortcutsView);
+    tabbedPane.show(this.contentElement);
+
+    this.element.addEventListener('keydown', this._keyDown.bind(this), false);
     this._developerModeCounter = 0;
     this.setDefaultFocusedElement(this.contentElement);
-}
+  }
 
-WebInspector.SettingsScreen.prototype = {
-    /**
-     * @override
-     */
-    wasShown: function()
-    {
-        this._tabbedPane.selectTab("general");
-        this._tabbedPane.show(this.contentElement);
-        WebInspector.VBox.prototype.wasShown.call(this);
-    },
+  /**
+   * @param {string=} name
+   */
+  static _showSettingsScreen(name) {
+    const settingsScreen =
+        /** @type {!Settings.SettingsScreen} */ (self.runtime.sharedInstance(Settings.SettingsScreen));
+    if (settingsScreen.isShowing())
+      return;
+    const dialog = new UI.Dialog();
+    dialog.addCloseButton();
+    settingsScreen.show(dialog.contentElement);
+    dialog.show();
+    settingsScreen._selectTab(name || 'preferences');
+  }
 
-    /**
-     * @param {string} name
-     */
-    selectTab: function(name)
-    {
-        this._tabbedPane.selectTab(name);
-    },
+  /**
+   * @override
+   * @param {string} locationName
+   * @return {?UI.ViewLocation}
+   */
+  resolveLocation(locationName) {
+    return this._tabbedLocation;
+  }
 
-    /**
-     * @param {!Event} event
-     */
-    _keyDown: function(event)
-    {
-        var shiftKeyCode = 16;
-        if (event.keyCode === shiftKeyCode && ++this._developerModeCounter > 5)
-            this.contentElement.classList.add("settings-developer-mode");
-    },
+  /**
+   * @param {string} name
+   */
+  _selectTab(name) {
+    UI.viewManager.showView(name);
+  }
 
-    __proto__: WebInspector.VBox.prototype
-}
+  /**
+   * @param {!Event} event
+   */
+  _keyDown(event) {
+    const shiftKeyCode = 16;
+    if (event.keyCode === shiftKeyCode && ++this._developerModeCounter > 5)
+      this.contentElement.classList.add('settings-developer-mode');
+  }
+};
+
 
 /**
- * @constructor
- * @extends {WebInspector.VBox}
- * @param {string} name
- * @param {string=} id
+ * @unrestricted
  */
-WebInspector.SettingsTab = function(name, id)
-{
-    WebInspector.VBox.call(this);
-    this.element.classList.add("settings-tab-container");
+Settings.SettingsTab = class extends UI.VBox {
+  /**
+   * @param {string} name
+   * @param {string=} id
+   */
+  constructor(name, id) {
+    super();
+    this.element.classList.add('settings-tab-container');
     if (id)
-        this.element.id = id;
-    var header = this.element.createChild("header");
-    header.createChild("h3").createTextChild(name);
-    this.containerElement = this.element.createChild("div", "help-container-wrapper").createChild("div", "settings-tab help-content help-container");
-}
+      this.element.id = id;
+    const header = this.element.createChild('header');
+    header.createChild('h3').createTextChild(name);
+    this.containerElement = this.element.createChild('div', 'settings-container-wrapper')
+                                .createChild('div', 'settings-tab settings-content settings-container');
+  }
 
-WebInspector.SettingsTab.prototype = {
-    /**
-     *  @param {string=} name
-     *  @return {!Element}
-     */
-    _appendSection: function(name)
-    {
-        var block = this.containerElement.createChild("div", "help-block");
-        if (name)
-            block.createChild("div", "help-section-title").textContent = name;
-        return block;
-    },
-
-    _createSelectSetting: function(name, options, setting)
-    {
-        var p = createElement("p");
-        p.createChild("label").textContent = name;
-
-        var select = p.createChild("select", "chrome-select");
-        var settingValue = setting.get();
-
-        for (var i = 0; i < options.length; ++i) {
-            var option = options[i];
-            select.add(new Option(option[0], option[1]));
-            if (settingValue === option[1])
-                select.selectedIndex = i;
-        }
-
-        function changeListener(e)
-        {
-            // Don't use e.target.value to avoid conversion of the value to string.
-            setting.set(options[select.selectedIndex][1]);
-        }
-
-        select.addEventListener("change", changeListener, false);
-        return p;
-    },
-
-    __proto__: WebInspector.VBox.prototype
-}
+  /**
+   *  @param {string=} name
+   *  @return {!Element}
+   */
+  _appendSection(name) {
+    const block = this.containerElement.createChild('div', 'settings-block');
+    if (name)
+      block.createChild('div', 'settings-section-title').textContent = name;
+    return block;
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.SettingsTab}
+ * @unrestricted
  */
-WebInspector.GenericSettingsTab = function()
-{
-    WebInspector.SettingsTab.call(this, WebInspector.UIString("General"), "general-tab-content");
+Settings.GenericSettingsTab = class extends Settings.SettingsTab {
+  constructor() {
+    super(Common.UIString('Preferences'), 'preferences-tab-content');
 
     /** @const */
-    var explicitSectionOrder = ["", "Appearance", "Elements", "Sources", "Network", "Profiler", "Console", "Extensions"];
+    const explicitSectionOrder =
+        ['', 'Appearance', 'Sources', 'Elements', 'Network', 'Performance', 'Console', 'Extensions'];
     /** @type {!Map<string, !Element>} */
     this._nameToSection = new Map();
-    /** @type {!Map<string, !Element>} */
-    this._nameToSettingElement = new Map();
-    for (var sectionName of explicitSectionOrder)
-        this._sectionElement(sectionName);
-    self.runtime.extensions("setting").forEach(this._addSetting.bind(this));
-    self.runtime.extensions(WebInspector.SettingUI).forEach(this._addSettingUI.bind(this));
+    for (const sectionName of explicitSectionOrder)
+      this._sectionElement(sectionName);
+    self.runtime.extensions('setting').forEach(this._addSetting.bind(this));
+    self.runtime.extensions(UI.SettingUI).forEach(this._addSettingUI.bind(this));
 
-    this._appendSection().appendChild(createTextButton(WebInspector.UIString("Restore defaults and reload"), restoreAndReload));
+    this._appendSection().appendChild(
+        UI.createTextButton(Common.UIString('Restore defaults and reload'), restoreAndReload));
 
-    function restoreAndReload()
-    {
-        WebInspector.settings.clearAll();
-        WebInspector.reload();
+    function restoreAndReload() {
+      Common.settings.clearAll();
+      Components.reload();
     }
-}
+  }
 
-/**
- * @param {!Runtime.Extension} extension
- * @return {boolean}
- */
-WebInspector.GenericSettingsTab.isSettingVisible = function(extension)
-{
-    var descriptor = extension.descriptor();
-    if (!("title" in descriptor))
-        return false;
-    if (!(("category" in descriptor) || ("parentSettingName" in descriptor)))
-        return false;
+  /**
+   * @param {!Runtime.Extension} extension
+   * @return {boolean}
+   */
+  static isSettingVisible(extension) {
+    const descriptor = extension.descriptor();
+    if (!('title' in descriptor))
+      return false;
+    if (!('category' in descriptor))
+      return false;
     return true;
-}
+  }
 
-WebInspector.GenericSettingsTab.prototype = {
-    /**
-     * @param {!Runtime.Extension} extension
-     */
-    _addSetting: function(extension)
-    {
-        if (!WebInspector.GenericSettingsTab.isSettingVisible(extension))
-            return;
-        var descriptor = extension.descriptor();
-        var sectionName = descriptor["category"];
-        var settingName = descriptor["settingName"];
-        var setting = WebInspector.moduleSetting(settingName);
-        var uiTitle = WebInspector.UIString(extension.title(WebInspector.platform()));
+  /**
+   * @param {!Runtime.Extension} extension
+   */
+  _addSetting(extension) {
+    if (!Settings.GenericSettingsTab.isSettingVisible(extension))
+      return;
+    const sectionElement = this._sectionElement(extension.descriptor()['category']);
+    const setting = Common.moduleSetting(extension.descriptor()['settingName']);
+    const settingControl = UI.SettingsUI.createControlForSetting(setting);
+    if (settingControl)
+      sectionElement.appendChild(settingControl);
+  }
 
-        var sectionElement = this._sectionElement(sectionName);
-        var parentSettingName = descriptor["parentSettingName"];
-        var parentSettingElement = parentSettingName ? this._nameToSettingElement.get(descriptor["parentSettingName"]) : null;
-        var parentFieldset = null;
-        if (parentSettingElement) {
-            parentFieldset = parentSettingElement.__fieldset;
-            if (!parentFieldset) {
-                parentFieldset = WebInspector.SettingsUI.createSettingFieldset(WebInspector.moduleSetting(parentSettingName));
-                parentSettingElement.appendChild(parentFieldset);
-                parentSettingElement.__fieldset = parentFieldset;
-            }
-        }
-
-        var settingControl;
-
-        switch (descriptor["settingType"]) {
-        case "boolean":
-            settingControl = WebInspector.SettingsUI.createSettingCheckbox(uiTitle, setting);
-            break;
-        case "enum":
-            var descriptorOptions = descriptor["options"];
-            var options = new Array(descriptorOptions.length);
-            for (var i = 0; i < options.length; ++i) {
-                // The third array item flags that the option name is "raw" (non-i18n-izable).
-                var optionName = descriptorOptions[i][2] ? descriptorOptions[i][0] : WebInspector.UIString(descriptorOptions[i][0]);
-                options[i] = [optionName, descriptorOptions[i][1]];
-            }
-            settingControl = this._createSelectSetting(uiTitle, options, setting);
-            break;
-        default:
-            console.error("Invalid setting type: " + descriptor["settingType"]);
-            return;
-        }
-        this._nameToSettingElement.set(settingName, settingControl);
-        (parentFieldset || sectionElement).appendChild(/** @type {!Element} */ (settingControl));
-    },
+  /**
+   * @param {!Runtime.Extension} extension
+   */
+  _addSettingUI(extension) {
+    const descriptor = extension.descriptor();
+    const sectionName = descriptor['category'] || '';
+    extension.instance().then(appendCustomSetting.bind(this));
 
     /**
-     * @param {!Runtime.Extension} extension
-     */
-    _addSettingUI: function(extension)
-    {
-        var descriptor = extension.descriptor();
-        var sectionName = descriptor["category"] || "";
-        extension.instancePromise().then(appendCustomSetting.bind(this));
-
-        /**
-         * @param {!Object} object
-         * @this {WebInspector.GenericSettingsTab}
-         */
-        function appendCustomSetting(object)
-        {
-            var settingUI = /** @type {!WebInspector.SettingUI} */ (object);
-            var element = settingUI.settingElement();
-            if (element)
-                this._sectionElement(sectionName).appendChild(element);
-        }
-    },
-
-    /**
-     * @param {string} sectionName
-     * @return {!Element}
-     */
-    _sectionElement: function(sectionName)
-    {
-        var sectionElement = this._nameToSection.get(sectionName);
-        if (!sectionElement) {
-            var uiSectionName = sectionName && WebInspector.UIString(sectionName);
-            sectionElement = this._appendSection(uiSectionName);
-            this._nameToSection.set(sectionName, sectionElement);
-        }
-        return sectionElement;
-    },
-
-    __proto__: WebInspector.SettingsTab.prototype
-}
-
-/**
- * @constructor
- * @extends {WebInspector.SettingsTab}
- */
-WebInspector.WorkspaceSettingsTab = function()
-{
-    WebInspector.SettingsTab.call(this, WebInspector.UIString("Workspace"), "workspace-tab-content");
-    WebInspector.isolatedFileSystemManager.addEventListener(WebInspector.IsolatedFileSystemManager.Events.FileSystemAdded, this._fileSystemAdded, this);
-    WebInspector.isolatedFileSystemManager.addEventListener(WebInspector.IsolatedFileSystemManager.Events.FileSystemRemoved, this._fileSystemRemoved, this);
-
-    var folderExcludeSetting = WebInspector.isolatedFileSystemManager.workspaceFolderExcludePatternSetting();
-    var folderExcludePatternInput = WebInspector.SettingsUI.createSettingInputField(WebInspector.UIString("Folder exclude pattern"), folderExcludeSetting, false, 0, "270px", WebInspector.SettingsUI.regexValidator);
-    folderExcludePatternInput.classList.add("folder-exclude-pattern");
-    this.containerElement.appendChild(folderExcludePatternInput);
-
-    this._fileSystemsListContainer = this.containerElement.createChild("div", "");
-
-    this.containerElement.appendChild(createTextButton(WebInspector.UIString("Add folder\u2026"), this._addFileSystemClicked.bind(this)));
-
-    /** @type {!Map<string, !Element>} */
-    this._elementByPath = new Map();
-
-    /** @type {!Map<string, !WebInspector.EditFileSystemView>} */
-    this._mappingViewByPath = new Map();
-
-    var fileSystemPaths = WebInspector.isolatedFileSystemManager.fileSystemPaths();
-    for (var i = 0; i < fileSystemPaths.length; ++i)
-        this._addItem(/** @type {!WebInspector.IsolatedFileSystem} */ (WebInspector.isolatedFileSystemManager.fileSystem(fileSystemPaths[i])));
-}
-
-WebInspector.WorkspaceSettingsTab.prototype = {
-    /**
-     * @param {!WebInspector.IsolatedFileSystem} fileSystem
-     */
-    _addItem: function(fileSystem)
-    {
-        var element = this._renderFileSystem(fileSystem);
-        this._elementByPath.set(fileSystem.path(), element);
-
-        this._fileSystemsListContainer.appendChild(element);
-
-        var mappingView = new WebInspector.EditFileSystemView(fileSystem.path());
-        this._mappingViewByPath.set(fileSystem.path(), mappingView);
-        mappingView.element.classList.add("file-system-mapping-view");
-        mappingView.show(element);
-    },
-
-    /**
-     * @param {!WebInspector.IsolatedFileSystem} fileSystem
-     * @return {!Element}
-     */
-    _renderFileSystem: function(fileSystem)
-    {
-        var fileSystemPath = fileSystem.path();
-        var lastIndexOfSlash = fileSystemPath.lastIndexOf(WebInspector.isWin() ? "\\" : "/");
-        var folderName = fileSystemPath.substr(lastIndexOfSlash + 1);
-
-        var element = createElementWithClass("div", "file-system-container");
-        var header = element.createChild("div", "file-system-header");
-
-        header.createChild("div", "file-system-name").textContent = folderName;
-        var path = header.createChild("div", "file-system-path");
-        path.textContent = fileSystemPath;
-        path.title = fileSystemPath;
-
-        var toolbar = new WebInspector.Toolbar();
-        var button = new WebInspector.ToolbarButton(WebInspector.UIString("Remove"), "delete-toolbar-item");
-        button.addEventListener("click", this._removeFileSystemClicked.bind(this, fileSystem));
-        toolbar.appendToolbarItem(button);
-        header.appendChild(toolbar.element);
-
-        return element;
-    },
-
-    /**
-     * @param {!WebInspector.IsolatedFileSystem} fileSystem
-     */
-    _removeFileSystemClicked: function(fileSystem)
-    {
-        WebInspector.isolatedFileSystemManager.removeFileSystem(fileSystem.path());
-    },
-
-    _addFileSystemClicked: function()
-    {
-        WebInspector.isolatedFileSystemManager.addFileSystem("");
-    },
-
-    _fileSystemAdded: function(event)
-    {
-        var fileSystem = /** @type {!WebInspector.IsolatedFileSystem} */ (event.data);
-        this._addItem(fileSystem);
-    },
-
-    _fileSystemRemoved: function(event)
-    {
-        var fileSystem = /** @type {!WebInspector.IsolatedFileSystem} */ (event.data);
-
-        var mappingView = this._mappingViewByPath.get(fileSystem.path());
-        if (mappingView) {
-            mappingView.dispose();
-            this._mappingViewByPath.delete(fileSystem.path());
-        }
-
-        var element = this._elementByPath.get(fileSystem.path());
-        if (element) {
-            this._elementByPath.delete(fileSystem.path());
-            element.remove();
-        }
-    },
-
-    __proto__: WebInspector.SettingsTab.prototype
-}
-
-
-/**
- * @constructor
- * @extends {WebInspector.SettingsTab}
- */
-WebInspector.ExperimentsSettingsTab = function()
-{
-    WebInspector.SettingsTab.call(this, WebInspector.UIString("Experiments"), "experiments-tab-content");
-
-    var experiments = Runtime.experiments.allConfigurableExperiments();
-    if (experiments.length) {
-        var experimentsSection = this._appendSection();
-        experimentsSection.appendChild(this._createExperimentsWarningSubsection());
-        for (var i = 0; i < experiments.length; ++i)
-            experimentsSection.appendChild(this._createExperimentCheckbox(experiments[i]));
-    }
-}
-
-WebInspector.ExperimentsSettingsTab.prototype = {
-    /**
-     * @return {!Element} element
-     */
-    _createExperimentsWarningSubsection: function()
-    {
-        var subsection = createElement("div");
-        var warning = subsection.createChild("span", "settings-experiments-warning-subsection-warning");
-        warning.textContent = WebInspector.UIString("WARNING:");
-        subsection.createTextChild(" ");
-        var message = subsection.createChild("span", "settings-experiments-warning-subsection-message");
-        message.textContent = WebInspector.UIString("These experiments could be dangerous and may require restart.");
-        return subsection;
-    },
-
-    _createExperimentCheckbox: function(experiment)
-    {
-        var label = createCheckboxLabel(WebInspector.UIString(experiment.title), experiment.isEnabled());
-        var input = label.checkboxElement;
-        input.name = experiment.name;
-        function listener()
-        {
-            experiment.setEnabled(input.checked);
-        }
-        input.addEventListener("click", listener, false);
-
-        var p = createElement("p");
-        p.className = experiment.hidden && !experiment.isEnabled() ? "settings-experiment-hidden" : "";
-        p.appendChild(label);
-        return p;
-    },
-
-    __proto__: WebInspector.SettingsTab.prototype
-}
-
-/**
- * @constructor
- */
-WebInspector.SettingsController = function()
-{
-    /** @type {?WebInspector.SettingsScreen} */
-    this._settingsScreen;
-}
-
-WebInspector.SettingsController.prototype = {
-    /**
-     * @param {string=} name
-     */
-    showSettingsScreen: function(name)
-    {
-        if (!this._settingsScreen)
-            this._settingsScreen = new WebInspector.SettingsScreen();
-
-        var dialog = new WebInspector.Dialog();
-        dialog.addCloseButton();
-        this._settingsScreen.show(dialog.element);
-        dialog.show();
-
-        if (name)
-            this._settingsScreen.selectTab(name);
-    }
-}
-
-/**
- * @constructor
- * @implements {WebInspector.ActionDelegate}
- */
-WebInspector.SettingsController.ActionDelegate = function() { }
-
-WebInspector.SettingsController.ActionDelegate.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.Context} context
-     * @param {string} actionId
-     * @return {boolean}
-     */
-    handleAction: function(context, actionId)
-    {
-        switch (actionId) {
-        case "settings.show":
-            WebInspector._settingsController.showSettingsScreen();
-            return true;
-        case "settings.help":
-            InspectorFrontendHost.openInNewTab("https://developers.google.com/web/tools/chrome-devtools/");
-            return true;
-        case "settings.shortcuts":
-            WebInspector._settingsController.showSettingsScreen("shortcuts");
-            return true;
-        }
-        return false;
-    }
-}
-
-/**
- * @constructor
- * @implements {WebInspector.Revealer}
- */
-WebInspector.SettingsController.Revealer = function() { }
-
-WebInspector.SettingsController.Revealer.prototype = {
-    /**
-     * @override
      * @param {!Object} object
-     * @param {number=} lineNumber
-     * @return {!Promise}
+     * @this {Settings.GenericSettingsTab}
      */
-    reveal: function(object, lineNumber)
-    {
-        console.assert(object instanceof WebInspector.Setting);
-        var setting = /** @type {!WebInspector.Setting} */ (object);
-        var success = false;
-
-        self.runtime.extensions("setting").forEach(revealModuleSetting);
-        self.runtime.extensions(WebInspector.SettingUI).forEach(revealSettingUI);
-        self.runtime.extensions("settings-view").forEach(revealSettingsView);
-
-        return success ? Promise.resolve() : Promise.reject();
-
-        /**
-         * @param {!Runtime.Extension} extension
-         */
-        function revealModuleSetting(extension)
-        {
-            if (!WebInspector.GenericSettingsTab.isSettingVisible(extension))
-                return;
-            if (extension.descriptor()["settingName"] === setting.name) {
-                WebInspector._settingsController.showSettingsScreen("general");
-                success = true;
-            }
-        }
-
-        /**
-         * @param {!Runtime.Extension} extension
-         */
-        function revealSettingUI(extension)
-        {
-            var settings = extension.descriptor()["settings"];
-            if (settings && settings.indexOf(setting.name) !== -1) {
-                WebInspector._settingsController.showSettingsScreen("general");
-                success = true;
-            }
-        }
-
-        /**
-         * @param {!Runtime.Extension} extension
-         */
-        function revealSettingsView(extension)
-        {
-            var settings = extension.descriptor()["settings"];
-            if (settings && settings.indexOf(setting.name) !== -1) {
-                WebInspector._settingsController.showSettingsScreen(extension.descriptor()["name"]);
-                success = true;
-            }
-        }
+    function appendCustomSetting(object) {
+      const settingUI = /** @type {!UI.SettingUI} */ (object);
+      const element = settingUI.settingElement();
+      if (element)
+        this._sectionElement(sectionName).appendChild(element);
     }
-}
+  }
 
-WebInspector._settingsController = new WebInspector.SettingsController();
+  /**
+   * @param {string} sectionName
+   * @return {!Element}
+   */
+  _sectionElement(sectionName) {
+    let sectionElement = this._nameToSection.get(sectionName);
+    if (!sectionElement) {
+      const uiSectionName = sectionName && Common.UIString(sectionName);
+      sectionElement = this._appendSection(uiSectionName);
+      this._nameToSection.set(sectionName, sectionElement);
+    }
+    return sectionElement;
+  }
+};
+
+/**
+ * @unrestricted
+ */
+Settings.ExperimentsSettingsTab = class extends Settings.SettingsTab {
+  constructor() {
+    super(Common.UIString('Experiments'), 'experiments-tab-content');
+
+    const experiments = Runtime.experiments.allConfigurableExperiments();
+    if (experiments.length) {
+      const experimentsSection = this._appendSection();
+      experimentsSection.appendChild(this._createExperimentsWarningSubsection());
+      for (let i = 0; i < experiments.length; ++i)
+        experimentsSection.appendChild(this._createExperimentCheckbox(experiments[i]));
+    }
+  }
+
+  /**
+   * @return {!Element} element
+   */
+  _createExperimentsWarningSubsection() {
+    const subsection = createElement('div');
+    const warning = subsection.createChild('span', 'settings-experiments-warning-subsection-warning');
+    warning.textContent = Common.UIString('WARNING:');
+    subsection.createTextChild(' ');
+    const message = subsection.createChild('span', 'settings-experiments-warning-subsection-message');
+    message.textContent = Common.UIString('These experiments could be dangerous and may require restart.');
+    return subsection;
+  }
+
+  _createExperimentCheckbox(experiment) {
+    const label = UI.CheckboxLabel.create(Common.UIString(experiment.title), experiment.isEnabled());
+    const input = label.checkboxElement;
+    input.name = experiment.name;
+    function listener() {
+      experiment.setEnabled(input.checked);
+    }
+    input.addEventListener('click', listener, false);
+
+    const p = createElement('p');
+    p.className = experiment.hidden && !experiment.isEnabled() ? 'settings-experiment-hidden' : '';
+    p.appendChild(label);
+    return p;
+  }
+};
+
+/**
+ * @implements {UI.ActionDelegate}
+ * @unrestricted
+ */
+Settings.SettingsScreen.ActionDelegate = class {
+  /**
+   * @override
+   * @param {!UI.Context} context
+   * @param {string} actionId
+   * @return {boolean}
+   */
+  handleAction(context, actionId) {
+    switch (actionId) {
+      case 'settings.show':
+        Settings.SettingsScreen._showSettingsScreen();
+        return true;
+      case 'settings.documentation':
+        InspectorFrontendHost.openInNewTab('https://developers.google.com/web/tools/chrome-devtools/');
+        return true;
+      case 'settings.shortcuts':
+        Settings.SettingsScreen._showSettingsScreen(Common.UIString('Shortcuts'));
+        return true;
+    }
+    return false;
+  }
+};
+
+/**
+ * @implements {Common.Revealer}
+ * @unrestricted
+ */
+Settings.SettingsScreen.Revealer = class {
+  /**
+   * @override
+   * @param {!Object} object
+   * @return {!Promise}
+   */
+  reveal(object) {
+    console.assert(object instanceof Common.Setting);
+    const setting = /** @type {!Common.Setting} */ (object);
+    let success = false;
+
+    self.runtime.extensions('setting').forEach(revealModuleSetting);
+    self.runtime.extensions(UI.SettingUI).forEach(revealSettingUI);
+    self.runtime.extensions('view').forEach(revealSettingsView);
+
+    return success ? Promise.resolve() : Promise.reject();
+
+    /**
+     * @param {!Runtime.Extension} extension
+     */
+    function revealModuleSetting(extension) {
+      if (!Settings.GenericSettingsTab.isSettingVisible(extension))
+        return;
+      if (extension.descriptor()['settingName'] === setting.name) {
+        InspectorFrontendHost.bringToFront();
+        Settings.SettingsScreen._showSettingsScreen();
+        success = true;
+      }
+    }
+
+    /**
+     * @param {!Runtime.Extension} extension
+     */
+    function revealSettingUI(extension) {
+      const settings = extension.descriptor()['settings'];
+      if (settings && settings.indexOf(setting.name) !== -1) {
+        InspectorFrontendHost.bringToFront();
+        Settings.SettingsScreen._showSettingsScreen();
+        success = true;
+      }
+    }
+
+    /**
+     * @param {!Runtime.Extension} extension
+     */
+    function revealSettingsView(extension) {
+      const location = extension.descriptor()['location'];
+      if (location !== 'settings-view')
+        return;
+      const settings = extension.descriptor()['settings'];
+      if (settings && settings.indexOf(setting.name) !== -1) {
+        InspectorFrontendHost.bringToFront();
+        Settings.SettingsScreen._showSettingsScreen(extension.descriptor()['id']);
+        success = true;
+      }
+    }
+  }
+};

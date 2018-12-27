@@ -29,619 +29,143 @@
  */
 
 /**
- * @constructor
- * @implements {WebInspector.CSSSourceMapping}
- * @param {!WebInspector.CSSStyleModel} cssModel
- * @param {!WebInspector.Workspace} workspace
- * @param {!WebInspector.NetworkMapping} networkMapping
- * @param {!WebInspector.NetworkProject} networkProject
+ * @implements {Bindings.CSSWorkspaceBinding.SourceMapping}
  */
-WebInspector.SASSSourceMapping = function(cssModel, workspace, networkMapping, networkProject)
-{
-    this._cssModel = cssModel;
-    this._workspace = workspace;
-    this._networkProject = networkProject;
-    this._addingRevisionCounter = 0;
-    this._pollManager = new WebInspector.SASSSourceMapping.PollManager(this._cssModel, networkMapping, this._updateCSSRevision.bind(this));
-    this._reset();
-    WebInspector.fileManager.addEventListener(WebInspector.FileManager.EventTypes.SavedURL, this._fileSaveFinished, this);
-    WebInspector.moduleSetting("cssSourceMapsEnabled").addChangeListener(this._toggleSourceMapSupport, this);
-    this._cssModel.addEventListener(WebInspector.CSSStyleModel.Events.StyleSheetChanged, this._styleSheetChanged, this);
-    this._workspace.addEventListener(WebInspector.Workspace.Events.UISourceCodeAdded, this._uiSourceCodeAdded, this);
-    this._workspace.addEventListener(WebInspector.Workspace.Events.WorkingCopyCommitted, this._uiSourceCodeContentCommitted, this);
-    this._workspace.addEventListener(WebInspector.Workspace.Events.ProjectRemoved, this._reset, this);
-    this._networkMapping = networkMapping;
-}
+Bindings.SASSSourceMapping = class {
+  /**
+   * @param {!SDK.Target} target
+   * @param {!SDK.SourceMapManager} sourceMapManager
+   * @param {!Workspace.Workspace} workspace
+   */
+  constructor(target, sourceMapManager, workspace) {
+    this._sourceMapManager = sourceMapManager;
+    this._project = new Bindings.ContentProviderBasedProject(
+        workspace, 'cssSourceMaps:' + target.id(), Workspace.projectTypes.Network, '', false /* isServiceProject */);
+    Bindings.NetworkProject.setTargetForProject(this._project, target);
 
-WebInspector.SASSSourceMapping.prototype = {
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _styleSheetChanged: function(event)
-    {
-        var id = /** @type {!CSSAgent.StyleSheetId} */ (event.data.styleSheetId);
-        if (this._addingRevisionCounter) {
-            --this._addingRevisionCounter;
-            return;
-        }
-        var header = this._cssModel.styleSheetHeaderForId(id);
-        if (!header)
-            return;
+    this._eventListeners = [
+      this._sourceMapManager.addEventListener(
+          SDK.SourceMapManager.Events.SourceMapAttached, this._sourceMapAttached, this),
+      this._sourceMapManager.addEventListener(
+          SDK.SourceMapManager.Events.SourceMapDetached, this._sourceMapDetached, this),
+      this._sourceMapManager.addEventListener(
+          SDK.SourceMapManager.Events.SourceMapChanged, this._sourceMapChanged, this)
+    ];
+  }
 
-        this.removeHeader(header);
-    },
+  /**
+   * @param {?SDK.SourceMap} sourceMap
+   */
+  _sourceMapAttachedForTest(sourceMap) {
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _toggleSourceMapSupport: function(event)
-    {
-        var enabled = /** @type {boolean} */ (event.data);
-        var headers = this._cssModel.styleSheetHeaders();
-        for (var i = 0; i < headers.length; ++i) {
-            if (enabled)
-                this.addHeader(headers[i]);
-            else
-                this.removeHeader(headers[i]);
-        }
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _sourceMapAttached(event) {
+    const header = /** @type {!SDK.CSSStyleSheetHeader} */ (event.data.client);
+    const sourceMap = /** @type {!SDK.SourceMap} */ (event.data.sourceMap);
+    for (const sassURL of sourceMap.sourceURLs()) {
+      let uiSourceCode = this._project.uiSourceCodeForURL(sassURL);
+      if (uiSourceCode) {
+        Bindings.NetworkProject.addFrameAttribution(uiSourceCode, header.frameId);
+        continue;
+      }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _fileSaveFinished: function(event)
-    {
-        var sassURL = /** @type {string} */ (event.data);
-        var cssURLs = this._sassURLToCSSURLs.get(sassURL).valuesArray();
-        this._pollManager.sassFileChanged(sassURL, cssURLs, false);
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode} cssUISourceCode
-     * @param {string} content
-     * @return {boolean}
-     */
-    _updateCSSRevision: function(cssUISourceCode, content)
-    {
-        ++this._addingRevisionCounter;
-        cssUISourceCode.addRevision(content);
-        var cssURL = this._networkMapping.networkURL(cssUISourceCode);
-        var completeSourceMapURL = this._completeSourceMapURLForCSSURL[cssURL];
-        if (!completeSourceMapURL)
-            return false;
-        var ids = this._cssModel.styleSheetIdsForURL(cssURL);
-        if (!ids)
-            return false;
-        var headers = [];
-        for (var i = 0; i < ids.length; ++i)
-            headers.push(this._cssModel.styleSheetHeaderForId(ids[i]));
-        this._loadSourceMapAndBindUISourceCode(headers, true, completeSourceMapURL);
-        return true;
-    },
-
-    /**
-     * @param {!WebInspector.CSSStyleSheetHeader} header
-     */
-    addHeader: function(header)
-    {
-        if (!header.sourceMapURL || !header.sourceURL || !WebInspector.moduleSetting("cssSourceMapsEnabled").get())
-            return;
-        var completeSourceMapURL = WebInspector.ParsedURL.completeURL(header.sourceURL, header.sourceMapURL);
-        if (!completeSourceMapURL)
-            return;
-        this._completeSourceMapURLForCSSURL[header.sourceURL] = completeSourceMapURL;
-        this._loadSourceMapAndBindUISourceCode([header], false, completeSourceMapURL);
-    },
-
-    /**
-     * @param {!WebInspector.CSSStyleSheetHeader} header
-     */
-    removeHeader: function(header)
-    {
-        var sourceURL = header.sourceURL;
-        if (!sourceURL || !header.sourceMapURL || !this._completeSourceMapURLForCSSURL[sourceURL])
-            return;
-        var sourceMap = this._sourceMapByStyleSheetURL[sourceURL];
-        if (sourceMap) {
-            var sources = sourceMap.sources();
-            for (var i = 0; i < sources.length; ++i)
-                this._sassURLToCSSURLs.remove(sources[i], sourceURL);
-        }
-        delete this._sourceMapByStyleSheetURL[sourceURL];
-        delete this._completeSourceMapURLForCSSURL[sourceURL];
-
-        var completeSourceMapURL = WebInspector.ParsedURL.completeURL(sourceURL, header.sourceMapURL);
-        if (completeSourceMapURL)
-            delete this._sourceMapByURL[completeSourceMapURL];
-        WebInspector.cssWorkspaceBinding.updateLocations(header);
-    },
-
-    /**
-     * @param {!Array.<!WebInspector.CSSStyleSheetHeader>} headersWithSameSourceURL
-     * @param {boolean} forceRebind
-     * @param {string} completeSourceMapURL
-     */
-    _loadSourceMapAndBindUISourceCode: function(headersWithSameSourceURL, forceRebind, completeSourceMapURL)
-    {
-        console.assert(headersWithSameSourceURL.length);
-        var sourceURL = headersWithSameSourceURL[0].sourceURL;
-        this._loadSourceMapForStyleSheet(completeSourceMapURL, sourceURL, forceRebind, sourceMapLoaded.bind(this));
-
-        /**
-         * @param {?WebInspector.SourceMap} sourceMap
-         * @this {WebInspector.SASSSourceMapping}
-         */
-        function sourceMapLoaded(sourceMap)
-        {
-            if (!sourceMap)
-                return;
-
-            this._sourceMapByStyleSheetURL[sourceURL] = sourceMap;
-            for (var i = 0; i < headersWithSameSourceURL.length; ++i) {
-                if (forceRebind)
-                    WebInspector.cssWorkspaceBinding.updateLocations(headersWithSameSourceURL[i]);
-                else
-                    this._bindUISourceCode(headersWithSameSourceURL[i], sourceMap);
-            }
-        }
-    },
-
-    /**
-     * @param {string} completeSourceMapURL
-     * @param {string} completeStyleSheetURL
-     * @param {boolean} forceReload
-     * @param {function(?WebInspector.SourceMap)} callback
-     */
-    _loadSourceMapForStyleSheet: function(completeSourceMapURL, completeStyleSheetURL, forceReload, callback)
-    {
-        var sourceMap = this._sourceMapByURL[completeSourceMapURL];
-        if (sourceMap && !forceReload) {
-            callback(sourceMap);
-            return;
-        }
-
-        var pendingCallbacks = this._pendingSourceMapLoadingCallbacks[completeSourceMapURL];
-        if (pendingCallbacks) {
-            pendingCallbacks.push(callback);
-            return;
-        }
-
-        pendingCallbacks = [callback];
-        this._pendingSourceMapLoadingCallbacks[completeSourceMapURL] = pendingCallbacks;
-
-        WebInspector.SourceMap.load(completeSourceMapURL, completeStyleSheetURL, sourceMapLoaded.bind(this));
-
-        /**
-         * @param {?WebInspector.SourceMap} sourceMap
-         * @this {WebInspector.SASSSourceMapping}
-         */
-        function sourceMapLoaded(sourceMap)
-        {
-            var callbacks = this._pendingSourceMapLoadingCallbacks[completeSourceMapURL];
-            delete this._pendingSourceMapLoadingCallbacks[completeSourceMapURL];
-            if (!callbacks)
-                return;
-            if (sourceMap)
-                this._sourceMapByURL[completeSourceMapURL] = sourceMap;
-            else
-                delete this._sourceMapByURL[completeSourceMapURL];
-            for (var i = 0; i < callbacks.length; ++i)
-                callbacks[i](sourceMap);
-        }
-    },
-
-    /**
-     * @param {!WebInspector.CSSStyleSheetHeader} header
-     * @param {!WebInspector.SourceMap} sourceMap
-     */
-    _bindUISourceCode: function(header, sourceMap)
-    {
-        WebInspector.cssWorkspaceBinding.pushSourceMapping(header, this);
-        var cssURL = header.sourceURL;
-        var sources = sourceMap.sources();
-        for (var i = 0; i < sources.length; ++i) {
-            var sassURL = sources[i];
-            this._sassURLToCSSURLs.set(sassURL, cssURL);
-            if (!this._networkMapping.hasMappingForURL(sassURL) && !this._networkMapping.uiSourceCodeForURL(sassURL, header.target())) {
-                var contentProvider = sourceMap.sourceContentProvider(sassURL, WebInspector.resourceTypes.Stylesheet);
-                this._networkProject.addFileForURL(sassURL, contentProvider);
-            }
-        }
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.CSSLocation} rawLocation
-     * @return {?WebInspector.UILocation}
-     */
-    rawLocationToUILocation: function(rawLocation)
-    {
-        var sourceMap = this._sourceMapByStyleSheetURL[rawLocation.url];
-        if (!sourceMap)
-            return null;
-        var entry = sourceMap.findEntry(rawLocation.lineNumber, rawLocation.columnNumber);
-        if (!entry || !entry.sourceURL)
-            return null;
-        var uiSourceCode = this._networkMapping.uiSourceCodeForURL(entry.sourceURL, rawLocation.target());
-        if (!uiSourceCode)
-            return null;
-        return uiSourceCode.uiLocation(entry.sourceLineNumber, entry.sourceColumnNumber);
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     * @param {number} lineNumber
-     * @param {number} columnNumber
-     * @return {?WebInspector.CSSLocation}
-     */
-    uiLocationToRawLocation: function(uiSourceCode, lineNumber, columnNumber)
-    {
-        return null;
-    },
-
-    /**
-     * @override
-     * @return {boolean}
-     */
-    isIdentity: function()
-    {
-        return false;
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     * @param {number} lineNumber
-     * @return {boolean}
-     */
-    uiLineHasMapping: function(uiSourceCode, lineNumber)
-    {
-        return true;
-    },
-
-    /**
-     * @return {!WebInspector.Target}
-     */
-    target: function()
-    {
-        return this._cssModel.target();
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _uiSourceCodeAdded: function(event)
-    {
-        var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data);
-        var networkURL = this._networkMapping.networkURL(uiSourceCode);
-        var cssURLs = this._sassURLToCSSURLs.get(networkURL).valuesArray();
-        if (!cssURLs)
-            return;
-        for (var i = 0; i < cssURLs.length; ++i) {
-            var ids = this._cssModel.styleSheetIdsForURL(cssURLs[i]);
-            for (var j = 0; j < ids.length; ++j) {
-                var header = this._cssModel.styleSheetHeaderForId(ids[j]);
-                console.assert(header);
-                WebInspector.cssWorkspaceBinding.updateLocations(/** @type {!WebInspector.CSSStyleSheetHeader} */ (header));
-            }
-        }
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _uiSourceCodeContentCommitted: function(event)
-    {
-        var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data.uiSourceCode);
-        if (uiSourceCode.project().type() === WebInspector.projectTypes.FileSystem) {
-            var networkURL = this._networkMapping.networkURL(uiSourceCode);
-            var cssURLs = this._sassURLToCSSURLs.get(networkURL).valuesArray();
-            this._pollManager.sassFileChanged(networkURL, cssURLs, true);
-        }
-    },
-
-    _reset: function()
-    {
-        this._addingRevisionCounter = 0;
-        this._completeSourceMapURLForCSSURL = {};
-        /** @type {!Multimap<string, string>} */
-        this._sassURLToCSSURLs = new Multimap();
-        /** @type {!Object.<string, !Array.<function(?WebInspector.SourceMap)>>} */
-        this._pendingSourceMapLoadingCallbacks = {};
-        /** @type {!Object.<string, !WebInspector.SourceMap>} */
-        this._sourceMapByURL = {};
-        this._sourceMapByStyleSheetURL = {};
-        this._pollManager.reset();
+      const contentProvider = sourceMap.sourceContentProvider(sassURL, Common.resourceTypes.SourceMapStyleSheet);
+      const mimeType = Common.ResourceType.mimeFromURL(sassURL) || contentProvider.contentType().canonicalMimeType();
+      const embeddedContent = sourceMap.embeddedContentByURL(sassURL);
+      const metadata =
+          typeof embeddedContent === 'string' ? new Workspace.UISourceCodeMetadata(null, embeddedContent.length) : null;
+      uiSourceCode = this._project.createUISourceCode(sassURL, contentProvider.contentType());
+      Bindings.NetworkProject.setInitialFrameAttribution(uiSourceCode, header.frameId);
+      uiSourceCode[Bindings.SASSSourceMapping._sourceMapSymbol] = sourceMap;
+      this._project.addUISourceCodeWithProvider(uiSourceCode, contentProvider, metadata, mimeType);
     }
-}
+    Bindings.cssWorkspaceBinding.updateLocations(header);
+    this._sourceMapAttachedForTest(sourceMap);
+  }
 
-/**
- * @constructor
- * @param {!WebInspector.CSSStyleModel} cssModel
- * @param {!WebInspector.NetworkMapping} networkMapping
- * @param {function(!WebInspector.UISourceCode, string):boolean} callback
- */
-WebInspector.SASSSourceMapping.PollManager = function(cssModel, networkMapping, callback)
-{
-    this.pollPeriodMs = 30 * 1000;
-    this.pollIntervalMs = 200;
-    this._networkMapping = networkMapping;
-    this._callback = callback;
-    this._cssModel = cssModel;
-    this.reset();
-}
-
-WebInspector.SASSSourceMapping.PollManager.prototype = {
-    reset: function()
-    {
-        /** @type {!Object.<string, !{deadlineMs: number, dataByURL: !Object.<string, !{timer: number, previousPoll: number}>}>} */
-        this._pollDataForSASSURL = {};
-    },
-
-    /**
-     * @param {string} headerName
-     * @param {!Object.<string, string>} headers
-     * @return {?string}
-     */
-    _headerValue: function(headerName, headers)
-    {
-        headerName = headerName.toLowerCase();
-        var value = null;
-        for (var name in headers) {
-            if (name.toLowerCase() === headerName) {
-                value = headers[name];
-                break;
-            }
-        }
-        return value;
-    },
-
-    /**
-     * @param {!Object.<string, string>} headers
-     * @return {?Date}
-     */
-    _lastModified: function(headers)
-    {
-        var lastModifiedHeader = this._headerValue("last-modified", headers);
-        if (!lastModifiedHeader)
-            return null;
-        var lastModified = new Date(lastModifiedHeader);
-        if (isNaN(lastModified.getTime()))
-            return null;
-        return lastModified;
-    },
-
-    /**
-     * @param {!Object.<string, string>} headers
-     * @param {string} url
-     * @return {?Date}
-     */
-    _checkLastModified: function(headers, url)
-    {
-        var lastModified = this._lastModified(headers);
-        if (lastModified)
-            return lastModified;
-
-        var etagMessage = this._headerValue("etag", headers) ? ", \"ETag\" response header found instead" : "";
-        var message = String.sprintf("The \"Last-Modified\" response header is missing or invalid for %s%s. The CSS auto-reload functionality will not work correctly.", url, etagMessage);
-        WebInspector.console.log(message);
-        return null;
-    },
-
-    /**
-     * @param {string} sassURL
-     * @param {!Array.<string>} cssURLs
-     * @param {boolean} wasLoadedFromFileSystem
-     */
-    sassFileChanged: function(sassURL, cssURLs, wasLoadedFromFileSystem)
-    {
-        if (!cssURLs)
-            return;
-        if (!WebInspector.moduleSetting("cssReloadEnabled").get())
-            return;
-
-        var sassFile = this._networkMapping.uiSourceCodeForURL(sassURL, this._cssModel.target());
-        console.assert(sassFile);
-        if (wasLoadedFromFileSystem)
-            sassFile.requestMetadata(metadataReceived.bind(this));
-        else
-            WebInspector.ResourceLoader.loadUsingTargetUA(sassURL, null, sassLoadedViaNetwork.bind(this));
-
-        /**
-         * @param {number} statusCode
-         * @param {!Object.<string, string>} headers
-         * @param {string} content
-         * @this {WebInspector.SASSSourceMapping.PollManager}
-         */
-        function sassLoadedViaNetwork(statusCode, headers, content)
-        {
-            if (statusCode >= 400) {
-                console.error("Could not load content for " + sassURL + " : " + "HTTP status code: " + statusCode);
-                return;
-            }
-            var lastModified = this._checkLastModified(headers, sassURL);
-            if (!lastModified)
-                return;
-            metadataReceived.call(this, lastModified);
-        }
-
-        /**
-         * @param {?Date} timestamp
-         * @this {WebInspector.SASSSourceMapping.PollManager}
-         */
-        function metadataReceived(timestamp)
-        {
-            if (!timestamp)
-                return;
-
-            var now = Date.now();
-            var deadlineMs = now + this.pollPeriodMs;
-            var pollData = this._pollDataForSASSURL[sassURL];
-            if (pollData) {
-                var dataByURL = pollData.dataByURL;
-                for (var url in dataByURL)
-                    clearTimeout(dataByURL[url].timer);
-            }
-            pollData = { dataByURL: {}, deadlineMs: deadlineMs, sassTimestamp: timestamp };
-            this._pollDataForSASSURL[sassURL] = pollData;
-            for (var i = 0; i < cssURLs.length; ++i) {
-                pollData.dataByURL[cssURLs[i]] = { previousPoll: now };
-                this._pollCallback(cssURLs[i], sassURL);
-            }
-        }
-    },
-
-    /**
-     * @param {string} cssURL
-     * @param {string} sassURL
-     */
-    _pollCallback: function(cssURL, sassURL)
-    {
-        var now;
-        var pollData = this._pollDataForSASSURL[sassURL];
-        if (!pollData)
-            return;
-
-        if ((now = new Date().getTime()) > pollData.deadlineMs) {
-            WebInspector.console.warn(WebInspector.UIString("%s hasn't been updated in %d seconds.", cssURL, this.pollPeriodMs / 1000));
-            this._stopPolling(cssURL, sassURL);
-            return;
-        }
-        var nextPoll = this.pollIntervalMs + pollData.dataByURL[cssURL].previousPoll;
-        var remainingTimeoutMs = Math.max(0, nextPoll - now);
-        pollData.dataByURL[cssURL].previousPoll = now + remainingTimeoutMs;
-        pollData.dataByURL[cssURL].timer = setTimeout(this._reloadCSS.bind(this, cssURL, sassURL), remainingTimeoutMs);
-    },
-
-    /**
-     * @param {string} cssURL
-     * @param {string} sassURL
-     */
-    _stopPolling: function(cssURL, sassURL)
-    {
-        var pollData = this._pollDataForSASSURL[sassURL];
-        if (!pollData)
-            return;
-        delete pollData.dataByURL[cssURL];
-        if (!Object.keys(pollData.dataByURL).length)
-            delete this._pollDataForSASSURL[sassURL];
-    },
-
-    /**
-     * @param {string} cssURL
-     * @param {string} sassURL
-     */
-    _reloadCSS: function(cssURL, sassURL)
-    {
-        var cssUISourceCode = this._networkMapping.uiSourceCodeForURL(cssURL, this._cssModel.target());
-        if (!cssUISourceCode) {
-            WebInspector.console.warn(WebInspector.UIString("%s resource missing. Please reload the page.", cssURL));
-            this._stopPolling(cssURL, sassURL)
-            return;
-        }
-
-        if (this._networkMapping.hasMappingForURL(sassURL))
-            this._reloadCSSFromFileSystem(cssUISourceCode, sassURL);
-        else
-            this._reloadCSSFromNetwork(cssUISourceCode, sassURL);
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode} cssUISourceCode
-     * @param {string} sassURL
-     */
-    _reloadCSSFromNetwork: function(cssUISourceCode, sassURL)
-    {
-        var cssURL = this._networkMapping.networkURL(cssUISourceCode);
-        var data = this._pollDataForSASSURL[sassURL];
-        if (!data) {
-            this._stopPolling(cssURL, sassURL);
-            return;
-        }
-        var headers = { "if-modified-since": new Date(data.sassTimestamp.getTime() - 1000).toUTCString() };
-        WebInspector.ResourceLoader.loadUsingTargetUA(cssURL, headers, contentLoaded.bind(this));
-
-        /**
-         * @param {number} statusCode
-         * @param {!Object.<string, string>} headers
-         * @param {string} content
-         * @this {WebInspector.SASSSourceMapping.PollManager}
-         */
-        function contentLoaded(statusCode, headers, content)
-        {
-            if (statusCode >= 400) {
-                console.error("Could not load content for " + cssURL + " : " + "HTTP status code: " + statusCode);
-                this._stopPolling(cssURL, sassURL);
-                return;
-            }
-            if (!this._pollDataForSASSURL[sassURL]) {
-                this._stopPolling(cssURL, sassURL);
-                return;
-            }
-            if (statusCode === 304) {
-                this._pollCallback(cssURL, sassURL);
-                return;
-            }
-            var lastModified = this._checkLastModified(headers, cssURL);
-            if (!lastModified) {
-                this._stopPolling(cssURL, sassURL);
-                return;
-            }
-            if (lastModified.getTime() < data.sassTimestamp.getTime()) {
-                this._pollCallback(cssURL, sassURL);
-                return;
-            }
-            if (this._callback(cssUISourceCode, content))
-                this._stopPolling(cssURL, sassURL);
-        }
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode} cssUISourceCode
-     * @param {string} sassURL
-     */
-    _reloadCSSFromFileSystem: function(cssUISourceCode, sassURL)
-    {
-        cssUISourceCode.requestMetadata(metadataCallback.bind(this));
-
-        /**
-         * @param {?Date} timestamp
-         * @this {WebInspector.SASSSourceMapping.PollManager}
-         */
-        function metadataCallback(timestamp)
-        {
-            var cssURL = this._networkMapping.networkURL(cssUISourceCode);
-            if (!timestamp) {
-                this._pollCallback(cssURL, sassURL);
-                return;
-            }
-            var cssTimestamp = timestamp.getTime();
-            var pollData = this._pollDataForSASSURL[sassURL];
-            if (!pollData) {
-                this._stopPolling(cssURL, sassURL);
-                return;
-            }
-
-            if (cssTimestamp < pollData.sassTimestamp.getTime()) {
-                this._pollCallback(cssURL, sassURL);
-                return;
-            }
-
-            cssUISourceCode.requestOriginalContent(contentCallback.bind(this));
-
-            /**
-             * @param {?string} content
-             * @this {WebInspector.SASSSourceMapping.PollManager}
-             */
-            function contentCallback(content)
-            {
-                // Empty string is a valid value, null means error.
-                if (content === null)
-                    return;
-                if (this._callback(cssUISourceCode, content))
-                    this._stopPolling(cssURL, sassURL);
-            }
-        }
+  /**
+   * @param {!Common.Event} event
+   */
+  _sourceMapDetached(event) {
+    const header = /** @type {!SDK.CSSStyleSheetHeader} */ (event.data.client);
+    const sourceMap = /** @type {!SDK.SourceMap} */ (event.data.sourceMap);
+    const headers = this._sourceMapManager.clientsForSourceMap(sourceMap);
+    for (const sassURL of sourceMap.sourceURLs()) {
+      if (headers.length) {
+        const uiSourceCode = /** @type {!Workspace.UISourceCode} */ (this._project.uiSourceCodeForURL(sassURL));
+        Bindings.NetworkProject.removeFrameAttribution(uiSourceCode, header.frameId);
+      } else {
+        this._project.removeFile(sassURL);
+      }
     }
-}
+    Bindings.cssWorkspaceBinding.updateLocations(header);
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _sourceMapChanged(event) {
+    const sourceMap = /** @type {!SDK.SourceMap} */ (event.data.sourceMap);
+    const newSources = /** @type {!Map<string, string>} */ (event.data.newSources);
+    const headers = this._sourceMapManager.clientsForSourceMap(sourceMap);
+    for (const sourceURL of newSources.keys()) {
+      const uiSourceCode = this._project.uiSourceCodeForURL(sourceURL);
+      if (!uiSourceCode) {
+        console.error('Failed to update source for ' + sourceURL);
+        continue;
+      }
+      const sassText = /** @type {string} */ (newSources.get(sourceURL));
+      uiSourceCode.setWorkingCopy(sassText);
+    }
+    for (const header of headers)
+      Bindings.cssWorkspaceBinding.updateLocations(header);
+  }
+
+  /**
+   * @override
+   * @param {!SDK.CSSLocation} rawLocation
+   * @return {?Workspace.UILocation}
+   */
+  rawLocationToUILocation(rawLocation) {
+    const header = rawLocation.header();
+    if (!header)
+      return null;
+    const sourceMap = this._sourceMapManager.sourceMapForClient(header);
+    if (!sourceMap)
+      return null;
+    const entry = sourceMap.findEntry(rawLocation.lineNumber, rawLocation.columnNumber);
+    if (!entry || !entry.sourceURL)
+      return null;
+    const uiSourceCode = this._project.uiSourceCodeForURL(entry.sourceURL);
+    if (!uiSourceCode)
+      return null;
+    return uiSourceCode.uiLocation(entry.sourceLineNumber || 0, entry.sourceColumnNumber);
+  }
+
+  /**
+   * @override
+   * @param {!Workspace.UILocation} uiLocation
+   * @return {!Array<!SDK.CSSLocation>}
+   */
+  uiLocationToRawLocations(uiLocation) {
+    const sourceMap = uiLocation.uiSourceCode[Bindings.SASSSourceMapping._sourceMapSymbol];
+    if (!sourceMap)
+      return [];
+    const entries =
+        sourceMap.findReverseEntries(uiLocation.uiSourceCode.url(), uiLocation.lineNumber, uiLocation.columnNumber);
+    const locations = [];
+    for (const header of this._sourceMapManager.clientsForSourceMap(sourceMap))
+      locations.pushAll(entries.map(entry => new SDK.CSSLocation(header, entry.lineNumber, entry.columnNumber)));
+    return locations;
+  }
+
+  dispose() {
+    this._project.dispose();
+    Common.EventTarget.removeEventListeners(this._eventListeners);
+  }
+};
+
+Bindings.SASSSourceMapping._sourceMapSymbol = Symbol('sourceMap');

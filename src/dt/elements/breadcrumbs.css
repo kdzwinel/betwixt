@@ -8,15 +8,13 @@
     display: inline-block;
     pointer-events: auto;
     cursor: default;
-    font-size: 11px;
-    line-height: 17px;
     white-space: nowrap;
 }
 
 .crumbs .crumb {
     display: inline-block;
     padding: 0 7px;
-    height: 18px;
+    line-height: 23px;
     white-space: nowrap;
 }
 
@@ -33,12 +31,14 @@
     display: none;
 }
 
-.crumbs .crumb.selected, .crumbs .crumb.selected:hover {
-    background-color: rgb(56, 121, 217);
-    color: white;
-    text-shadow: rgba(255, 255, 255, 0.5) 0 0 0;
+.crumb.selected, .crumb:hover {
+    background-color: var(--toolbar-bg-color);
 }
 
-.crumbs .crumb:hover {
-    background-color: rgb(216, 216, 216);
+.crumb:not(.selected) .node-label-name {
+    color: var(--dom-tag-name-color);
+}
+
+.crumb:not(.selected) .node-label-class {
+    color: var(--dom-attribute-name-color);
 }

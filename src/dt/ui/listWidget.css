@@ -22,6 +22,7 @@
     display: flex;
     align-items: center;
     position: relative;
+    overflow: hidden;
 }
 
 .list-item:hover {
@@ -50,47 +51,12 @@
     flex-direction: row;
     align-items: center;
     pointer-events: auto;
+    visibility: hidden;
 }
 
 .list-item:hover .controls-buttons {
     background-color: hsl(0, 0%, 96%);
-}
-
-.remove-button,
-.edit-button {
-    background-image: url(Images/toolbarButtonGlyphs.png);
-    background-size: 352px 168px;
-    width: 32px;
-    height: 24px;
-    opacity: 0.5;
-    cursor: pointer;
-    flex: none;
-    visibility: hidden;
-}
-
-@media (-webkit-min-device-pixel-ratio: 1.5) {
-.remove-button,
-.edit-button {
-    background-image: url(Images/toolbarButtonGlyphs_2x.png);
-}
-} /* media */
-
-.list-item:hover .remove-button,
-.list-item:hover .edit-button {
     visibility: visible;
-}
-
-.remove-button:hover,
-.edit-button:hover {
-    opacity: 0.7;
-}
-
-.remove-button {
-    background-position: -128px -24px;
-}
-
-.edit-button {
-    background-position: -224px -72px;
 }
 
 .editor-container {
@@ -128,6 +94,5 @@
 }
 
 .editor-content input.error-input {
-    outline: auto 2px red;
     background-color: white;
 }

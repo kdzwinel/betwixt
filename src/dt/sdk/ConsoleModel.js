@@ -29,212 +29,427 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.SDKModel}
- * @param {!WebInspector.Target} target
+ * @implements {SDK.TargetManager.Observer}
  */
-WebInspector.ConsoleModel = function(target)
-{
-    WebInspector.SDKModel.call(this, WebInspector.ConsoleModel, target);
+SDK.ConsoleModel = class extends Common.Object {
+  constructor() {
+    super();
 
-    /** @type {!Array.<!WebInspector.ConsoleMessage>} */
+    /** @type {!Array.<!SDK.ConsoleMessage>} */
     this._messages = [];
-    /** @type {!Map<number, !WebInspector.ConsoleMessage>} */
-    this._messageById = new Map();
+    /** @type {!Map<!SDK.RuntimeModel, !Map<number, !SDK.ConsoleMessage>>} */
+    this._messageByExceptionId = new Map();
     this._warnings = 0;
     this._errors = 0;
-    this._revokedErrors = 0;
-    this._consoleAgent = target.consoleAgent();
-    target.registerConsoleDispatcher(new WebInspector.ConsoleDispatcher(this));
-    this._enableAgent();
-}
+    this._pageLoadSequenceNumber = 0;
 
-WebInspector.ConsoleModel.Events = {
-    ConsoleCleared: "ConsoleCleared",
-    MessageAdded: "MessageAdded",
-    MessageUpdated: "MessageUpdated",
-    CommandEvaluated: "CommandEvaluated",
-}
+    SDK.targetManager.observeTargets(this);
+  }
 
-WebInspector.ConsoleModel.prototype = {
-    _enableAgent: function()
-    {
-        this._enablingConsole = true;
-
-        /**
-         * @this {WebInspector.ConsoleModel}
-         */
-        function callback()
-        {
-            delete this._enablingConsole;
-        }
-        this._consoleAgent.enable(callback.bind(this));
-    },
-
-    /**
-     * @param {!WebInspector.ConsoleMessage} msg
-     */
-    addMessage: function(msg)
-    {
-        if (msg.level === WebInspector.ConsoleMessage.MessageLevel.RevokedError && msg._relatedMessageId) {
-            var relatedMessage = this._messageById.get(msg._relatedMessageId);
-            if (!relatedMessage)
-                return;
-            this._errors--;
-            this._revokedErrors++;
-            relatedMessage.level = WebInspector.ConsoleMessage.MessageLevel.RevokedError;
-            this.dispatchEventToListeners(WebInspector.ConsoleModel.Events.MessageUpdated, relatedMessage);
-            return;
-        }
-
-        this._messages.push(msg);
-        if (msg._messageId)
-            this._messageById.set(msg._messageId, msg);
-        this._incrementErrorWarningCount(msg);
-        this.dispatchEventToListeners(WebInspector.ConsoleModel.Events.MessageAdded, msg);
-    },
-
-    /**
-     * @param {!WebInspector.ConsoleMessage} msg
-     */
-    _incrementErrorWarningCount: function(msg)
-    {
-        switch (msg.level) {
-            case WebInspector.ConsoleMessage.MessageLevel.Warning:
-                this._warnings++;
-                break;
-            case WebInspector.ConsoleMessage.MessageLevel.Error:
-                this._errors++;
-                break;
-            case WebInspector.ConsoleMessage.MessageLevel.RevokedError:
-                this._revokedErrors++;
-                break;
-        }
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.ConsoleMessage>}
-     */
-    messages: function()
-    {
-        return this._messages;
-    },
-
-    requestClearMessages: function()
-    {
-        this._consoleAgent.clearMessages();
-        this._messagesCleared();
-    },
-
-    _messagesCleared: function()
-    {
-        this._messages = [];
-        this._messageById.clear();
-        this._errors = 0;
-        this._revokedErrors = 0;
-        this._warnings = 0;
-        this.dispatchEventToListeners(WebInspector.ConsoleModel.Events.ConsoleCleared);
-    },
-
-    /**
-     * @return {number}
-     */
-    errors: function()
-    {
-        return this._errors;
-    },
-
-    /**
-     * @return {number}
-     */
-    revokedErrors: function()
-    {
-        return this._revokedErrors;
-    },
-
-    /**
-     * @return {number}
-     */
-    warnings: function()
-    {
-        return this._warnings;
-    },
-
-    __proto__: WebInspector.SDKModel.prototype
-}
-
-/**
- * @param {!WebInspector.ExecutionContext} executionContext
- * @param {string} text
- * @param {boolean=} useCommandLineAPI
- */
-WebInspector.ConsoleModel.evaluateCommandInConsole = function(executionContext, text, useCommandLineAPI)
-{
-    useCommandLineAPI = !!useCommandLineAPI;
-    var target = executionContext.target();
-
-    var commandMessage = new WebInspector.ConsoleMessage(target, WebInspector.ConsoleMessage.MessageSource.JS, null, text, WebInspector.ConsoleMessage.MessageType.Command);
-    commandMessage.setExecutionContextId(executionContext.id);
-    target.consoleModel.addMessage(commandMessage);
-
-    /**
-     * @param {?WebInspector.RemoteObject} result
-     * @param {boolean} wasThrown
-     * @param {?RuntimeAgent.RemoteObject=} valueResult
-     * @param {?DebuggerAgent.ExceptionDetails=} exceptionDetails
-     */
-    function printResult(result, wasThrown, valueResult, exceptionDetails)
-    {
-        if (!result)
-            return;
-
-        WebInspector.console.showPromise().then(reportUponEvaluation);
-        function reportUponEvaluation()
-        {
-            target.consoleModel.dispatchEventToListeners(WebInspector.ConsoleModel.Events.CommandEvaluated, {result: result, wasThrown: wasThrown, text: text, commandMessage: commandMessage, exceptionDetails: exceptionDetails});
-        }
+  /**
+   * @override
+   * @param {!SDK.Target} target
+   */
+  targetAdded(target) {
+    const resourceTreeModel = target.model(SDK.ResourceTreeModel);
+    if (!resourceTreeModel || resourceTreeModel.cachedResourcesLoaded()) {
+      this._initTarget(target);
+      return;
     }
 
-    executionContext.evaluate(text, "console", useCommandLineAPI, false, false, true, printResult);
+    const eventListener = resourceTreeModel.addEventListener(SDK.ResourceTreeModel.Events.CachedResourcesLoaded, () => {
+      Common.EventTarget.removeEventListeners([eventListener]);
+      this._initTarget(target);
+    });
+  }
 
-    WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.ConsoleEvaluated);
-}
+  /**
+   * @param {!SDK.Target} target
+   */
+  _initTarget(target) {
+    const eventListeners = [];
 
-WebInspector.ConsoleModel.clearConsole = function()
-{
-    var targets = WebInspector.targetManager.targets();
-    for (var i = 0; i < targets.length; ++i)
-        targets[i].consoleModel.requestClearMessages();
-}
+    const cpuProfilerModel = target.model(SDK.CPUProfilerModel);
+    if (cpuProfilerModel) {
+      eventListeners.push(cpuProfilerModel.addEventListener(
+          SDK.CPUProfilerModel.Events.ConsoleProfileStarted, this._consoleProfileStarted.bind(this, cpuProfilerModel)));
+      eventListeners.push(cpuProfilerModel.addEventListener(
+          SDK.CPUProfilerModel.Events.ConsoleProfileFinished,
+          this._consoleProfileFinished.bind(this, cpuProfilerModel)));
+    }
+
+    const resourceTreeModel = target.model(SDK.ResourceTreeModel);
+    if (resourceTreeModel && !target.parentTarget()) {
+      eventListeners.push(resourceTreeModel.addEventListener(
+          SDK.ResourceTreeModel.Events.MainFrameNavigated, this._mainFrameNavigated, this));
+    }
+
+    const runtimeModel = target.model(SDK.RuntimeModel);
+    if (runtimeModel) {
+      eventListeners.push(runtimeModel.addEventListener(
+          SDK.RuntimeModel.Events.ExceptionThrown, this._exceptionThrown.bind(this, runtimeModel)));
+      eventListeners.push(runtimeModel.addEventListener(
+          SDK.RuntimeModel.Events.ExceptionRevoked, this._exceptionRevoked.bind(this, runtimeModel)));
+      eventListeners.push(runtimeModel.addEventListener(
+          SDK.RuntimeModel.Events.ConsoleAPICalled, this._consoleAPICalled.bind(this, runtimeModel)));
+      if (!target.parentTarget()) {
+        eventListeners.push(runtimeModel.debuggerModel().addEventListener(
+            SDK.DebuggerModel.Events.GlobalObjectCleared, this._clearIfNecessary, this));
+      }
+      eventListeners.push(runtimeModel.addEventListener(
+          SDK.RuntimeModel.Events.QueryObjectRequested, this._queryObjectRequested.bind(this, runtimeModel)));
+    }
+
+    target[SDK.ConsoleModel._events] = eventListeners;
+  }
+
+  /**
+   * @override
+   * @param {!SDK.Target} target
+   */
+  targetRemoved(target) {
+    const runtimeModel = target.model(SDK.RuntimeModel);
+    if (runtimeModel)
+      this._messageByExceptionId.delete(runtimeModel);
+    Common.EventTarget.removeEventListeners(target[SDK.ConsoleModel._events] || []);
+  }
+
+  /**
+   * @param {!SDK.ExecutionContext} executionContext
+   * @param {!SDK.ConsoleMessage} originatingMessage
+   * @param {string} expression
+   * @param {boolean} useCommandLineAPI
+   * @param {boolean} awaitPromise
+   */
+  async evaluateCommandInConsole(executionContext, originatingMessage, expression, useCommandLineAPI, awaitPromise) {
+    const result = await executionContext.evaluate(
+        {
+          expression: expression,
+          objectGroup: 'console',
+          includeCommandLineAPI: useCommandLineAPI,
+          silent: false,
+          returnByValue: false,
+          generatePreview: true
+        },
+        /* userGesture */ true, awaitPromise);
+    Host.userMetrics.actionTaken(Host.UserMetrics.Action.ConsoleEvaluated);
+    if (result.error)
+      return;
+    await Common.console.showPromise();
+    this.dispatchEventToListeners(
+        SDK.ConsoleModel.Events.CommandEvaluated,
+        {result: result.object, commandMessage: originatingMessage, exceptionDetails: result.exceptionDetails});
+  }
+
+  /**
+   * @param {!SDK.ExecutionContext} executionContext
+   * @param {string} text
+   * @return {!SDK.ConsoleMessage}
+   */
+  addCommandMessage(executionContext, text) {
+    const commandMessage = new SDK.ConsoleMessage(
+        executionContext.runtimeModel, SDK.ConsoleMessage.MessageSource.JS, null, text,
+        SDK.ConsoleMessage.MessageType.Command);
+    commandMessage.setExecutionContextId(executionContext.id);
+    this.addMessage(commandMessage);
+    return commandMessage;
+  }
+
+  /**
+   * @param {!SDK.ConsoleMessage} msg
+   */
+  addMessage(msg) {
+    msg._pageLoadSequenceNumber = this._pageLoadSequenceNumber;
+    if (msg.source === SDK.ConsoleMessage.MessageSource.ConsoleAPI && msg.type === SDK.ConsoleMessage.MessageType.Clear)
+      this._clearIfNecessary();
+
+    this._messages.push(msg);
+    const runtimeModel = msg.runtimeModel();
+    if (msg._exceptionId && runtimeModel) {
+      let modelMap = this._messageByExceptionId.get(runtimeModel);
+      if (!modelMap) {
+        modelMap = new Map();
+        this._messageByExceptionId.set(runtimeModel, modelMap);
+      }
+      modelMap.set(msg._exceptionId, msg);
+    }
+    this._incrementErrorWarningCount(msg);
+    this.dispatchEventToListeners(SDK.ConsoleModel.Events.MessageAdded, msg);
+  }
+
+  /**
+   * @param {!SDK.RuntimeModel} runtimeModel
+   * @param {!Common.Event} event
+   */
+  _exceptionThrown(runtimeModel, event) {
+    const exceptionWithTimestamp = /** @type {!SDK.RuntimeModel.ExceptionWithTimestamp} */ (event.data);
+    const consoleMessage = SDK.ConsoleMessage.fromException(
+        runtimeModel, exceptionWithTimestamp.details, undefined, exceptionWithTimestamp.timestamp, undefined);
+    consoleMessage.setExceptionId(exceptionWithTimestamp.details.exceptionId);
+    this.addMessage(consoleMessage);
+  }
+
+  /**
+   * @param {!SDK.RuntimeModel} runtimeModel
+   * @param {!Common.Event} event
+   */
+  _exceptionRevoked(runtimeModel, event) {
+    const exceptionId = /** @type {number} */ (event.data);
+    const modelMap = this._messageByExceptionId.get(runtimeModel);
+    const exceptionMessage = modelMap ? modelMap.get(exceptionId) : null;
+    if (!exceptionMessage)
+      return;
+    this._errors--;
+    exceptionMessage.level = SDK.ConsoleMessage.MessageLevel.Verbose;
+    this.dispatchEventToListeners(SDK.ConsoleModel.Events.MessageUpdated, exceptionMessage);
+  }
+
+  /**
+   * @param {!SDK.RuntimeModel} runtimeModel
+   * @param {!Common.Event} event
+   */
+  _consoleAPICalled(runtimeModel, event) {
+    const call = /** @type {!SDK.RuntimeModel.ConsoleAPICall} */ (event.data);
+    let level = SDK.ConsoleMessage.MessageLevel.Info;
+    if (call.type === SDK.ConsoleMessage.MessageType.Debug)
+      level = SDK.ConsoleMessage.MessageLevel.Verbose;
+    else if (call.type === SDK.ConsoleMessage.MessageType.Error || call.type === SDK.ConsoleMessage.MessageType.Assert)
+      level = SDK.ConsoleMessage.MessageLevel.Error;
+    else if (call.type === SDK.ConsoleMessage.MessageType.Warning)
+      level = SDK.ConsoleMessage.MessageLevel.Warning;
+    else if (call.type === SDK.ConsoleMessage.MessageType.Info || call.type === SDK.ConsoleMessage.MessageType.Log)
+      level = SDK.ConsoleMessage.MessageLevel.Info;
+    let message = '';
+    if (call.args.length && call.args[0].unserializableValue)
+      message = call.args[0].unserializableValue;
+    else if (call.args.length && (typeof call.args[0].value !== 'object' || call.args[0].value === null))
+      message = call.args[0].value + '';
+    else if (call.args.length && call.args[0].description)
+      message = call.args[0].description;
+    const callFrame = call.stackTrace && call.stackTrace.callFrames.length ? call.stackTrace.callFrames[0] : null;
+    const consoleMessage = new SDK.ConsoleMessage(
+        runtimeModel, SDK.ConsoleMessage.MessageSource.ConsoleAPI, level,
+        /** @type {string} */ (message), call.type, callFrame ? callFrame.url : undefined,
+        callFrame ? callFrame.lineNumber : undefined, callFrame ? callFrame.columnNumber : undefined, call.args,
+        call.stackTrace, call.timestamp, call.executionContextId, undefined, undefined, call.context);
+    this.addMessage(consoleMessage);
+  }
+
+  /**
+   * @param {!SDK.RuntimeModel} runtimeModel
+   * @param {!Common.Event} event
+   */
+  _queryObjectRequested(runtimeModel, event) {
+    const consoleMessage = new SDK.ConsoleMessage(
+        runtimeModel, SDK.ConsoleMessage.MessageSource.ConsoleAPI, SDK.ConsoleMessage.MessageLevel.Info, '',
+        SDK.ConsoleMessage.MessageType.QueryObjectResult, undefined, undefined, undefined, [event.data.objects]);
+    this.addMessage(consoleMessage);
+  }
+
+  _clearIfNecessary() {
+    if (!Common.moduleSetting('preserveConsoleLog').get())
+      this._clear();
+    ++this._pageLoadSequenceNumber;
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _mainFrameNavigated(event) {
+    if (Common.moduleSetting('preserveConsoleLog').get())
+      Common.console.log(Common.UIString('Navigated to %s', event.data.url));
+  }
+
+  /**
+   * @param {!SDK.CPUProfilerModel} cpuProfilerModel
+   * @param {!Common.Event} event
+   */
+  _consoleProfileStarted(cpuProfilerModel, event) {
+    const data = /** @type {!SDK.CPUProfilerModel.EventData} */ (event.data);
+    this._addConsoleProfileMessage(
+        cpuProfilerModel, SDK.ConsoleMessage.MessageType.Profile, data.scriptLocation,
+        Common.UIString('Profile \'%s\' started.', data.title));
+  }
+
+  /**
+   * @param {!SDK.CPUProfilerModel} cpuProfilerModel
+   * @param {!Common.Event} event
+   */
+  _consoleProfileFinished(cpuProfilerModel, event) {
+    const data = /** @type {!SDK.CPUProfilerModel.EventData} */ (event.data);
+    this._addConsoleProfileMessage(
+        cpuProfilerModel, SDK.ConsoleMessage.MessageType.ProfileEnd, data.scriptLocation,
+        Common.UIString('Profile \'%s\' finished.', data.title));
+  }
+
+  /**
+   * @param {!SDK.CPUProfilerModel} cpuProfilerModel
+   * @param {string} type
+   * @param {!SDK.DebuggerModel.Location} scriptLocation
+   * @param {string} messageText
+   */
+  _addConsoleProfileMessage(cpuProfilerModel, type, scriptLocation, messageText) {
+    const stackTrace = [{
+      functionName: '',
+      scriptId: scriptLocation.scriptId,
+      url: scriptLocation.script() ? scriptLocation.script().contentURL() : '',
+      lineNumber: scriptLocation.lineNumber,
+      columnNumber: scriptLocation.columnNumber || 0
+    }];
+    this.addMessage(new SDK.ConsoleMessage(
+        cpuProfilerModel.runtimeModel(), SDK.ConsoleMessage.MessageSource.ConsoleAPI,
+        SDK.ConsoleMessage.MessageLevel.Info, messageText, type, undefined, undefined, undefined, stackTrace));
+  }
+
+  /**
+   * @param {!SDK.ConsoleMessage} msg
+   */
+  _incrementErrorWarningCount(msg) {
+    if (msg.source === SDK.ConsoleMessage.MessageSource.Violation)
+      return;
+    switch (msg.level) {
+      case SDK.ConsoleMessage.MessageLevel.Warning:
+        this._warnings++;
+        break;
+      case SDK.ConsoleMessage.MessageLevel.Error:
+        this._errors++;
+        break;
+    }
+  }
+
+  /**
+   * @return {!Array.<!SDK.ConsoleMessage>}
+   */
+  messages() {
+    return this._messages;
+  }
+
+  requestClearMessages() {
+    for (const logModel of SDK.targetManager.models(SDK.LogModel))
+      logModel.requestClear();
+    for (const runtimeModel of SDK.targetManager.models(SDK.RuntimeModel))
+      runtimeModel.discardConsoleEntries();
+    this._clear();
+  }
+
+  _clear() {
+    this._messages = [];
+    this._messageByExceptionId.clear();
+    this._errors = 0;
+    this._warnings = 0;
+    this.dispatchEventToListeners(SDK.ConsoleModel.Events.ConsoleCleared);
+  }
+
+  /**
+   * @return {number}
+   */
+  errors() {
+    return this._errors;
+  }
+
+  /**
+   * @return {number}
+   */
+  warnings() {
+    return this._warnings;
+  }
+
+  /**
+   * @param {?SDK.ExecutionContext} currentExecutionContext
+   * @param {?SDK.RemoteObject} remoteObject
+   */
+  async saveToTempVariable(currentExecutionContext, remoteObject) {
+    if (!remoteObject || !currentExecutionContext) {
+      failedToSave(null);
+      return;
+    }
+    const executionContext = /** @type {!SDK.ExecutionContext} */ (currentExecutionContext);
+
+    const result = await executionContext.globalObject(/* objectGroup */ '', /* generatePreview */ false);
+    if (!!result.exceptionDetails || !result.object) {
+      failedToSave(result.object || null);
+      return;
+    }
+
+    const globalObject = result.object;
+    const callFunctionResult =
+        await globalObject.callFunction(saveVariable, [SDK.RemoteObject.toCallArgument(remoteObject)]);
+    globalObject.release();
+    if (callFunctionResult.wasThrown || !callFunctionResult.object || callFunctionResult.object.type !== 'string') {
+      failedToSave(callFunctionResult.object || null);
+    } else {
+      const text = /** @type {string} */ (callFunctionResult.object.value);
+      const message = this.addCommandMessage(executionContext, text);
+      this.evaluateCommandInConsole(
+          executionContext, message, text, /* useCommandLineAPI */ false, /* awaitPromise */ false);
+    }
+    if (callFunctionResult.object)
+      callFunctionResult.object.release();
+
+    /**
+     * @suppressReceiverCheck
+     * @this {Window}
+     */
+    function saveVariable(value) {
+      const prefix = 'temp';
+      let index = 1;
+      while ((prefix + index) in this)
+        ++index;
+      const name = prefix + index;
+      this[name] = value;
+      return name;
+    }
+
+    /**
+     * @param {?SDK.RemoteObject} result
+     */
+    function failedToSave(result) {
+      let message = Common.UIString('Failed to save to temp variable.');
+      if (result)
+        message += ' ' + result.description;
+      Common.console.error(message);
+    }
+  }
+};
+
+/** @enum {symbol} */
+SDK.ConsoleModel.Events = {
+  ConsoleCleared: Symbol('ConsoleCleared'),
+  MessageAdded: Symbol('MessageAdded'),
+  MessageUpdated: Symbol('MessageUpdated'),
+  CommandEvaluated: Symbol('CommandEvaluated')
+};
 
 
 /**
- * @constructor
- * @param {?WebInspector.Target} target
- * @param {string} source
- * @param {?string} level
- * @param {string} messageText
- * @param {string=} type
- * @param {?string=} url
- * @param {number=} line
- * @param {number=} column
- * @param {!NetworkAgent.RequestId=} requestId
- * @param {!Array.<!RuntimeAgent.RemoteObject>=} parameters
- * @param {!Array.<!ConsoleAgent.CallFrame>=} stackTrace
- * @param {number=} timestamp
- * @param {!RuntimeAgent.ExecutionContextId=} executionContextId
- * @param {!ConsoleAgent.AsyncStackTrace=} asyncStackTrace
- * @param {?string=} scriptId
- * @param {number=} messageId
- * @param {number=} relatedMessageId
+ * @unrestricted
  */
-WebInspector.ConsoleMessage = function(target, source, level, messageText, type, url, line, column, requestId, parameters, stackTrace, timestamp, executionContextId, asyncStackTrace, scriptId, messageId, relatedMessageId)
-{
-    this._target = target;
+SDK.ConsoleMessage = class {
+  /**
+   * @param {?SDK.RuntimeModel} runtimeModel
+   * @param {string} source
+   * @param {?string} level
+   * @param {string} messageText
+   * @param {string=} type
+   * @param {?string=} url
+   * @param {number=} line
+   * @param {number=} column
+   * @param {!Array.<!Protocol.Runtime.RemoteObject>=} parameters
+   * @param {!Protocol.Runtime.StackTrace=} stackTrace
+   * @param {number=} timestamp
+   * @param {!Protocol.Runtime.ExecutionContextId=} executionContextId
+   * @param {?string=} scriptId
+   * @param {?string=} workerId
+   * @param {string=} context
+   */
+  constructor(
+      runtimeModel, source, level, messageText, type, url, line, column, parameters, stackTrace, timestamp,
+      executionContextId, scriptId, workerId, context) {
+    this._runtimeModel = runtimeModel;
     this.source = source;
-    this.level = level;
+    this.level = /** @type {?SDK.ConsoleMessage.MessageLevel} */ (level);
     this.messageText = messageText;
-    this.type = type || WebInspector.ConsoleMessage.MessageType.Log;
+    this.type = type || SDK.ConsoleMessage.MessageType.Log;
     /** @type {string|undefined} */
     this.url = url || undefined;
     /** @type {number} */
@@ -242,365 +457,263 @@ WebInspector.ConsoleMessage = function(target, source, level, messageText, type,
     /** @type {number} */
     this.column = column || 0;
     this.parameters = parameters;
-    /** @type {!Array.<!ConsoleAgent.CallFrame>|undefined} */
+    /** @type {!Protocol.Runtime.StackTrace|undefined} */
     this.stackTrace = stackTrace;
     this.timestamp = timestamp || Date.now();
     this.executionContextId = executionContextId || 0;
-    this.asyncStackTrace = asyncStackTrace;
     this.scriptId = scriptId || null;
-    this._messageId = messageId || 0;
-    this._relatedMessageId = relatedMessageId || 0;
+    this.workerId = workerId || null;
 
-    this.request = requestId ? target.networkLog.requestForId(requestId) : null;
-
-    if (this.request) {
-        var initiator = this.request.initiator();
-        if (initiator) {
-            this.stackTrace = initiator.stackTrace || undefined;
-            this.asyncStackTrace = initiator.asyncStackTrace;
-            if (initiator.url) {
-                this.url = initiator.url;
-                this.line = initiator.lineNumber || 0;
-            }
-        }
+    if (!this.executionContextId && this._runtimeModel) {
+      if (this.scriptId)
+        this.executionContextId = this._runtimeModel.executionContextIdForScriptId(this.scriptId);
+      else if (this.stackTrace)
+        this.executionContextId = this._runtimeModel.executionContextForStackTrace(this.stackTrace);
     }
-}
 
-WebInspector.ConsoleMessage.prototype = {
-    /**
-     * @return {?WebInspector.Target}
-     */
-    target: function()
-    {
-        return this._target;
-    },
+    if (context)
+      this.context = context.match(/[^#]*/)[0];
+  }
 
-    /**
-     * @param {!WebInspector.ConsoleMessage} originatingMessage
-     */
-    setOriginatingMessage: function(originatingMessage)
-    {
-        this._originatingConsoleMessage = originatingMessage;
-        this.executionContextId = originatingMessage.executionContextId;
-    },
+  /**
+   * @param {!SDK.RuntimeModel} runtimeModel
+   * @param {!Protocol.Runtime.ExceptionDetails} exceptionDetails
+   * @param {string=} messageType
+   * @param {number=} timestamp
+   * @param {string=} forceUrl
+   * @return {!SDK.ConsoleMessage}
+   */
+  static fromException(runtimeModel, exceptionDetails, messageType, timestamp, forceUrl) {
+    return new SDK.ConsoleMessage(
+        runtimeModel, SDK.ConsoleMessage.MessageSource.JS, SDK.ConsoleMessage.MessageLevel.Error,
+        SDK.RuntimeModel.simpleTextFromException(exceptionDetails), messageType, forceUrl || exceptionDetails.url,
+        exceptionDetails.lineNumber, exceptionDetails.columnNumber,
+        exceptionDetails.exception ?
+            [SDK.RemoteObject.fromLocalObject(exceptionDetails.text), exceptionDetails.exception] :
+            undefined,
+        exceptionDetails.stackTrace, timestamp, exceptionDetails.executionContextId, exceptionDetails.scriptId);
+  }
 
-    /**
-     * @param {!RuntimeAgent.ExecutionContextId} executionContextId
-     */
-    setExecutionContextId: function(executionContextId)
-    {
-        this.executionContextId = executionContextId;
-    },
+  /**
+   * @return {?SDK.RuntimeModel}
+   */
+  runtimeModel() {
+    return this._runtimeModel;
+  }
 
-    /**
-     * @return {?WebInspector.ConsoleMessage}
-     */
-    originatingMessage: function()
-    {
-        return this._originatingConsoleMessage;
-    },
+  /**
+   * @return {?SDK.Target}
+   */
+  target() {
+    return this._runtimeModel ? this._runtimeModel.target() : null;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    isGroupMessage: function()
-    {
-        return this.type === WebInspector.ConsoleMessage.MessageType.StartGroup ||
-            this.type === WebInspector.ConsoleMessage.MessageType.StartGroupCollapsed ||
-            this.type === WebInspector.ConsoleMessage.MessageType.EndGroup;
-    },
+  /**
+   * @param {!SDK.ConsoleMessage} originatingMessage
+   */
+  setOriginatingMessage(originatingMessage) {
+    this._originatingConsoleMessage = originatingMessage;
+    this.executionContextId = originatingMessage.executionContextId;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    isGroupStartMessage: function()
-    {
-        return this.type === WebInspector.ConsoleMessage.MessageType.StartGroup ||
-            this.type === WebInspector.ConsoleMessage.MessageType.StartGroupCollapsed;
-    },
+  /**
+   * @param {!Protocol.Runtime.ExecutionContextId} executionContextId
+   */
+  setExecutionContextId(executionContextId) {
+    this.executionContextId = executionContextId;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    isErrorOrWarning: function()
-    {
-        return (this.level === WebInspector.ConsoleMessage.MessageLevel.Warning || this.level === WebInspector.ConsoleMessage.MessageLevel.Error);
-    },
+  /**
+   * @param {number} exceptionId
+   */
+  setExceptionId(exceptionId) {
+    this._exceptionId = exceptionId;
+  }
 
-    /**
-     * @param {?WebInspector.ConsoleMessage} msg
-     * @return {boolean}
-     */
-    isEqual: function(msg)
-    {
-        if (!msg)
-            return false;
+  /**
+   * @return {?SDK.ConsoleMessage}
+   */
+  originatingMessage() {
+    return this._originatingConsoleMessage;
+  }
 
-        if (this._messageId || msg._messageId)
-            return false;
-        if (this._relatedMessageId || msg._relatedMessageId)
-            return false;
+  /**
+   * @return {boolean}
+   */
+  isGroupMessage() {
+    return this.type === SDK.ConsoleMessage.MessageType.StartGroup ||
+        this.type === SDK.ConsoleMessage.MessageType.StartGroupCollapsed ||
+        this.type === SDK.ConsoleMessage.MessageType.EndGroup;
+  }
 
-        if (!this._isEqualStackTraces(this.stackTrace, msg.stackTrace))
-            return false;
+  /**
+   * @return {boolean}
+   */
+  isGroupStartMessage() {
+    return this.type === SDK.ConsoleMessage.MessageType.StartGroup ||
+        this.type === SDK.ConsoleMessage.MessageType.StartGroupCollapsed;
+  }
 
-        var asyncTrace1 = this.asyncStackTrace;
-        var asyncTrace2 = msg.asyncStackTrace;
-        while (asyncTrace1 || asyncTrace2) {
-            if (!asyncTrace1 || !asyncTrace2)
-                return false;
-            if (asyncTrace1.description !== asyncTrace2.description)
-                return false;
-            if (!this._isEqualStackTraces(asyncTrace1.callFrames, asyncTrace2.callFrames))
-                return false;
-            asyncTrace1 = asyncTrace1.asyncStackTrace;
-            asyncTrace2 = asyncTrace2.asyncStackTrace;
-        }
+  /**
+   * @return {boolean}
+   */
+  isErrorOrWarning() {
+    return (
+        this.level === SDK.ConsoleMessage.MessageLevel.Warning || this.level === SDK.ConsoleMessage.MessageLevel.Error);
+  }
 
-        if (this.parameters) {
-            if (!msg.parameters || this.parameters.length !== msg.parameters.length)
-                return false;
+  /**
+   * @return {boolean}
+   */
+  isGroupable() {
+    const isUngroupableError = this.level === SDK.ConsoleMessage.MessageLevel.Error &&
+        (this.source === SDK.ConsoleMessage.MessageSource.JS ||
+         this.source === SDK.ConsoleMessage.MessageSource.Network);
+    return (
+        this.source !== SDK.ConsoleMessage.MessageSource.ConsoleAPI &&
+        this.type !== SDK.ConsoleMessage.MessageType.Command && this.type !== SDK.ConsoleMessage.MessageType.Result &&
+        this.type !== SDK.ConsoleMessage.MessageType.System && !isUngroupableError);
+  }
 
-            for (var i = 0; i < msg.parameters.length; ++i) {
-                // Never treat objects as equal - their properties might change over time.
-                if (this.parameters[i].type !== msg.parameters[i].type || msg.parameters[i].type === "object" || this.parameters[i].value !== msg.parameters[i].value)
-                    return false;
-            }
-        }
+  /**
+   * @return {string}
+   */
+  groupCategoryKey() {
+    return [this.source, this.level, this.type, this._pageLoadSequenceNumber].join(':');
+  }
 
-        return (this.target() === msg.target())
-            && (this.source === msg.source)
-            && (this.type === msg.type)
-            && (this.level === msg.level)
-            && (this.line === msg.line)
-            && (this.url === msg.url)
-            && (this.messageText === msg.messageText)
-            && (this.request === msg.request)
-            && (this.executionContextId === msg.executionContextId)
-            && (this.scriptId === msg.scriptId);
-    },
+  /**
+   * @param {?SDK.ConsoleMessage} msg
+   * @return {boolean}
+   */
+  isEqual(msg) {
+    if (!msg)
+      return false;
 
-    /**
-     * @param {!Array.<!ConsoleAgent.CallFrame>|undefined} stackTrace1
-     * @param {!Array.<!ConsoleAgent.CallFrame>|undefined} stackTrace2
-     * @return {boolean}
-     */
-    _isEqualStackTraces: function(stackTrace1, stackTrace2)
-    {
-        stackTrace1 = stackTrace1 || [];
-        stackTrace2 = stackTrace2 || [];
-        if (stackTrace1.length !== stackTrace2.length)
-            return false;
-        for (var i = 0, n = stackTrace1.length; i < n; ++i) {
-            if (stackTrace1[i].url !== stackTrace2[i].url ||
-                stackTrace1[i].functionName !== stackTrace2[i].functionName ||
-                stackTrace1[i].lineNumber !== stackTrace2[i].lineNumber ||
-                stackTrace1[i].columnNumber !== stackTrace2[i].columnNumber)
-                return false;
-        }
-        return true;
+    if (!this._isEqualStackTraces(this.stackTrace, msg.stackTrace))
+      return false;
+
+    if (this.parameters) {
+      if (!msg.parameters || this.parameters.length !== msg.parameters.length)
+        return false;
+
+      for (let i = 0; i < msg.parameters.length; ++i) {
+        // Never treat objects as equal - their properties might change over time. Errors can be treated as equal
+        // since they are always formatted as strings.
+        if (msg.parameters[i].type === 'object' && msg.parameters[i].subtype !== 'error')
+          return false;
+        if (this.parameters[i].type !== msg.parameters[i].type ||
+            this.parameters[i].value !== msg.parameters[i].value ||
+            this.parameters[i].description !== msg.parameters[i].description)
+          return false;
+      }
     }
-}
 
-// Note: Keep these constants in sync with the ones in Console.h
+    return (this.runtimeModel() === msg.runtimeModel()) && (this.source === msg.source) && (this.type === msg.type) &&
+        (this.level === msg.level) && (this.line === msg.line) && (this.url === msg.url) &&
+        (this.messageText === msg.messageText) && (this.request === msg.request) &&
+        (this.executionContextId === msg.executionContextId);
+  }
+
+  /**
+   * @param {!Protocol.Runtime.StackTrace|undefined} stackTrace1
+   * @param {!Protocol.Runtime.StackTrace|undefined} stackTrace2
+   * @return {boolean}
+   */
+  _isEqualStackTraces(stackTrace1, stackTrace2) {
+    if (!stackTrace1 !== !stackTrace2)
+      return false;
+    if (!stackTrace1)
+      return true;
+    const callFrames1 = stackTrace1.callFrames;
+    const callFrames2 = stackTrace2.callFrames;
+    if (callFrames1.length !== callFrames2.length)
+      return false;
+    for (let i = 0, n = callFrames1.length; i < n; ++i) {
+      if (callFrames1[i].url !== callFrames2[i].url || callFrames1[i].functionName !== callFrames2[i].functionName ||
+          callFrames1[i].lineNumber !== callFrames2[i].lineNumber ||
+          callFrames1[i].columnNumber !== callFrames2[i].columnNumber)
+        return false;
+    }
+    return this._isEqualStackTraces(stackTrace1.parent, stackTrace2.parent);
+  }
+};
+
+// Note: Keep these constants in sync with the ones in ConsoleTypes.h
 /**
  * @enum {string}
  */
-WebInspector.ConsoleMessage.MessageSource = {
-    XML: "xml",
-    JS: "javascript",
-    Network: "network",
-    ConsoleAPI: "console-api",
-    Storage: "storage",
-    AppCache: "appcache",
-    Rendering: "rendering",
-    CSS: "css",
-    Security: "security",
-    Other: "other",
-    Deprecation: "deprecation"
-}
-
-/**
- * @enum {string}
- */
-WebInspector.ConsoleMessage.MessageType = {
-    Log: "log",
-    Dir: "dir",
-    DirXML: "dirxml",
-    Table: "table",
-    Trace: "trace",
-    Clear: "clear",
-    StartGroup: "startGroup",
-    StartGroupCollapsed: "startGroupCollapsed",
-    EndGroup: "endGroup",
-    Assert: "assert",
-    Result: "result",
-    Profile: "profile",
-    ProfileEnd: "profileEnd",
-    Command: "command"
-}
-
-/**
- * @enum {string}
- */
-WebInspector.ConsoleMessage.MessageLevel = {
-    Log: "log",
-    Info: "info",
-    Warning: "warning",
-    Error: "error",
-    Debug: "debug",
-    RevokedError: "revokedError"
+SDK.ConsoleMessage.MessageSource = {
+  XML: 'xml',
+  JS: 'javascript',
+  Network: 'network',
+  ConsoleAPI: 'console-api',
+  Storage: 'storage',
+  AppCache: 'appcache',
+  Rendering: 'rendering',
+  CSS: 'css',
+  Security: 'security',
+  Deprecation: 'deprecation',
+  Worker: 'worker',
+  Violation: 'violation',
+  Intervention: 'intervention',
+  Recommendation: 'recommendation',
+  Other: 'other'
 };
 
 /**
- * @param {!WebInspector.ConsoleMessage} a
- * @param {!WebInspector.ConsoleMessage} b
- * @return {number}
+ * @enum {string}
  */
-WebInspector.ConsoleMessage.timestampComparator = function (a, b)
-{
-    return a.timestamp - b.timestamp;
-}
+SDK.ConsoleMessage.MessageType = {
+  Log: 'log',
+  Debug: 'debug',
+  Info: 'info',
+  Error: 'error',
+  Warning: 'warning',
+  Dir: 'dir',
+  DirXML: 'dirxml',
+  Table: 'table',
+  Trace: 'trace',
+  Clear: 'clear',
+  StartGroup: 'startGroup',
+  StartGroupCollapsed: 'startGroupCollapsed',
+  EndGroup: 'endGroup',
+  Assert: 'assert',
+  Result: 'result',
+  Profile: 'profile',
+  ProfileEnd: 'profileEnd',
+  Command: 'command',
+  System: 'system',
+  QueryObjectResult: 'queryObjectResult'
+};
 
 /**
- * @constructor
- * @implements {ConsoleAgent.Dispatcher}
- * @param {!WebInspector.ConsoleModel} console
+ * @enum {string}
  */
-WebInspector.ConsoleDispatcher = function(console)
-{
-    this._console = console;
-}
+SDK.ConsoleMessage.MessageLevel = {
+  Verbose: 'verbose',
+  Info: 'info',
+  Warning: 'warning',
+  Error: 'error'
+};
 
-WebInspector.ConsoleDispatcher.prototype = {
-    /**
-     * @override
-     * @param {!ConsoleAgent.ConsoleMessage} payload
-     */
-    messageAdded: function(payload)
-    {
-        var consoleMessage = new WebInspector.ConsoleMessage(
-            this._console.target(),
-            payload.source,
-            payload.level,
-            payload.text,
-            payload.type,
-            payload.url,
-            payload.line,
-            payload.column,
-            payload.networkRequestId,
-            payload.parameters,
-            payload.stackTrace,
-            payload.timestamp * 1000, // Convert to ms.
-            payload.executionContextId,
-            payload.asyncStackTrace,
-            payload.scriptId,
-            payload.messageId,
-            payload.relatedMessageId);
-        this._console.addMessage(consoleMessage);
-    },
+/** @type {!Map<!SDK.ConsoleMessage.MessageSource, string>} */
+SDK.ConsoleMessage.MessageSourceDisplayName = new Map([
+  [SDK.ConsoleMessage.MessageSource.XML, 'xml'], [SDK.ConsoleMessage.MessageSource.JS, 'javascript'],
+  [SDK.ConsoleMessage.MessageSource.Network, 'network'], [SDK.ConsoleMessage.MessageSource.ConsoleAPI, 'console-api'],
+  [SDK.ConsoleMessage.MessageSource.Storage, 'storage'], [SDK.ConsoleMessage.MessageSource.AppCache, 'appcache'],
+  [SDK.ConsoleMessage.MessageSource.Rendering, 'rendering'], [SDK.ConsoleMessage.MessageSource.CSS, 'css'],
+  [SDK.ConsoleMessage.MessageSource.Security, 'security'],
+  [SDK.ConsoleMessage.MessageSource.Deprecation, 'deprecation'], [SDK.ConsoleMessage.MessageSource.Worker, 'worker'],
+  [SDK.ConsoleMessage.MessageSource.Violation, 'violation'],
+  [SDK.ConsoleMessage.MessageSource.Intervention, 'intervention'],
+  [SDK.ConsoleMessage.MessageSource.Recommendation, 'recommendation'],
+  [SDK.ConsoleMessage.MessageSource.Other, 'other']
+]);
 
-    /**
-     * @override
-     * @param {number} count
-     */
-    messageRepeatCountUpdated: function(count)
-    {
-    },
-
-    /**
-     * @override
-     */
-    messagesCleared: function()
-    {
-        if (!WebInspector.moduleSetting("preserveConsoleLog").get())
-            this._console._messagesCleared();
-    }
-}
+SDK.ConsoleModel._events = Symbol('SDK.ConsoleModel.events');
 
 /**
- * @constructor
- * @extends {WebInspector.Object}
- * @implements {WebInspector.TargetManager.Observer}
+ * @type {!SDK.ConsoleModel}
  */
-WebInspector.MultitargetConsoleModel = function()
-{
-    WebInspector.targetManager.observeTargets(this);
-    WebInspector.targetManager.addModelListener(WebInspector.ConsoleModel, WebInspector.ConsoleModel.Events.MessageAdded, this._consoleMessageAdded, this);
-    WebInspector.targetManager.addModelListener(WebInspector.ConsoleModel, WebInspector.ConsoleModel.Events.MessageUpdated, this._consoleMessageUpdated, this);
-    WebInspector.targetManager.addModelListener(WebInspector.ConsoleModel, WebInspector.ConsoleModel.Events.CommandEvaluated, this._commandEvaluated, this);
-}
-
-WebInspector.MultitargetConsoleModel.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetAdded: function(target)
-    {
-        if (!this._mainTarget) {
-            this._mainTarget = target;
-            target.consoleModel.addEventListener(WebInspector.ConsoleModel.Events.ConsoleCleared, this._consoleCleared, this);
-        }
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetRemoved: function(target)
-    {
-        if (this._mainTarget === target) {
-            delete this._mainTarget;
-            target.consoleModel.removeEventListener(WebInspector.ConsoleModel.Events.ConsoleCleared, this._consoleCleared, this);
-        }
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.ConsoleMessage>}
-     */
-    messages: function()
-    {
-        var targets = WebInspector.targetManager.targets();
-        var result = [];
-        for (var i = 0; i < targets.length; ++i)
-            result = result.concat(targets[i].consoleModel.messages());
-        return result;
-    },
-
-    _consoleCleared: function()
-    {
-        this.dispatchEventToListeners(WebInspector.ConsoleModel.Events.ConsoleCleared);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _consoleMessageAdded: function(event)
-    {
-        this.dispatchEventToListeners(WebInspector.ConsoleModel.Events.MessageAdded, event.data);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _consoleMessageUpdated: function(event)
-    {
-        this.dispatchEventToListeners(WebInspector.ConsoleModel.Events.MessageUpdated, event.data);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _commandEvaluated: function(event)
-    {
-        this.dispatchEventToListeners(WebInspector.ConsoleModel.Events.CommandEvaluated, event.data);
-    },
-
-    __proto__: WebInspector.Object.prototype
-}
-
-/**
- * @type {!WebInspector.MultitargetConsoleModel}
- */
-WebInspector.multitargetConsoleModel;
+SDK.consoleModel;

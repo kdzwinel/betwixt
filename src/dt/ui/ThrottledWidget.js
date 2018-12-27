@@ -1,59 +1,52 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 /**
- * @constructor
- * @extends {WebInspector.Widget}
+ * @unrestricted
  */
-WebInspector.ThrottledWidget = function()
-{
-    WebInspector.Widget.call(this);
-    this._updateThrottler = new WebInspector.Throttler(100);
+UI.ThrottledWidget = class extends UI.VBox {
+  /**
+   * @param {boolean=} isWebComponent
+   * @param {number=} timeout
+   */
+  constructor(isWebComponent, timeout) {
+    super(isWebComponent);
+    this._updateThrottler = new Common.Throttler(timeout === undefined ? 100 : timeout);
     this._updateWhenVisible = false;
-}
+  }
 
-WebInspector.ThrottledWidget.prototype = {
-    /**
-     * @protected
-     * @return {!Promise.<?>}
-     */
-    doUpdate: function()
-    {
-        return Promise.resolve();
-    },
+  /**
+   * @protected
+   * @return {!Promise<?>}
+   */
+  doUpdate() {
+    return Promise.resolve();
+  }
 
-    update: function()
-    {
-        this._updateWhenVisible = !this.isShowing();
-        if (this._updateWhenVisible)
-            return;
-        this._updateThrottler.schedule(innerUpdate.bind(this));
-
-        /**
-         * @this {WebInspector.ThrottledWidget}
-         * @return {!Promise.<?>}
-         */
-        function innerUpdate()
-        {
-            if (this.isShowing()) {
-                return this.doUpdate();
-            } else {
-                this._updateWhenVisible = true;
-                return Promise.resolve();
-            }
-        }
-    },
+  update() {
+    this._updateWhenVisible = !this.isShowing();
+    if (this._updateWhenVisible)
+      return;
+    this._updateThrottler.schedule(innerUpdate.bind(this));
 
     /**
-     * @override
+     * @this {UI.ThrottledWidget}
+     * @return {!Promise<?>}
      */
-    wasShown: function()
-    {
-        WebInspector.Widget.prototype.wasShown.call(this);
-        if (this._updateWhenVisible)
-            this.update();
-    },
+    function innerUpdate() {
+      if (this.isShowing())
+        return this.doUpdate();
+      this._updateWhenVisible = true;
+      return Promise.resolve();
+    }
+  }
 
-    __proto__: WebInspector.Widget.prototype
-}
+  /**
+   * @override
+   */
+  wasShown() {
+    super.wasShown();
+    if (this._updateWhenVisible)
+      this.update();
+  }
+};

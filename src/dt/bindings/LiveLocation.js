@@ -1,36 +1,96 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+/** @interface */
+Bindings.LiveLocation = function() {};
+
+Bindings.LiveLocation.prototype = {
+  update() {},
+
+  /**
+   * @return {?Workspace.UILocation}
+   */
+  uiLocation() {},
+
+  dispose() {},
+
+  /**
+   * @return {boolean}
+   */
+  isBlackboxed() {}
+};
 
 /**
- * @constructor
- * @param {function(!WebInspector.UILocation):(boolean|undefined)} updateDelegate
+ * @implements {Bindings.LiveLocation}
+ * @unrestricted
  */
-WebInspector.LiveLocation = function(updateDelegate)
-{
+Bindings.LiveLocationWithPool = class {
+  /**
+   * @param {function(!Bindings.LiveLocation)} updateDelegate
+   * @param {!Bindings.LiveLocationPool} locationPool
+   */
+  constructor(updateDelegate, locationPool) {
     this._updateDelegate = updateDelegate;
-}
+    this._locationPool = locationPool;
+    this._locationPool._add(this);
+  }
 
-WebInspector.LiveLocation.prototype = {
-    update: function()
-    {
-        var uiLocation = this.uiLocation();
-        if (!uiLocation)
-            return;
-        if (this._updateDelegate(uiLocation))
-            this.dispose();
-    },
+  /**
+   * @override
+   */
+  update() {
+    this._updateDelegate(this);
+  }
 
-    /**
-     * @return {?WebInspector.UILocation}
-     */
-    uiLocation: function()
-    {
-        throw "Not implemented";
-    },
+  /**
+   * @override
+   * @return {?Workspace.UILocation}
+   */
+  uiLocation() {
+    throw 'Not implemented';
+  }
 
-    dispose: function()
-    {
-        // Overridden by subclasses.
-    }
-}
+  /**
+   * @override
+   */
+  dispose() {
+    this._locationPool._delete(this);
+    this._updateDelegate = null;
+  }
+
+  /**
+   * @override
+   * @return {boolean}
+   */
+  isBlackboxed() {
+    throw 'Not implemented';
+  }
+};
+
+/**
+ * @unrestricted
+ */
+Bindings.LiveLocationPool = class {
+  constructor() {
+    this._locations = new Set();
+  }
+
+  /**
+   * @param {!Bindings.LiveLocation} location
+   */
+  _add(location) {
+    this._locations.add(location);
+  }
+
+  /**
+   * @param {!Bindings.LiveLocation} location
+   */
+  _delete(location) {
+    this._locations.delete(location);
+  }
+
+  disposeAll() {
+    for (const location of this._locations)
+      location.dispose();
+  }
+};

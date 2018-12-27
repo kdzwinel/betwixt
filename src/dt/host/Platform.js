@@ -25,77 +25,60 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
  * @return {string}
  */
-WebInspector.platform = function()
-{
-    if (!WebInspector._platform)
-        WebInspector._platform = InspectorFrontendHost.platform();
-    return WebInspector._platform;
-}
+Host.platform = function() {
+  if (!Host._platform)
+    Host._platform = InspectorFrontendHost.platform();
+  return Host._platform;
+};
 
 /**
  * @return {boolean}
  */
-WebInspector.isMac = function()
-{
-    if (typeof WebInspector._isMac === "undefined")
-        WebInspector._isMac = WebInspector.platform() === "mac";
+Host.isMac = function() {
+  if (typeof Host._isMac === 'undefined')
+    Host._isMac = Host.platform() === 'mac';
 
-    return WebInspector._isMac;
-}
+  return Host._isMac;
+};
 
 /**
  * @return {boolean}
  */
-WebInspector.isWin = function()
-{
-    if (typeof WebInspector._isWin === "undefined")
-        WebInspector._isWin = WebInspector.platform() === "windows";
+Host.isWin = function() {
+  if (typeof Host._isWin === 'undefined')
+    Host._isWin = Host.platform() === 'windows';
 
-    return WebInspector._isWin;
-}
+  return Host._isWin;
+};
+
+/**
+ * @return {boolean}
+ */
+Host.isCustomDevtoolsFrontend = function() {
+  if (typeof Host._isCustomDevtoolsFronend === 'undefined')
+    Host._isCustomDevtoolsFronend = window.location.toString().startsWith('chrome-devtools://devtools/custom/');
+  return Host._isCustomDevtoolsFronend;
+};
 
 /**
  * @return {string}
  */
-WebInspector.fontFamily = function()
-{
-    if (WebInspector._fontFamily)
-        return WebInspector._fontFamily;
-    switch (WebInspector.platform()) {
-    case "linux":
-        WebInspector._fontFamily = "Ubuntu, Arial, sans-serif";
-        break;
-    case "mac":
-        WebInspector._fontFamily = "'Lucida Grande', sans-serif";
-        break;
-    case "windows":
-        WebInspector._fontFamily = "'Segoe UI', Tahoma, sans-serif";
-        break;
-    }
-    return WebInspector._fontFamily;
-}
-
-/**
- * @return {string}
- */
-WebInspector.monospaceFontFamily = function()
-{
-    if (WebInspector._monospaceFontFamily)
-        return WebInspector._monospaceFontFamily;
-    switch (WebInspector.platform()) {
-    case "linux":
-        WebInspector._monospaceFontFamily = "dejavu sans mono, monospace";
-        break;
-    case "mac":
-        WebInspector._monospaceFontFamily = "Menlo, monospace";
-        break;
-    case "windows":
-        WebInspector._monospaceFontFamily = "Consolas, monospace";
-        break;
-    }
-    return WebInspector._monospaceFontFamily;
-}
+Host.fontFamily = function() {
+  if (Host._fontFamily)
+    return Host._fontFamily;
+  switch (Host.platform()) {
+    case 'linux':
+      Host._fontFamily = 'Roboto, Ubuntu, Arial, sans-serif';
+      break;
+    case 'mac':
+      Host._fontFamily = '\'Lucida Grande\', sans-serif';
+      break;
+    case 'windows':
+      Host._fontFamily = '\'Segoe UI\', Tahoma, sans-serif';
+      break;
+  }
+  return Host._fontFamily;
+};

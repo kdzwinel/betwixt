@@ -29,380 +29,320 @@
  */
 
 /**
- * @constructor
- * @implements {WebInspector.CSSSourceMapping}
- * @param {!WebInspector.CSSStyleModel} cssModel
- * @param {!WebInspector.Workspace} workspace
- * @param {!WebInspector.NetworkMapping} networkMapping
+ * @implements {Bindings.CSSWorkspaceBinding.SourceMapping}
+ * @unrestricted
  */
-WebInspector.StylesSourceMapping = function(cssModel, workspace, networkMapping)
-{
+Bindings.StylesSourceMapping = class {
+  /**
+   * @param {!SDK.CSSModel} cssModel
+   * @param {!Workspace.Workspace} workspace
+   */
+  constructor(cssModel, workspace) {
     this._cssModel = cssModel;
-    this._workspace = workspace;
-    this._workspace.addEventListener(WebInspector.Workspace.Events.ProjectRemoved, this._projectRemoved, this);
-    this._workspace.addEventListener(WebInspector.Workspace.Events.UISourceCodeAdded, this._uiSourceCodeAddedToWorkspace, this);
-    this._workspace.addEventListener(WebInspector.Workspace.Events.UISourceCodeRemoved, this._uiSourceCodeRemoved, this);
-    this._networkMapping = networkMapping;
+    const target = this._cssModel.target();
+    this._project = new Bindings.ContentProviderBasedProject(
+        workspace, 'css:' + target.id(), Workspace.projectTypes.Network, '', false /* isServiceProject */);
+    Bindings.NetworkProject.setTargetForProject(this._project, target);
 
-    cssModel.target().resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.MainFrameNavigated, this._mainFrameNavigated, this);
+    /** @type {!Map.<string, !Bindings.StyleFile>} */
+    this._styleFiles = new Map();
+    this._eventListeners = [
+      this._cssModel.addEventListener(SDK.CSSModel.Events.StyleSheetAdded, this._styleSheetAdded, this),
+      this._cssModel.addEventListener(SDK.CSSModel.Events.StyleSheetRemoved, this._styleSheetRemoved, this),
+      this._cssModel.addEventListener(SDK.CSSModel.Events.StyleSheetChanged, this._styleSheetChanged, this),
+    ];
+  }
 
-    this._cssModel.addEventListener(WebInspector.CSSStyleModel.Events.StyleSheetChanged, this._styleSheetChanged, this);
-    this._initialize();
-}
-
-WebInspector.StylesSourceMapping.ChangeUpdateTimeoutMs = 200;
-
-WebInspector.StylesSourceMapping.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.CSSLocation} rawLocation
-     * @return {?WebInspector.UILocation}
-     */
-    rawLocationToUILocation: function(rawLocation)
-    {
-        var uiSourceCode = this._networkMapping.uiSourceCodeForURL(rawLocation.url, rawLocation.target());
-        if (!uiSourceCode)
-            return null;
-        var lineNumber = rawLocation.lineNumber;
-        var columnNumber = rawLocation.columnNumber;
-        var header = this._cssModel.styleSheetHeaderForId(rawLocation.styleSheetId);
-        if (header && header.isInline && header.hasSourceURL) {
-            lineNumber -= header.lineNumberInSource(0);
-            columnNumber -= header.columnNumberInSource(lineNumber, 0);
-        }
-        return uiSourceCode.uiLocation(lineNumber, columnNumber);
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     * @param {number} lineNumber
-     * @param {number} columnNumber
-     * @return {?WebInspector.CSSLocation}
-     */
-    uiLocationToRawLocation: function(uiSourceCode, lineNumber, columnNumber)
-    {
-        return null;
-    },
-
-    /**
-     * @override
-     * @return {boolean}
-     */
-    isIdentity: function()
-    {
-        return true;
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     * @param {number} lineNumber
-     * @return {boolean}
-     */
-    uiLineHasMapping: function(uiSourceCode, lineNumber)
-    {
-        return true;
-    },
-
-    /**
-     * @return {!WebInspector.Target}
-     */
-    target: function()
-    {
-        return this._cssModel.target();
-    },
-
-    /**
-     * @param {!WebInspector.CSSStyleSheetHeader} header
-     */
-    addHeader: function(header)
-    {
-        var url = header.resourceURL();
-        if (!url)
-            return;
-
-        WebInspector.cssWorkspaceBinding.pushSourceMapping(header, this);
-        var map = this._urlToHeadersByFrameId[url];
-        if (!map) {
-            map = /** @type {!Map.<string, !Map.<string, !WebInspector.CSSStyleSheetHeader>>} */ (new Map());
-            this._urlToHeadersByFrameId[url] = map;
-        }
-        var headersById = map.get(header.frameId);
-        if (!headersById) {
-            headersById = /** @type {!Map.<string, !WebInspector.CSSStyleSheetHeader>} */ (new Map());
-            map.set(header.frameId, headersById);
-        }
-        headersById.set(header.id, header);
-        var uiSourceCode = this._networkMapping.uiSourceCodeForURL(url, header.target());
-        if (uiSourceCode)
-            this._bindUISourceCode(uiSourceCode, header);
-    },
-
-    /**
-     * @param {!WebInspector.CSSStyleSheetHeader} header
-     */
-    removeHeader: function(header)
-    {
-        var url = header.resourceURL();
-        if (!url)
-            return;
-
-        var map = this._urlToHeadersByFrameId[url];
-        console.assert(map);
-        var headersById = map.get(header.frameId);
-        console.assert(headersById);
-        headersById.remove(header.id);
-
-        if (!headersById.size) {
-            map.remove(header.frameId);
-            if (!map.size) {
-                delete this._urlToHeadersByFrameId[url];
-                var uiSourceCode = this._networkMapping.uiSourceCodeForURL(url, header.target());
-                if (uiSourceCode)
-                    this._unbindUISourceCode(uiSourceCode);
-            }
-        }
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     */
-    _unbindUISourceCode: function(uiSourceCode)
-    {
-        var styleFile = this._styleFiles.get(uiSourceCode);
-        if (!styleFile)
-            return;
-        styleFile.dispose();
-        this._styleFiles.remove(uiSourceCode);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _uiSourceCodeAddedToWorkspace: function(event)
-    {
-        var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data);
-        var networkURL = this._networkMapping.networkURL(uiSourceCode);
-        if (!networkURL || !this._urlToHeadersByFrameId[networkURL])
-            return;
-        this._bindUISourceCode(uiSourceCode, this._urlToHeadersByFrameId[networkURL].valuesArray()[0].valuesArray()[0]);
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     * @param {!WebInspector.CSSStyleSheetHeader} header
-     */
-    _bindUISourceCode: function(uiSourceCode, header)
-    {
-        if (this._styleFiles.get(uiSourceCode) || (header.isInline && !header.hasSourceURL))
-            return;
-        this._styleFiles.set(uiSourceCode, new WebInspector.StyleFile(uiSourceCode, this));
-        WebInspector.cssWorkspaceBinding.updateLocations(header);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _projectRemoved: function(event)
-    {
-        var project = /** @type {!WebInspector.Project} */ (event.data);
-        var uiSourceCodes = project.uiSourceCodes();
-        for (var i = 0; i < uiSourceCodes.length; ++i)
-            this._unbindUISourceCode(uiSourceCodes[i]);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _uiSourceCodeRemoved: function(event)
-    {
-        var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data);
-        this._unbindUISourceCode(uiSourceCode);
-    },
-
-    _initialize: function()
-    {
-        /** @type {!Object.<string, !Map.<string, !Map.<string, !WebInspector.CSSStyleSheetHeader>>>} */
-        this._urlToHeadersByFrameId = {};
-        /** @type {!Map.<!WebInspector.UISourceCode, !WebInspector.StyleFile>} */
-        this._styleFiles = new Map();
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _mainFrameNavigated: function(event)
-    {
-        for (var url in this._urlToHeadersByFrameId) {
-            var uiSourceCode = this._networkMapping.uiSourceCodeForURL(url, this._cssModel.target());
-            if (!uiSourceCode)
-                continue;
-            this._unbindUISourceCode(uiSourceCode);
-        }
-        this._initialize();
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     * @param {string} content
-     * @param {boolean} majorChange
-     * @return {!Promise<?string>}
-     */
-    _setStyleContent: function(uiSourceCode, content, majorChange)
-    {
-        var networkURL = this._networkMapping.networkURL(uiSourceCode);
-        var styleSheetIds = this._cssModel.styleSheetIdsForURL(networkURL);
-        if (!styleSheetIds.length)
-            return Promise.resolve(/** @type {?string} */("No stylesheet found: " + networkURL));
-
-        this._isSettingContent = true;
-
-        /**
-         * @param {?string} error
-         * @this {WebInspector.StylesSourceMapping}
-         * @return {?string}
-         */
-        function callback(error)
-        {
-            delete this._isSettingContent;
-            return error || null;
-        }
-
-        var promises = [];
-        for (var i = 0; i < styleSheetIds.length; ++i)
-            promises.push(this._cssModel.setStyleSheetText(styleSheetIds[i], content, majorChange));
-
-        return Promise.all(promises).spread(callback.bind(this));
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _styleSheetChanged: function(event)
-    {
-        if (this._isSettingContent)
-            return;
-
-        this._updateStyleSheetTextSoon(event.data.styleSheetId);
-    },
-
-    /**
-     * @param {!CSSAgent.StyleSheetId} styleSheetId
-     */
-    _updateStyleSheetTextSoon: function(styleSheetId)
-    {
-        if (this._updateStyleSheetTextTimer)
-            clearTimeout(this._updateStyleSheetTextTimer);
-
-        this._updateStyleSheetTextTimer = setTimeout(this._updateStyleSheetText.bind(this, styleSheetId), WebInspector.StylesSourceMapping.ChangeUpdateTimeoutMs);
-    },
-
-    /**
-     * @param {!CSSAgent.StyleSheetId} styleSheetId
-     */
-    _updateStyleSheetText: function(styleSheetId)
-    {
-        if (this._updateStyleSheetTextTimer) {
-            clearTimeout(this._updateStyleSheetTextTimer);
-            delete this._updateStyleSheetTextTimer;
-        }
-
-        var header = this._cssModel.styleSheetHeaderForId(styleSheetId);
-        if (!header)
-            return;
-        var styleSheetURL = header.resourceURL();
-        if (!styleSheetURL)
-            return;
-        var uiSourceCode = this._networkMapping.uiSourceCodeForURL(styleSheetURL, header.target());
-        if (!uiSourceCode)
-            return;
-        header.requestContent(callback.bind(this, uiSourceCode));
-
-        /**
-         * @param {!WebInspector.UISourceCode} uiSourceCode
-         * @param {?string} content
-         * @this {WebInspector.StylesSourceMapping}
-         */
-        function callback(uiSourceCode, content)
-        {
-            var styleFile = this._styleFiles.get(uiSourceCode);
-            if (styleFile)
-                styleFile.addRevision(content || "");
-        }
+  /**
+   * @override
+   * @param {!SDK.CSSLocation} rawLocation
+   * @return {?Workspace.UILocation}
+   */
+  rawLocationToUILocation(rawLocation) {
+    const header = rawLocation.header();
+    if (!header || !this._acceptsHeader(header))
+      return null;
+    const styleFile = this._styleFiles.get(header.resourceURL());
+    if (!styleFile)
+      return null;
+    let lineNumber = rawLocation.lineNumber;
+    let columnNumber = rawLocation.columnNumber;
+    if (header.isInline && header.hasSourceURL) {
+      lineNumber -= header.lineNumberInSource(0);
+      columnNumber -= header.columnNumberInSource(lineNumber, 0);
     }
-}
+    return styleFile._uiSourceCode.uiLocation(lineNumber, columnNumber);
+  }
+
+  /**
+   * @override
+   * @param {!Workspace.UILocation} uiLocation
+   * @return {!Array<!SDK.CSSLocation>}
+   */
+  uiLocationToRawLocations(uiLocation) {
+    const styleFile = uiLocation.uiSourceCode[Bindings.StyleFile._symbol];
+    if (!styleFile)
+      return [];
+    const rawLocations = [];
+    for (const header of styleFile._headers) {
+      let lineNumber = uiLocation.lineNumber;
+      let columnNumber = uiLocation.columnNumber;
+      if (header.isInline && header.hasSourceURL) {
+        columnNumber = header.columnNumberInSource(lineNumber, columnNumber);
+        lineNumber = header.lineNumberInSource(lineNumber);
+      }
+      rawLocations.push(new SDK.CSSLocation(header, lineNumber, columnNumber));
+    }
+    return rawLocations;
+  }
+
+  /**
+   * @param {!SDK.CSSStyleSheetHeader} header
+   */
+  _acceptsHeader(header) {
+    if (header.isInline && !header.hasSourceURL && header.origin !== 'inspector')
+      return false;
+    if (!header.resourceURL())
+      return false;
+    return true;
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _styleSheetAdded(event) {
+    const header = /** @type {!SDK.CSSStyleSheetHeader} */ (event.data);
+    if (!this._acceptsHeader(header))
+      return;
+
+    const url = header.resourceURL();
+    let styleFile = this._styleFiles.get(url);
+    if (!styleFile) {
+      styleFile = new Bindings.StyleFile(this._cssModel, this._project, header);
+      this._styleFiles.set(url, styleFile);
+    } else {
+      styleFile.addHeader(header);
+    }
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _styleSheetRemoved(event) {
+    const header = /** @type {!SDK.CSSStyleSheetHeader} */ (event.data);
+    if (!this._acceptsHeader(header))
+      return;
+    const url = header.resourceURL();
+    const styleFile = this._styleFiles.get(url);
+    if (styleFile._headers.size === 1) {
+      styleFile.dispose();
+      this._styleFiles.delete(url);
+    } else {
+      styleFile.removeHeader(header);
+    }
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _styleSheetChanged(event) {
+    const header = this._cssModel.styleSheetHeaderForId(event.data.styleSheetId);
+    if (!header || !this._acceptsHeader(header))
+      return;
+    const styleFile = this._styleFiles.get(header.resourceURL());
+    styleFile._styleSheetChanged(header);
+  }
+
+  dispose() {
+    for (const styleFile of this._styleFiles.values())
+      styleFile.dispose();
+    this._styleFiles.clear();
+    Common.EventTarget.removeEventListeners(this._eventListeners);
+    this._project.removeProject();
+  }
+};
 
 /**
- * @constructor
- * @param {!WebInspector.UISourceCode} uiSourceCode
- * @param {!WebInspector.StylesSourceMapping} mapping
+ * @implements {Common.ContentProvider}
+ * @unrestricted
  */
-WebInspector.StyleFile = function(uiSourceCode, mapping)
-{
-    this._uiSourceCode = uiSourceCode;
-    this._mapping = mapping;
-    this._uiSourceCode.addEventListener(WebInspector.UISourceCode.Events.WorkingCopyChanged, this._workingCopyChanged, this);
-    this._uiSourceCode.addEventListener(WebInspector.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this);
-    this._commitThrottler = new WebInspector.Throttler(WebInspector.StyleFile.updateTimeout);
-}
+Bindings.StyleFile = class {
+  /**
+   * @param {!SDK.CSSModel} cssModel
+   * @param {!Bindings.ContentProviderBasedProject} project
+   * @param {!SDK.CSSStyleSheetHeader} header
+   */
+  constructor(cssModel, project, header) {
+    this._cssModel = cssModel;
+    this._project = project;
+    /** @type {!Set<!SDK.CSSStyleSheetHeader>} */
+    this._headers = new Set([header]);
 
-WebInspector.StyleFile.updateTimeout = 200;
+    const target = cssModel.target();
 
-WebInspector.StyleFile.prototype = {
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _workingCopyCommitted: function(event)
-    {
-        if (this._isAddingRevision)
-            return;
+    const url = header.resourceURL();
+    const metadata = Bindings.metadataForURL(target, header.frameId, url);
 
-        this._isMajorChangePending = true;
-        this._commitThrottler.schedule(this._commitIncrementalEdit.bind(this), true);
-    },
+    this._uiSourceCode = this._project.createUISourceCode(url, header.contentType());
+    this._uiSourceCode[Bindings.StyleFile._symbol] = this;
+    Bindings.NetworkProject.setInitialFrameAttribution(this._uiSourceCode, header.frameId);
+    this._project.addUISourceCodeWithProvider(this._uiSourceCode, this, metadata, 'text/css');
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _workingCopyChanged: function(event)
-    {
-        if (this._isAddingRevision)
-            return;
+    this._eventListeners = [
+      this._uiSourceCode.addEventListener(
+          Workspace.UISourceCode.Events.WorkingCopyChanged, this._workingCopyChanged, this),
+      this._uiSourceCode.addEventListener(
+          Workspace.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this)
+    ];
+    this._throttler = new Common.Throttler(Bindings.StyleFile.updateTimeout);
+    this._terminated = false;
+  }
 
-        this._commitThrottler.schedule(this._commitIncrementalEdit.bind(this), false);
-    },
+  /**
+   * @param {!SDK.CSSStyleSheetHeader} header
+   */
+  addHeader(header) {
+    this._headers.add(header);
+    Bindings.NetworkProject.addFrameAttribution(this._uiSourceCode, header.frameId);
+  }
 
-    _commitIncrementalEdit: function()
-    {
-        var promise = this._mapping._setStyleContent(this._uiSourceCode, this._uiSourceCode.workingCopy(), this._isMajorChangePending)
-            .then(this._styleContentSet.bind(this))
-        this._isMajorChangePending = false;
-        return promise;
-    },
+  /**
+   * @param {!SDK.CSSStyleSheetHeader} header
+   */
+  removeHeader(header) {
+    this._headers.delete(header);
+    Bindings.NetworkProject.removeFrameAttribution(this._uiSourceCode, header.frameId);
+  }
 
-    /**
-     * @param {?string} error
-     */
-    _styleContentSet: function(error)
-    {
-        if (error)
-            WebInspector.console.error(error);
-    },
+  /**
+   * @param {!SDK.CSSStyleSheetHeader} header
+   */
+  _styleSheetChanged(header) {
+    console.assert(this._headers.has(header));
+    if (this._isUpdatingHeaders || !this._headers.has(header))
+      return;
+    const mirrorContentBound = this._mirrorContent.bind(this, header, true /* majorChange */);
+    this._throttler.schedule(mirrorContentBound, false /* asSoonAsPossible */);
+  }
 
-    /**
-     * @param {string} content
-     */
-    addRevision: function(content)
-    {
-        this._isAddingRevision = true;
-        this._uiSourceCode.addRevision(content);
-        delete this._isAddingRevision;
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _workingCopyCommitted(event) {
+    if (this._isAddingRevision)
+      return;
+    const mirrorContentBound = this._mirrorContent.bind(this, this._uiSourceCode, true /* majorChange */);
+    this._throttler.schedule(mirrorContentBound, true /* asSoonAsPossible */);
+  }
 
-    dispose: function()
-    {
-        this._uiSourceCode.removeEventListener(WebInspector.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this);
-        this._uiSourceCode.removeEventListener(WebInspector.UISourceCode.Events.WorkingCopyChanged, this._workingCopyChanged, this);
+  /**
+   * @param {!Common.Event} event
+   */
+  _workingCopyChanged(event) {
+    if (this._isAddingRevision)
+      return;
+    const mirrorContentBound = this._mirrorContent.bind(this, this._uiSourceCode, false /* majorChange */);
+    this._throttler.schedule(mirrorContentBound, false /* asSoonAsPossible */);
+  }
+
+  /**
+   * @param {!Common.ContentProvider} fromProvider
+   * @param {boolean} majorChange
+   * @return {!Promise}
+   */
+  async _mirrorContent(fromProvider, majorChange) {
+    if (this._terminated) {
+      this._styleFileSyncedForTest();
+      return;
     }
-}
+
+    let newContent = null;
+    if (fromProvider === this._uiSourceCode) {
+      newContent = this._uiSourceCode.workingCopy();
+    } else {
+      // ------ ASYNC ------
+      newContent = await fromProvider.requestContent();
+    }
+
+    if (newContent === null || this._terminated) {
+      this._styleFileSyncedForTest();
+      return;
+    }
+
+    if (fromProvider !== this._uiSourceCode) {
+      this._isAddingRevision = true;
+      this._uiSourceCode.addRevision(newContent);
+      this._isAddingRevision = false;
+    }
+
+    this._isUpdatingHeaders = true;
+    const promises = [];
+    for (const header of this._headers) {
+      if (header === fromProvider)
+        continue;
+      promises.push(this._cssModel.setStyleSheetText(header.id, newContent, majorChange));
+    }
+    // ------ ASYNC ------
+    await Promise.all(promises);
+    this._isUpdatingHeaders = false;
+    this._styleFileSyncedForTest();
+  }
+
+  _styleFileSyncedForTest() {
+  }
+
+  dispose() {
+    if (this._terminated)
+      return;
+    this._terminated = true;
+    this._project.removeFile(this._uiSourceCode.url());
+    Common.EventTarget.removeEventListeners(this._eventListeners);
+  }
+
+  /**
+   * @override
+   * @return {string}
+   */
+  contentURL() {
+    return this._headers.firstValue().originalContentProvider().contentURL();
+  }
+
+  /**
+   * @override
+   * @return {!Common.ResourceType}
+   */
+  contentType() {
+    return this._headers.firstValue().originalContentProvider().contentType();
+  }
+
+  /**
+   * @override
+   * @return {!Promise<boolean>}
+   */
+  contentEncoded() {
+    return this._headers.firstValue().originalContentProvider().contentEncoded();
+  }
+
+  /**
+   * @override
+   * @return {!Promise<?string>}
+   */
+  requestContent() {
+    return this._headers.firstValue().originalContentProvider().requestContent();
+  }
+
+  /**
+   * @override
+   * @param {string} query
+   * @param {boolean} caseSensitive
+   * @param {boolean} isRegex
+   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   */
+  searchInContent(query, caseSensitive, isRegex) {
+    return this._headers.firstValue().originalContentProvider().searchInContent(query, caseSensitive, isRegex);
+  }
+};
+
+Bindings.StyleFile._symbol = Symbol('Bindings.StyleFile._symbol');
+
+Bindings.StyleFile.updateTimeout = 200;

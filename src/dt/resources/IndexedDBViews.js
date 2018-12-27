@@ -29,375 +29,407 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.VBox}
- * @param {!WebInspector.IndexedDBModel.Database} database
+ * @unrestricted
  */
-WebInspector.IDBDatabaseView = function(database)
-{
-    WebInspector.VBox.call(this);
-    this.registerRequiredCSS("resources/indexedDBViews.css");
+Resources.IDBDatabaseView = class extends UI.VBox {
+  /**
+   * @param {!Resources.IndexedDBModel} model
+   * @param {?Resources.IndexedDBModel.Database} database
+   */
+  constructor(model, database) {
+    super();
 
-    this.element.classList.add("indexed-db-database-view");
-    this.element.classList.add("storage-view");
+    this._model = model;
+    const databaseName = database ? database.databaseId.name : Common.UIString('Loading\u2026');
 
-    this._headersTreeOutline = new TreeOutline();
-    this._headersTreeOutline.element.classList.add("outline-disclosure");
-    this.element.appendChild(this._headersTreeOutline.element);
-    this._headersTreeOutline.expandTreeElementsWhenArrowing = true;
+    this._reportView = new UI.ReportView(databaseName);
+    this._reportView.show(this.contentElement);
 
-    this._securityOriginTreeElement = new TreeElement();
-    this._securityOriginTreeElement.selectable = false;
-    this._headersTreeOutline.appendChild(this._securityOriginTreeElement);
+    const bodySection = this._reportView.appendSection('');
+    this._securityOriginElement = bodySection.appendField(Common.UIString('Security origin'));
+    this._versionElement = bodySection.appendField(Common.UIString('Version'));
 
-    this._nameTreeElement = new TreeElement();
-    this._nameTreeElement.selectable = false;
-    this._headersTreeOutline.appendChild(this._nameTreeElement);
+    const footer = this._reportView.appendSection('').appendRow();
+    this._clearButton = UI.createTextButton(
+        Common.UIString('Delete database'), () => this._deleteDatabase(), Common.UIString('Delete database'));
+    footer.appendChild(this._clearButton);
 
-    this._intVersionTreeElement = new TreeElement();
-    this._intVersionTreeElement.selectable = false;
-    this._headersTreeOutline.appendChild(this._intVersionTreeElement);
+    this._refreshButton = UI.createTextButton(
+        Common.UIString('Refresh database'), () => this._refreshDatabaseButtonClicked(),
+        Common.UIString('Refresh database'));
+    footer.appendChild(this._refreshButton);
 
-    this._stringVersionTreeElement = new TreeElement();
-    this._stringVersionTreeElement.selectable = false;
-    this._headersTreeOutline.appendChild(this._stringVersionTreeElement);
+    if (database)
+      this.update(database);
+  }
 
-    this.update(database);
-}
+  _refreshDatabase() {
+    this._securityOriginElement.textContent = this._database.databaseId.securityOrigin;
+    this._versionElement.textContent = this._database.version;
+  }
 
-WebInspector.IDBDatabaseView.prototype = {
-    /**
-     * @return {!Array.<!WebInspector.ToolbarItem>}
-     */
-    toolbarItems: function()
-    {
-        return [];
-    },
+  _refreshDatabaseButtonClicked() {
+    this._model.refreshDatabase(this._database.databaseId);
+  }
 
-    /**
-     * @param {string} name
-     * @param {string} value
-     */
-    _formatHeader: function(name, value)
-    {
-        var fragment = createDocumentFragment();
-        fragment.createChild("div", "attribute-name").textContent = name + ":";
-        fragment.createChild("div", "attribute-value source-code").textContent = value;
+  /**
+   * @param {!Resources.IndexedDBModel.Database} database
+   */
+  update(database) {
+    this._database = database;
+    this._reportView.setTitle(this._database.databaseId.name);
+    this._refreshDatabase();
+    this._updatedForTests();
+  }
 
-        return fragment;
-    },
+  _updatedForTests() {
+    // Sniffed in tests.
+  }
 
-    _refreshDatabase: function()
-    {
-        this._securityOriginTreeElement.title = this._formatHeader(WebInspector.UIString("Security origin"), this._database.databaseId.securityOrigin);
-        this._nameTreeElement.title = this._formatHeader(WebInspector.UIString("Name"), this._database.databaseId.name);
-        this._stringVersionTreeElement.title = this._formatHeader(WebInspector.UIString("String Version"), this._database.version);
-        this._intVersionTreeElement.title = this._formatHeader(WebInspector.UIString("Integer Version"), this._database.intVersion);
-    },
-
-    /**
-     * @param {!WebInspector.IndexedDBModel.Database} database
-     */
-    update: function(database)
-    {
-        this._database = database;
-        this._refreshDatabase();
-    },
-
-    __proto__: WebInspector.VBox.prototype
-}
-
+  async _deleteDatabase() {
+    const ok = await UI.ConfirmDialog.show(
+        Common.UIString('Please confirm delete of "%s" database.', this._database.databaseId.name), this.element);
+    if (ok)
+      this._model.deleteDatabase(this._database.databaseId);
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.DataGridContainerWidget}
- * @param {!WebInspector.IndexedDBModel} model
- * @param {!WebInspector.IndexedDBModel.DatabaseId} databaseId
- * @param {!WebInspector.IndexedDBModel.ObjectStore} objectStore
- * @param {?WebInspector.IndexedDBModel.Index} index
+ * @unrestricted
  */
-WebInspector.IDBDataView = function(model, databaseId, objectStore, index)
-{
-    WebInspector.DataGridContainerWidget.call(this);
-    this.registerRequiredCSS("resources/indexedDBViews.css");
+Resources.IDBDataView = class extends UI.SimpleView {
+  /**
+   * @param {!Resources.IndexedDBModel} model
+   * @param {!Resources.IndexedDBModel.DatabaseId} databaseId
+   * @param {!Resources.IndexedDBModel.ObjectStore} objectStore
+   * @param {?Resources.IndexedDBModel.Index} index
+   * @param {function()} refreshObjectStoreCallback
+   */
+  constructor(model, databaseId, objectStore, index, refreshObjectStoreCallback) {
+    super(Common.UIString('IDB'));
+    this.registerRequiredCSS('resources/indexedDBViews.css');
 
     this._model = model;
     this._databaseId = databaseId;
     this._isIndex = !!index;
+    this._refreshObjectStoreCallback = refreshObjectStoreCallback;
 
-    this.element.classList.add("indexed-db-data-view");
+    this.element.classList.add('indexed-db-data-view', 'storage-view');
+
+    this._refreshButton = new UI.ToolbarButton(Common.UIString('Refresh'), 'largeicon-refresh');
+    this._refreshButton.addEventListener(UI.ToolbarButton.Events.Click, this._refreshButtonClicked, this);
+
+    this._deleteSelectedButton = new UI.ToolbarButton(Common.UIString('Delete selected'), 'largeicon-delete');
+    this._deleteSelectedButton.addEventListener(UI.ToolbarButton.Events.Click, () => this._deleteButtonClicked(null));
+
+    this._clearButton = new UI.ToolbarButton(Common.UIString('Clear object store'), 'largeicon-clear');
+    this._clearButton.addEventListener(UI.ToolbarButton.Events.Click, this._clearButtonClicked, this);
+
+    this._needsRefresh = new UI.ToolbarItem(UI.createLabel(Common.UIString('Data may be stale'), 'smallicon-warning'));
+    this._needsRefresh.setVisible(false);
+    this._needsRefresh.setTitle(Common.UIString('Some entries may have been modified'));
 
     this._createEditorToolbar();
-
-    this._refreshButton = new WebInspector.ToolbarButton(WebInspector.UIString("Refresh"), "refresh-toolbar-item");
-    this._refreshButton.addEventListener("click", this._refreshButtonClicked, this);
-
-    this._clearButton = new WebInspector.ToolbarButton(WebInspector.UIString("Clear object store"), "clear-toolbar-item");
-    this._clearButton.addEventListener("click", this._clearButtonClicked, this);
 
     this._pageSize = 50;
     this._skipCount = 0;
 
     this.update(objectStore, index);
     this._entries = [];
-}
+  }
 
-WebInspector.IDBDataView.prototype = {
-    /**
-     * @return {!WebInspector.DataGrid}
-     */
-    _createDataGrid: function()
-    {
-        var keyPath = this._isIndex ? this._index.keyPath : this._objectStore.keyPath;
+  /**
+   * @return {!DataGrid.DataGrid}
+   */
+  _createDataGrid() {
+    const keyPath = this._isIndex ? this._index.keyPath : this._objectStore.keyPath;
 
-        var columns = [];
-        columns.push({id: "number", title: WebInspector.UIString("#"), width: "50px"});
-        columns.push({id: "key", titleDOMFragment: this._keyColumnHeaderFragment(WebInspector.UIString("Key"), keyPath)});
-        if (this._isIndex)
-            columns.push({id: "primaryKey", titleDOMFragment: this._keyColumnHeaderFragment(WebInspector.UIString("Primary key"), this._objectStore.keyPath)});
-        columns.push({id: "value", title: WebInspector.UIString("Value")});
+    const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([]);
+    columns.push({id: 'number', title: Common.UIString('#'), sortable: false, width: '50px'});
+    columns.push(
+        {id: 'key', titleDOMFragment: this._keyColumnHeaderFragment(Common.UIString('Key'), keyPath), sortable: false});
+    if (this._isIndex) {
+      columns.push({
+        id: 'primaryKey',
+        titleDOMFragment: this._keyColumnHeaderFragment(Common.UIString('Primary key'), this._objectStore.keyPath),
+        sortable: false
+      });
+    }
+    columns.push({id: 'value', title: Common.UIString('Value'), sortable: false});
 
-        var dataGrid = new WebInspector.DataGrid(columns);
-        return dataGrid;
-    },
+    const dataGrid = new DataGrid.DataGrid(
+        columns, undefined, this._deleteButtonClicked.bind(this), this._updateData.bind(this, true));
+    dataGrid.setStriped(true);
+    dataGrid.addEventListener(DataGrid.DataGrid.Events.SelectedNode, event => this._updateToolbarEnablement(), this);
+    return dataGrid;
+  }
 
-    /**
-     * @param {string} prefix
-     * @param {*} keyPath
-     * @return {!DocumentFragment}
-     */
-    _keyColumnHeaderFragment: function(prefix, keyPath)
-    {
-        var keyColumnHeaderFragment = createDocumentFragment();
-        keyColumnHeaderFragment.createTextChild(prefix);
-        if (keyPath === null)
-            return keyColumnHeaderFragment;
+  /**
+   * @param {string} prefix
+   * @param {*} keyPath
+   * @return {!DocumentFragment}
+   */
+  _keyColumnHeaderFragment(prefix, keyPath) {
+    const keyColumnHeaderFragment = createDocumentFragment();
+    keyColumnHeaderFragment.createTextChild(prefix);
+    if (keyPath === null)
+      return keyColumnHeaderFragment;
 
-        keyColumnHeaderFragment.createTextChild(" (" + WebInspector.UIString("Key path: "));
-        if (Array.isArray(keyPath)) {
-            keyColumnHeaderFragment.createTextChild("[");
-            for (var i = 0; i < keyPath.length; ++i) {
-                if (i != 0)
-                    keyColumnHeaderFragment.createTextChild(", ");
-                keyColumnHeaderFragment.appendChild(this._keyPathStringFragment(keyPath[i]));
-            }
-            keyColumnHeaderFragment.createTextChild("]");
-        } else {
-            var keyPathString = /** @type {string} */ (keyPath);
-            keyColumnHeaderFragment.appendChild(this._keyPathStringFragment(keyPathString));
-        }
-        keyColumnHeaderFragment.createTextChild(")");
-        return keyColumnHeaderFragment;
-    },
+    keyColumnHeaderFragment.createTextChild(' (' + Common.UIString('Key path: '));
+    if (Array.isArray(keyPath)) {
+      keyColumnHeaderFragment.createTextChild('[');
+      for (let i = 0; i < keyPath.length; ++i) {
+        if (i !== 0)
+          keyColumnHeaderFragment.createTextChild(', ');
+        keyColumnHeaderFragment.appendChild(this._keyPathStringFragment(keyPath[i]));
+      }
+      keyColumnHeaderFragment.createTextChild(']');
+    } else {
+      const keyPathString = /** @type {string} */ (keyPath);
+      keyColumnHeaderFragment.appendChild(this._keyPathStringFragment(keyPathString));
+    }
+    keyColumnHeaderFragment.createTextChild(')');
+    return keyColumnHeaderFragment;
+  }
 
-    /**
-     * @param {string} keyPathString
-     * @return {!DocumentFragment}
-     */
-    _keyPathStringFragment: function(keyPathString)
-    {
-        var keyPathStringFragment = createDocumentFragment();
-        keyPathStringFragment.createTextChild("\"");
-        var keyPathSpan = keyPathStringFragment.createChild("span", "source-code indexed-db-key-path");
-        keyPathSpan.textContent = keyPathString;
-        keyPathStringFragment.createTextChild("\"");
-        return keyPathStringFragment;
-    },
+  /**
+   * @param {string} keyPathString
+   * @return {!DocumentFragment}
+   */
+  _keyPathStringFragment(keyPathString) {
+    const keyPathStringFragment = createDocumentFragment();
+    keyPathStringFragment.createTextChild('"');
+    const keyPathSpan = keyPathStringFragment.createChild('span', 'source-code indexed-db-key-path');
+    keyPathSpan.textContent = keyPathString;
+    keyPathStringFragment.createTextChild('"');
+    return keyPathStringFragment;
+  }
 
-    _createEditorToolbar: function()
-    {
-        var editorToolbar = new WebInspector.Toolbar(this.element);
-        editorToolbar.element.classList.add("data-view-toolbar");
+  _createEditorToolbar() {
+    const editorToolbar = new UI.Toolbar('data-view-toolbar', this.element);
 
-        this._pageBackButton = new WebInspector.ToolbarButton(WebInspector.UIString("Show previous page"), "play-backwards-toolbar-item");
-        this._pageBackButton.addEventListener("click", this._pageBackButtonClicked, this);
-        editorToolbar.appendToolbarItem(this._pageBackButton);
+    editorToolbar.appendToolbarItem(this._refreshButton);
 
-        this._pageForwardButton = new WebInspector.ToolbarButton(WebInspector.UIString("Show next page"), "play-toolbar-item");
-        this._pageForwardButton.setEnabled(false);
-        this._pageForwardButton.addEventListener("click", this._pageForwardButtonClicked, this);
-        editorToolbar.appendToolbarItem(this._pageForwardButton);
+    editorToolbar.appendToolbarItem(new UI.ToolbarSeparator());
 
-        this._keyInputElement = editorToolbar.element.createChild("input", "key-input");
-        this._keyInputElement.placeholder = WebInspector.UIString("Start from key");
-        this._keyInputElement.addEventListener("paste", this._keyInputChanged.bind(this), false);
-        this._keyInputElement.addEventListener("cut", this._keyInputChanged.bind(this), false);
-        this._keyInputElement.addEventListener("keypress", this._keyInputChanged.bind(this), false);
-        this._keyInputElement.addEventListener("keydown", this._keyInputChanged.bind(this), false);
-    },
+    this._pageBackButton = new UI.ToolbarButton(Common.UIString('Show previous page'), 'largeicon-play-back');
+    this._pageBackButton.addEventListener(UI.ToolbarButton.Events.Click, this._pageBackButtonClicked, this);
+    editorToolbar.appendToolbarItem(this._pageBackButton);
 
-    _pageBackButtonClicked: function()
-    {
-        this._skipCount = Math.max(0, this._skipCount - this._pageSize);
-        this._updateData(false);
-    },
+    this._pageForwardButton = new UI.ToolbarButton(Common.UIString('Show next page'), 'largeicon-play');
+    this._pageForwardButton.setEnabled(false);
+    this._pageForwardButton.addEventListener(UI.ToolbarButton.Events.Click, this._pageForwardButtonClicked, this);
+    editorToolbar.appendToolbarItem(this._pageForwardButton);
 
-    _pageForwardButtonClicked: function()
-    {
-        this._skipCount = this._skipCount + this._pageSize;
-        this._updateData(false);
-    },
+    this._keyInput = new UI.ToolbarInput(ls`Start from key`, 0.5);
+    this._keyInput.addEventListener(UI.ToolbarInput.Event.TextChanged, this._updateData.bind(this, false));
+    editorToolbar.appendToolbarItem(this._keyInput);
+    editorToolbar.appendToolbarItem(new UI.ToolbarSeparator());
+    editorToolbar.appendToolbarItem(this._clearButton);
+    editorToolbar.appendToolbarItem(this._deleteSelectedButton);
 
-    _keyInputChanged: function()
-    {
-        window.setTimeout(this._updateData.bind(this, false), 0);
-    },
+    editorToolbar.appendToolbarItem(this._needsRefresh);
+  }
 
-    /**
-     * @param {!WebInspector.IndexedDBModel.ObjectStore} objectStore
-     * @param {?WebInspector.IndexedDBModel.Index} index
-     */
-    update: function(objectStore, index)
-    {
-        this._objectStore = objectStore;
-        this._index = index;
+  /**
+   * @param {!Common.Event} event
+   */
+  _pageBackButtonClicked(event) {
+    this._skipCount = Math.max(0, this._skipCount - this._pageSize);
+    this._updateData(false);
+  }
 
-        if (this._dataGrid)
-            this.removeDataGrid(this._dataGrid);
-        this._dataGrid = this._createDataGrid();
-        this.appendDataGrid(this._dataGrid);
+  /**
+   * @param {!Common.Event} event
+   */
+  _pageForwardButtonClicked(event) {
+    this._skipCount = this._skipCount + this._pageSize;
+    this._updateData(false);
+  }
 
-        this._skipCount = 0;
-        this._updateData(true);
-    },
+  refreshData() {
+    this._updateData(true);
+  }
 
-    /**
-     * @param {string} keyString
-     */
-    _parseKey: function(keyString)
-    {
-        var result;
-        try {
-            result = JSON.parse(keyString);
-        } catch (e) {
-            result = keyString;
-        }
-        return result;
-    },
+  /**
+   * @param {!Resources.IndexedDBModel.ObjectStore} objectStore
+   * @param {?Resources.IndexedDBModel.Index} index
+   */
+  update(objectStore, index) {
+    this._objectStore = objectStore;
+    this._index = index;
 
-    /**
-     * @param {boolean} force
-     */
-    _updateData: function(force)
-    {
-        var key = this._parseKey(this._keyInputElement.value);
-        var pageSize = this._pageSize;
-        var skipCount = this._skipCount;
-        this._refreshButton.setEnabled(false);
-        this._clearButton.setEnabled(!this._isIndex);
+    if (this._dataGrid)
+      this._dataGrid.asWidget().detach();
+    this._dataGrid = this._createDataGrid();
+    this._dataGrid.asWidget().show(this.element);
 
-        if (!force && this._lastKey === key && this._lastPageSize === pageSize && this._lastSkipCount === skipCount)
-            return;
+    this._skipCount = 0;
+    this._updateData(true);
+  }
 
-        if (this._lastKey !== key || this._lastPageSize !== pageSize) {
-            skipCount = 0;
-            this._skipCount = 0;
-        }
-        this._lastKey = key;
-        this._lastPageSize = pageSize;
-        this._lastSkipCount = skipCount;
+  /**
+   * @param {string} keyString
+   */
+  _parseKey(keyString) {
+    let result;
+    try {
+      result = JSON.parse(keyString);
+    } catch (e) {
+      result = keyString;
+    }
+    return result;
+  }
 
-        /**
-         * @param {!Array.<!WebInspector.IndexedDBModel.Entry>} entries
-         * @param {boolean} hasMore
-         * @this {WebInspector.IDBDataView}
-         */
-        function callback(entries, hasMore)
-        {
-            this._refreshButton.setEnabled(true);
-            this.clear();
-            this._entries = entries;
-            for (var i = 0; i < entries.length; ++i) {
-                var data = {};
-                data["number"] = i + skipCount;
-                data["key"] = entries[i].key;
-                data["primaryKey"] = entries[i].primaryKey;
-                data["value"] = entries[i].value;
+  /**
+   * @param {boolean} force
+   */
+  _updateData(force) {
+    const key = this._parseKey(this._keyInput.value());
+    const pageSize = this._pageSize;
+    let skipCount = this._skipCount;
+    let selected = this._dataGrid.selectedNode ? this._dataGrid.selectedNode.data['number'] : 0;
+    selected = Math.max(selected, this._skipCount);  // Page forward should select top entry
+    this._refreshButton.setEnabled(false);
+    this._clearButton.setEnabled(!this._isIndex);
 
-                var node = new WebInspector.IDBDataGridNode(data);
-                this._dataGrid.rootNode().appendChild(node);
-            }
+    if (!force && this._lastKey === key && this._lastPageSize === pageSize && this._lastSkipCount === skipCount)
+      return;
 
-            this._pageBackButton.setEnabled(!!skipCount);
-            this._pageForwardButton.setEnabled(hasMore);
-        }
-
-        var idbKeyRange = key ? window.IDBKeyRange.lowerBound(key) : null;
-        if (this._isIndex)
-            this._model.loadIndexData(this._databaseId, this._objectStore.name, this._index.name, idbKeyRange, skipCount, pageSize, callback.bind(this));
-        else
-            this._model.loadObjectStoreData(this._databaseId, this._objectStore.name, idbKeyRange, skipCount, pageSize, callback.bind(this));
-    },
-
-    _refreshButtonClicked: function(event)
-    {
-        this._updateData(true);
-    },
-
-    _clearButtonClicked: function(event)
-    {
-        /**
-         * @this {WebInspector.IDBDataView}
-         */
-        function cleared() {
-            this._clearButton.setEnabled(true);
-            this._updateData(true);
-        }
-        this._clearButton.setEnabled(false);
-        this._model.clearObjectStore(this._databaseId, this._objectStore.name, cleared.bind(this));
-    },
+    if (this._lastKey !== key || this._lastPageSize !== pageSize) {
+      skipCount = 0;
+      this._skipCount = 0;
+    }
+    this._lastKey = key;
+    this._lastPageSize = pageSize;
+    this._lastSkipCount = skipCount;
 
     /**
-     * @return {!Array.<!WebInspector.ToolbarItem>}
+     * @param {!Array.<!Resources.IndexedDBModel.Entry>} entries
+     * @param {boolean} hasMore
+     * @this {Resources.IDBDataView}
      */
-    toolbarItems: function()
-    {
-        return [this._refreshButton, this._clearButton];
-    },
+    function callback(entries, hasMore) {
+      this._refreshButton.setEnabled(true);
+      this.clear();
+      this._entries = entries;
+      let selectedNode = null;
+      for (let i = 0; i < entries.length; ++i) {
+        const data = {};
+        data['number'] = i + skipCount;
+        data['key'] = entries[i].key;
+        data['primaryKey'] = entries[i].primaryKey;
+        data['value'] = entries[i].value;
 
-    clear: function()
-    {
-        this._dataGrid.rootNode().removeChildren();
-        this._entries = [];
-    },
+        const node = new Resources.IDBDataGridNode(data);
+        this._dataGrid.rootNode().appendChild(node);
+        if (data['number'] <= selected)
+          selectedNode = node;
+      }
 
-    __proto__: WebInspector.DataGridContainerWidget.prototype
-}
+      if (selectedNode)
+        selectedNode.select();
+      this._pageBackButton.setEnabled(!!skipCount);
+      this._pageForwardButton.setEnabled(hasMore);
+      this._needsRefresh.setVisible(false);
+      this._updateToolbarEnablement();
+      this._updatedDataForTests();
+    }
+
+    const idbKeyRange = key ? window.IDBKeyRange.lowerBound(key) : null;
+    if (this._isIndex) {
+      this._model.loadIndexData(
+          this._databaseId, this._objectStore.name, this._index.name, idbKeyRange, skipCount, pageSize,
+          callback.bind(this));
+    } else {
+      this._model.loadObjectStoreData(
+          this._databaseId, this._objectStore.name, idbKeyRange, skipCount, pageSize, callback.bind(this));
+    }
+  }
+
+  _updatedDataForTests() {
+    // Sniffed in tests.
+  }
+
+  /**
+   * @param {?Common.Event} event
+   */
+  _refreshButtonClicked(event) {
+    this._updateData(true);
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  async _clearButtonClicked(event) {
+    this._clearButton.setEnabled(false);
+    await this._model.clearObjectStore(this._databaseId, this._objectStore.name);
+    this._clearButton.setEnabled(true);
+    this._updateData(true);
+  }
+
+  markNeedsRefresh() {
+    this._needsRefresh.setVisible(true);
+  }
+
+  /**
+   * @param {?DataGrid.DataGridNode} node
+   */
+  async _deleteButtonClicked(node) {
+    if (!node) {
+      node = this._dataGrid.selectedNode;
+      if (!node)
+        return;
+    }
+    const key = /** @type {!SDK.RemoteObject} */ (this._isIndex ? node.data.primaryKey : node.data.key);
+    const keyValue = /** @type {!Array<?>|!Date|number|string} */ (key.value);
+    await this._model.deleteEntries(this._databaseId, this._objectStore.name, window.IDBKeyRange.only(keyValue));
+    this._refreshObjectStoreCallback();
+  }
+
+  clear() {
+    this._dataGrid.rootNode().removeChildren();
+    this._entries = [];
+  }
+
+  _updateToolbarEnablement() {
+    const empty = !this._dataGrid || this._dataGrid.rootNode().children.length === 0;
+    this._clearButton.setEnabled(!empty);
+    this._deleteSelectedButton.setEnabled(!empty && this._dataGrid.selectedNode !== null);
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.DataGridNode}
- * @param {!Object.<string, *>} data
+ * @unrestricted
  */
-WebInspector.IDBDataGridNode = function(data)
-{
-    WebInspector.DataGridNode.call(this, data, false);
-    this.selectable = false;
-}
+Resources.IDBDataGridNode = class extends DataGrid.DataGridNode {
+  /**
+   * @param {!Object.<string, *>} data
+   */
+  constructor(data) {
+    super(data, false);
+    this.selectable = true;
+  }
 
-WebInspector.IDBDataGridNode.prototype = {
-    /**
-     * @override
-     * @return {!Element}
-     */
-    createCell: function(columnIdentifier)
-    {
-        var cell = WebInspector.DataGridNode.prototype.createCell.call(this, columnIdentifier);
-        var value = this.data[columnIdentifier];
+  /**
+   * @override
+   * @return {!Element}
+   */
+  createCell(columnIdentifier) {
+    const cell = super.createCell(columnIdentifier);
+    const value = /** @type {!SDK.RemoteObject} */ (this.data[columnIdentifier]);
 
-        switch (columnIdentifier) {
-        case "value":
-        case "key":
-        case "primaryKey":
-            cell.removeChildren();
-            var objectElement = WebInspector.ObjectPropertiesSection.defaultObjectPresentation(value, true);
-            cell.appendChild(objectElement);
-            break;
-        default:
-        }
+    switch (columnIdentifier) {
+      case 'value':
+      case 'key':
+      case 'primaryKey':
+        cell.removeChildren();
+        const objectElement = ObjectUI.ObjectPropertiesSection.defaultObjectPresentation(value, undefined, true);
+        cell.appendChild(objectElement);
+        break;
+      default:
+    }
 
-        return cell;
-    },
-
-    __proto__: WebInspector.DataGridNode.prototype
-}
+    return cell;
+  }
+};

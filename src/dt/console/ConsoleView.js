@@ -26,1285 +26,1559 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
- * @constructor
- * @extends {WebInspector.VBox}
- * @implements {WebInspector.Searchable}
- * @implements {WebInspector.TargetManager.Observer}
- * @implements {WebInspector.ViewportControl.Provider}
+ * @implements {UI.Searchable}
+ * @implements {Console.ConsoleViewportProvider}
+ * @unrestricted
  */
-WebInspector.ConsoleView = function()
-{
-    WebInspector.VBox.call(this);
+Console.ConsoleView = class extends UI.VBox {
+  constructor() {
+    super();
     this.setMinimumSize(0, 35);
-    this.registerRequiredCSS("ui/filter.css");
-    this.registerRequiredCSS("console/consoleView.css");
+    this.registerRequiredCSS('console/consoleView.css');
+    this.registerRequiredCSS('object_ui/objectValue.css');
 
-    this._searchableView = new WebInspector.SearchableView(this);
-    this._searchableView.setPlaceholder(WebInspector.UIString("Find string in logs"));
+    this._searchableView = new UI.SearchableView(this);
+    this._searchableView.element.classList.add('console-searchable-view');
+    this._searchableView.setPlaceholder(Common.UIString('Find string in logs'));
     this._searchableView.setMinimalSearchQuerySize(0);
-    this._searchableView.show(this.element);
+    this._badgePool = new ProductRegistry.BadgePool();
+    this._sidebar = new Console.ConsoleSidebar(this._badgePool);
+    this._sidebar.addEventListener(Console.ConsoleSidebar.Events.FilterSelected, this._onFilterChanged.bind(this));
+    this._isSidebarOpen = false;
+    this._filter = new Console.ConsoleViewFilter(this._onFilterChanged.bind(this));
+    this._isBelowPromptEnabled = Runtime.experiments.isEnabled('consoleBelowPrompt');
 
+    const consoleToolbarContainer = this.element.createChild('div', 'console-toolbar-container');
+    this._splitWidget =
+        new UI.SplitWidget(true /* isVertical */, false /* secondIsSidebar */, 'console.sidebar.width', 100);
+    this._splitWidget.setMainWidget(this._searchableView);
+    this._splitWidget.setSidebarWidget(this._sidebar);
+    this._splitWidget.show(this.element);
+    this._splitWidget.hideSidebar();
+    this._splitWidget.enableShowModeSaving();
+    this._isSidebarOpen = this._splitWidget.showMode() === UI.SplitWidget.ShowMode.Both;
+    if (this._isSidebarOpen)
+      this._filter._levelMenuButton.setEnabled(false);
+    this._splitWidget.addEventListener(UI.SplitWidget.Events.ShowModeChanged, event => {
+      this._isSidebarOpen = event.data === UI.SplitWidget.ShowMode.Both;
+      this._filter._levelMenuButton.setEnabled(!this._isSidebarOpen);
+      this._onFilterChanged();
+    });
     this._contentsElement = this._searchableView.element;
-    this._contentsElement.classList.add("console-view");
-    /** @type {!Array.<!WebInspector.ConsoleViewMessage>} */
+    this.element.classList.add('console-view');
+
+    /** @type {!Array.<!Console.ConsoleViewMessage>} */
     this._visibleViewMessages = [];
-    this._urlToMessageCount = {};
     this._hiddenByFilterCount = 0;
+    /** @type {!Set<!Console.ConsoleViewMessage>} */
+    this._shouldBeHiddenCache = new Set();
+
+    /** @type {!Map<string, !Array<!Console.ConsoleViewMessage>>} */
+    this._groupableMessages = new Map();
+    /** @type {!Map<string, !Console.ConsoleViewMessage>} */
+    this._groupableMessageTitle = new Map();
 
     /**
-     * @type {!Array.<!WebInspector.ConsoleView.RegexMatchRange>}
+     * @type {!Array.<!Console.ConsoleView.RegexMatchRange>}
      */
     this._regexMatchRanges = [];
 
-    this._executionContextComboBox = new WebInspector.ToolbarComboBox(null, "console-context");
-    this._executionContextComboBox.setMaxWidth(200);
-    this._executionContextModel = new WebInspector.ExecutionContextModel(this._executionContextComboBox.selectElement());
+    this._consoleContextSelector = new Console.ConsoleContextSelector();
 
-    this._filter = new WebInspector.ConsoleViewFilter(this);
-    this._filter.addEventListener(WebInspector.ConsoleViewFilter.Events.FilterChanged, this._updateMessageList.bind(this));
+    this._filterStatusText = new UI.ToolbarText();
+    this._filterStatusText.element.classList.add('dimmed');
+    this._showSettingsPaneSetting = Common.settings.createSetting('consoleShowSettingsToolbar', false);
+    this._showSettingsPaneButton = new UI.ToolbarSettingToggle(
+        this._showSettingsPaneSetting, 'largeicon-settings-gear', Common.UIString('Console settings'));
+    this._progressToolbarItem = new UI.ToolbarItem(createElement('div'));
+    this._groupSimilarSetting = Common.settings.moduleSetting('consoleGroupSimilar');
+    this._groupSimilarSetting.addChangeListener(() => this._updateMessageList());
+    const groupSimilarToggle =
+        new UI.ToolbarSettingCheckbox(this._groupSimilarSetting, Common.UIString('Group similar'));
 
-    this._filterBar = new WebInspector.FilterBar("consoleView");
-
-    this._preserveLogCheckbox = new WebInspector.ToolbarCheckbox(WebInspector.UIString("Preserve log"), WebInspector.UIString("Do not clear log on page reload / navigation"), WebInspector.moduleSetting("preserveConsoleLog"));
-    this._progressToolbarItem = new WebInspector.ToolbarItem(createElement("div"));
-
-    var toolbar = new WebInspector.Toolbar(this._contentsElement);
-    toolbar.appendToolbarItem(WebInspector.ToolbarButton.createActionButton("console.clear"));
-    toolbar.appendToolbarItem(this._filterBar.filterButton());
-    toolbar.appendToolbarItem(this._executionContextComboBox);
-    toolbar.appendToolbarItem(this._preserveLogCheckbox);
+    const toolbar = new UI.Toolbar('console-main-toolbar', consoleToolbarContainer);
+    const rightToolbar = new UI.Toolbar('', consoleToolbarContainer);
+    toolbar.appendToolbarItem(this._splitWidget.createShowHideSidebarButton('console sidebar'));
+    toolbar.appendToolbarItem(UI.Toolbar.createActionButton(
+        /** @type {!UI.Action }*/ (UI.actionRegistry.action('console.clear'))));
+    toolbar.appendSeparator();
+    toolbar.appendToolbarItem(this._consoleContextSelector.toolbarItem());
+    toolbar.appendSeparator();
+    if (Runtime.experiments.isEnabled('pinnedExpressions')) {
+      toolbar.appendToolbarItem(UI.Toolbar.createActionButton(
+          /** @type {!UI.Action }*/ (UI.actionRegistry.action('console.create-pin'))));
+    }
+    toolbar.appendSeparator();
+    toolbar.appendToolbarItem(this._filter._textFilterUI);
+    toolbar.appendToolbarItem(this._filter._levelMenuButton);
     toolbar.appendToolbarItem(this._progressToolbarItem);
+    rightToolbar.appendSeparator();
+    rightToolbar.appendToolbarItem(this._filterStatusText);
+    rightToolbar.appendToolbarItem(this._showSettingsPaneButton);
 
-    this._contentsElement.appendChild(this._filterBar.filtersElement());
-    this._filter.addFilters(this._filterBar);
+    this._preserveLogCheckbox = new UI.ToolbarSettingCheckbox(
+        Common.moduleSetting('preserveConsoleLog'), Common.UIString('Do not clear log on page reload / navigation'),
+        Common.UIString('Preserve log'));
+    this._hideNetworkMessagesCheckbox = new UI.ToolbarSettingCheckbox(
+        this._filter._hideNetworkMessagesSetting, this._filter._hideNetworkMessagesSetting.title(),
+        Common.UIString('Hide network'));
+    const filterByExecutionContextCheckbox = new UI.ToolbarSettingCheckbox(
+        this._filter._filterByExecutionContextSetting,
+        Common.UIString('Only show messages from the current context (top, iframe, worker, extension)'),
+        Common.UIString('Selected context only'));
+    const monitoringXHREnabledSetting = Common.moduleSetting('monitoringXHREnabled');
+    this._timestampsSetting = Common.moduleSetting('consoleTimestampsEnabled');
+    this._consoleHistoryAutocompleteSetting = Common.moduleSetting('consoleHistoryAutocomplete');
 
-    this._viewport = new WebInspector.ViewportControl(this);
+    const settingsPane = new UI.HBox();
+    settingsPane.show(this._contentsElement);
+    settingsPane.element.classList.add('console-settings-pane');
+
+    const settingsToolbarLeft = new UI.Toolbar('', settingsPane.element);
+    settingsToolbarLeft.makeVertical();
+    settingsToolbarLeft.appendToolbarItem(this._hideNetworkMessagesCheckbox);
+    settingsToolbarLeft.appendToolbarItem(this._preserveLogCheckbox);
+    settingsToolbarLeft.appendToolbarItem(filterByExecutionContextCheckbox);
+    settingsToolbarLeft.appendToolbarItem(groupSimilarToggle);
+
+    const settingsToolbarRight = new UI.Toolbar('', settingsPane.element);
+    settingsToolbarRight.makeVertical();
+    settingsToolbarRight.appendToolbarItem(new UI.ToolbarSettingCheckbox(monitoringXHREnabledSetting));
+    if (this._isBelowPromptEnabled) {
+      const eagerEvalCheckbox = new UI.ToolbarSettingCheckbox(
+          Common.settings.moduleSetting('consoleEagerEval'), ls`Eagerly evaluate text in the prompt`);
+      settingsToolbarRight.appendToolbarItem(eagerEvalCheckbox);
+    } else {
+      settingsToolbarRight.appendToolbarItem(new UI.ToolbarSettingCheckbox(this._timestampsSetting));
+    }
+    settingsToolbarRight.appendToolbarItem(new UI.ToolbarSettingCheckbox(this._consoleHistoryAutocompleteSetting));
+    if (!this._showSettingsPaneSetting.get())
+      settingsPane.element.classList.add('hidden');
+    this._showSettingsPaneSetting.addChangeListener(
+        () => settingsPane.element.classList.toggle('hidden', !this._showSettingsPaneSetting.get()));
+
+    if (Runtime.experiments.isEnabled('pinnedExpressions')) {
+      this._pinPane = new Console.ConsolePinPane();
+      this._pinPane.element.classList.add('console-view-pinpane');
+      this._pinPane.show(this._contentsElement);
+      this._pinPane.element.addEventListener('keydown', event => {
+        if ((event.key === 'Enter' && UI.KeyboardShortcut.eventHasCtrlOrMeta(/** @type {!KeyboardEvent} */ (event))) ||
+            event.keyCode === UI.KeyboardShortcut.Keys.Esc.code) {
+          this._prompt.focus();
+          event.consume();
+        }
+      });
+    }
+
+    this._viewport = new Console.ConsoleViewport(this);
     this._viewport.setStickToBottom(true);
-    this._viewport.contentElement().classList.add("console-group", "console-group-messages");
+    this._viewport.contentElement().classList.add('console-group', 'console-group-messages');
     this._contentsElement.appendChild(this._viewport.element);
     this._messagesElement = this._viewport.element;
-    this._messagesElement.id = "console-messages";
-    this._messagesElement.classList.add("monospace");
-    this._messagesElement.addEventListener("click", this._messagesClicked.bind(this), true);
+    this._messagesElement.id = 'console-messages';
+    this._messagesElement.classList.add('monospace');
+    this._messagesElement.addEventListener('click', this._messagesClicked.bind(this), false);
+    this._messagesElement.addEventListener('paste', this._messagesPasted.bind(this), true);
+    this._messagesElement.addEventListener('clipboard-paste', this._messagesPasted.bind(this), true);
 
-    this._viewportThrottler = new WebInspector.Throttler(50);
+    this._viewportThrottler = new Common.Throttler(50);
+    this._pendingBatchResize = false;
+    this._onMessageResizedBound = this._onMessageResized.bind(this);
 
-    this._filterStatusMessageElement = createElementWithClass("div", "console-message");
-    this._messagesElement.insertBefore(this._filterStatusMessageElement, this._messagesElement.firstChild);
-    this._filterStatusTextElement = this._filterStatusMessageElement.createChild("span", "console-info");
-    this._filterStatusMessageElement.createTextChild(" ");
-    var resetFiltersLink = this._filterStatusMessageElement.createChild("span", "console-info link");
-    resetFiltersLink.textContent = WebInspector.UIString("Show all messages.");
-    resetFiltersLink.addEventListener("click", this._filter.reset.bind(this._filter), true);
-
-    this._topGroup = WebInspector.ConsoleGroup.createTopGroup();
+    this._topGroup = Console.ConsoleGroup.createTopGroup();
     this._currentGroup = this._topGroup;
 
-    this._promptElement = this._messagesElement.createChild("div", "source-code");
-    this._promptElement.id = "console-prompt";
-    this._promptElement.spellcheck = false;
-
-    this._searchableView.setDefaultFocusedElement(this._promptElement);
+    this._promptElement = this._messagesElement.createChild('div', 'source-code');
+    const promptIcon = UI.Icon.create('smallicon-text-prompt', 'console-prompt-icon');
+    this._promptElement.appendChild(promptIcon);
+    this._promptElement.id = 'console-prompt';
 
     // FIXME: This is a workaround for the selection machinery bug. See crbug.com/410899
-    var selectAllFixer = this._messagesElement.createChild("div", "console-view-fix-select-all");
-    selectAllFixer.textContent = ".";
-
-    this._showAllMessagesCheckbox = new WebInspector.ToolbarCheckbox(WebInspector.UIString("Show all messages"));
-    this._showAllMessagesCheckbox.inputElement.checked = true;
-    this._showAllMessagesCheckbox.inputElement.addEventListener("change", this._updateMessageList.bind(this), false);
-
-    this._showAllMessagesCheckbox.element.classList.add("hidden");
-
-    toolbar.appendToolbarItem(this._showAllMessagesCheckbox);
+    const selectAllFixer = this._messagesElement.createChild('div', 'console-view-fix-select-all');
+    selectAllFixer.textContent = '.';
+    UI.ARIAUtils.markAsHidden(selectAllFixer);
 
     this._registerShortcuts();
 
-    this._messagesElement.addEventListener("contextmenu", this._handleContextMenuEvent.bind(this), false);
-    WebInspector.moduleSetting("monitoringXHREnabled").addChangeListener(this._monitoringXHREnabledSettingChanged, this);
+    this._messagesElement.addEventListener('contextmenu', this._handleContextMenuEvent.bind(this), false);
 
-    this._linkifier = new WebInspector.Linkifier();
+    this._linkifier = new Components.Linkifier(Console.ConsoleViewMessage.MaxLengthForLinks);
 
-    /** @type {!Array.<!WebInspector.ConsoleViewMessage>} */
+    /** @type {!Array.<!Console.ConsoleViewMessage>} */
     this._consoleMessages = [];
-    this._viewMessageSymbol = Symbol("viewMessage");
+    this._viewMessageSymbol = Symbol('viewMessage');
 
-    this._prompt = new WebInspector.TextPromptWithHistory(WebInspector.ExecutionContextSelector.completionsForTextPromptInCurrentContext);
-    this._prompt.setSuggestBoxEnabled(true);
-    this._prompt.setAutocompletionTimeout(0);
-    this._prompt.renderAsBlock();
-    var proxyElement = this._prompt.attach(this._promptElement);
-    proxyElement.addEventListener("keydown", this._promptKeyDown.bind(this), false);
+    this._consoleHistorySetting = Common.settings.createLocalSetting('consoleHistory', []);
 
-    this._consoleHistorySetting = WebInspector.settings.createLocalSetting("consoleHistory", []);
-    var historyData = this._consoleHistorySetting.get();
-    this._prompt.setHistoryData(historyData);
+    this._prompt = new Console.ConsolePrompt();
+    this._prompt.show(this._promptElement);
+    this._prompt.element.addEventListener('keydown', this._promptKeyDown.bind(this), true);
+    this._prompt.addEventListener(Console.ConsolePrompt.Events.TextChanged, this._promptTextChanged, this);
+
+    this._keyboardNavigationEnabled = Runtime.experiments.isEnabled('consoleKeyboardNavigation');
+    if (this._keyboardNavigationEnabled) {
+      this._messagesElement.addEventListener('keydown', this._messagesKeyDown.bind(this), false);
+      this._prompt.element.addEventListener('focusin', () => {
+        if (this._isScrolledToBottom())
+          this._viewport.setStickToBottom(true);
+      });
+    }
+
+    this._consoleHistoryAutocompleteSetting.addChangeListener(this._consoleHistoryAutocompleteChanged, this);
+
+    const historyData = this._consoleHistorySetting.get();
+    this._prompt.history().setHistoryData(historyData);
+    this._consoleHistoryAutocompleteChanged();
 
     this._updateFilterStatus();
-    WebInspector.moduleSetting("consoleTimestampsEnabled").addChangeListener(this._consoleTimestampsSettingChanged, this);
+    this._timestampsSetting.addChangeListener(this._consoleTimestampsSettingChanged, this);
 
     this._registerWithMessageSink();
-    WebInspector.targetManager.observeTargets(this);
-    WebInspector.targetManager.addEventListener(WebInspector.TargetManager.Events.MainFrameNavigated, this._onMainFrameNavigated, this);
 
-    this._initConsoleMessages();
+    UI.context.addFlavorChangeListener(SDK.ExecutionContext, this._executionContextChanged, this);
 
-    WebInspector.context.addFlavorChangeListener(WebInspector.ExecutionContext, this._executionContextChanged, this);
-}
+    this._messagesElement.addEventListener(
+        'mousedown', event => this._updateStickToBottomOnMouseDown(event.button === 2), false);
+    this._messagesElement.addEventListener('mouseup', this._updateStickToBottomOnMouseUp.bind(this), false);
+    this._messagesElement.addEventListener('mouseleave', this._updateStickToBottomOnMouseUp.bind(this), false);
+    this._messagesElement.addEventListener('wheel', this._updateStickToBottomOnWheel.bind(this), false);
 
-WebInspector.ConsoleView.persistedHistorySize = 300;
+    SDK.consoleModel.addEventListener(SDK.ConsoleModel.Events.ConsoleCleared, this._consoleCleared, this);
+    SDK.consoleModel.addEventListener(SDK.ConsoleModel.Events.MessageAdded, this._onConsoleMessageAdded, this);
+    SDK.consoleModel.addEventListener(SDK.ConsoleModel.Events.MessageUpdated, this._onConsoleMessageUpdated, this);
+    SDK.consoleModel.addEventListener(SDK.ConsoleModel.Events.CommandEvaluated, this._commandEvaluated, this);
+    SDK.consoleModel.messages().forEach(this._addConsoleMessage, this);
+  }
 
-WebInspector.ConsoleView.prototype = {
+  /**
+   * @return {!Console.ConsoleView}
+   */
+  static instance() {
+    if (!Console.ConsoleView._instance)
+      Console.ConsoleView._instance = new Console.ConsoleView();
+    return Console.ConsoleView._instance;
+  }
+
+  static clearConsole() {
+    SDK.consoleModel.requestClearMessages();
+  }
+
+  _onFilterChanged() {
+    this._filter._currentFilter.levelsMask = this._isSidebarOpen ? Console.ConsoleFilter.allLevelsFilterValue() :
+                                                                   this._filter._messageLevelFiltersSetting.get();
+    this._cancelBuildHiddenCache();
+    if (this._immediatelyFilterMessagesForTest) {
+      for (const viewMessage of this._consoleMessages)
+        this._computeShouldMessageBeVisible(viewMessage);
+      this._updateMessageList();
+      return;
+    }
+    this._buildHiddenCache(0, this._consoleMessages.slice());
+  }
+
+  _setImmediatelyFilterMessagesForTest() {
+    this._immediatelyFilterMessagesForTest = true;
+  }
+
+  /**
+   * @return {!UI.SearchableView}
+   */
+  searchableView() {
+    return this._searchableView;
+  }
+
+  _clearHistory() {
+    this._consoleHistorySetting.set([]);
+    this._prompt.history().setHistoryData([]);
+  }
+
+  _consoleHistoryAutocompleteChanged() {
+    this._prompt.setAddCompletionsFromHistory(this._consoleHistoryAutocompleteSetting.get());
+  }
+
+  /**
+   * @override
+   * @return {number}
+   */
+  itemCount() {
+    return this._visibleViewMessages.length;
+  }
+
+  /**
+   * @override
+   * @param {number} index
+   * @return {?Console.ConsoleViewportElement}
+   */
+  itemElement(index) {
+    return this._visibleViewMessages[index];
+  }
+
+  /**
+   * @override
+   * @param {number} index
+   * @return {number}
+   */
+  fastHeight(index) {
+    return this._visibleViewMessages[index].fastHeight();
+  }
+
+  /**
+   * @override
+   * @return {number}
+   */
+  minimumRowHeight() {
+    return 16;
+  }
+
+  _registerWithMessageSink() {
+    Common.console.messages().forEach(this._addSinkMessage, this);
+    Common.console.addEventListener(Common.Console.Events.MessageAdded, messageAdded, this);
+
     /**
-     * @return {!WebInspector.SearchableView}
+     * @param {!Common.Event} event
+     * @this {Console.ConsoleView}
      */
-    searchableView: function()
-    {
-        return this._searchableView;
-    },
+    function messageAdded(event) {
+      this._addSinkMessage(/** @type {!Common.Console.Message} */ (event.data));
+    }
+  }
+
+  /**
+   * @param {!Common.Console.Message} message
+   */
+  _addSinkMessage(message) {
+    let level = SDK.ConsoleMessage.MessageLevel.Verbose;
+    switch (message.level) {
+      case Common.Console.MessageLevel.Info:
+        level = SDK.ConsoleMessage.MessageLevel.Info;
+        break;
+      case Common.Console.MessageLevel.Error:
+        level = SDK.ConsoleMessage.MessageLevel.Error;
+        break;
+      case Common.Console.MessageLevel.Warning:
+        level = SDK.ConsoleMessage.MessageLevel.Warning;
+        break;
+    }
+
+    const consoleMessage = new SDK.ConsoleMessage(
+        null, SDK.ConsoleMessage.MessageSource.Other, level, message.text, SDK.ConsoleMessage.MessageType.System,
+        undefined, undefined, undefined, undefined, undefined, message.timestamp);
+    this._addConsoleMessage(consoleMessage);
+  }
+
+  _consoleTimestampsSettingChanged() {
+    this._updateMessageList();
+    this._consoleMessages.forEach(viewMessage => viewMessage.updateTimestamp());
+    this._groupableMessageTitle.forEach(viewMessage => viewMessage.updateTimestamp());
+  }
+
+  _executionContextChanged() {
+    this._prompt.clearAutocomplete();
+  }
+
+  /**
+   * @override
+   */
+  willHide() {
+    this._hidePromptSuggestBox();
+  }
+
+  /**
+   * @override
+   */
+  wasShown() {
+    this._viewport.refresh();
+  }
+
+  /**
+   * @override
+   */
+  focus() {
+    if (!this._keyboardNavigationEnabled) {
+      this._focusPrompt();
+      return;
+    }
+    if (this._viewport.hasVirtualSelection())
+      this._viewport.contentElement().focus();
+    else
+      this._focusPrompt();
+  }
+
+  _focusPrompt() {
+    if (!this._prompt.hasFocus()) {
+      const oldStickToBottom = this._viewport.stickToBottom();
+      const oldScrollTop = this._viewport.element.scrollTop;
+      this._prompt.focus();
+      this._viewport.setStickToBottom(oldStickToBottom);
+      this._viewport.element.scrollTop = oldScrollTop;
+    }
+  }
+
+  /**
+   * @override
+   */
+  restoreScrollPositions() {
+    if (this._viewport.stickToBottom())
+      this._immediatelyScrollToBottom();
+    else
+      super.restoreScrollPositions();
+  }
+
+  /**
+   * @override
+   */
+  onResize() {
+    this._scheduleViewportRefresh();
+    this._hidePromptSuggestBox();
+    if (this._viewport.stickToBottom())
+      this._immediatelyScrollToBottom();
+    for (let i = 0; i < this._visibleViewMessages.length; ++i)
+      this._visibleViewMessages[i].onResize();
+  }
+
+  _hidePromptSuggestBox() {
+    this._prompt.clearAutocomplete();
+  }
+
+  /**
+   * @return {!Promise.<undefined>}
+   */
+  _invalidateViewport() {
+    if (this._muteViewportUpdates) {
+      this._maybeDirtyWhileMuted = true;
+      return Promise.resolve();
+    }
+    if (this._needsFullUpdate) {
+      this._updateMessageList();
+      delete this._needsFullUpdate;
+    } else {
+      this._viewport.invalidate();
+    }
+    return Promise.resolve();
+  }
+
+  _scheduleViewportRefresh() {
+    if (this._muteViewportUpdates) {
+      this._maybeDirtyWhileMuted = true;
+      this._scheduleViewportRefreshForTest(true);
+      return;
+    } else {
+      this._scheduleViewportRefreshForTest(false);
+    }
+    this._scheduledRefreshPromiseForTest = this._viewportThrottler.schedule(this._invalidateViewport.bind(this));
+  }
+
+  /**
+   * @param {boolean} muted
+   */
+  _scheduleViewportRefreshForTest(muted) {
+    // This functions is sniffed in tests.
+  }
+
+  _immediatelyScrollToBottom() {
+    // This will scroll viewport and trigger its refresh.
+    this._viewport.setStickToBottom(true);
+    this._promptElement.scrollIntoView(true);
+  }
+
+  _updateFilterStatus() {
+    if (this._hiddenByFilterCount === this._lastShownHiddenByFilterCount)
+      return;
+    this._filterStatusText.setText(Common.UIString(this._hiddenByFilterCount + ' hidden'));
+    this._filterStatusText.setVisible(!!this._hiddenByFilterCount);
+    this._lastShownHiddenByFilterCount = this._hiddenByFilterCount;
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _onConsoleMessageAdded(event) {
+    const message = /** @type {!SDK.ConsoleMessage} */ (event.data);
+    this._addConsoleMessage(message);
+  }
+
+  /**
+   * @param {!SDK.ConsoleMessage} message
+   */
+  _addConsoleMessage(message) {
+    const viewMessage = this._createViewMessage(message);
+    message[this._viewMessageSymbol] = viewMessage;
+    if (message.type === SDK.ConsoleMessage.MessageType.Command ||
+        message.type === SDK.ConsoleMessage.MessageType.Result) {
+      const lastMessage = this._consoleMessages.peekLast();
+      viewMessage[Console.ConsoleView._messageSortingTimeSymbol] =
+          lastMessage ? lastMessage[Console.ConsoleView._messageSortingTimeSymbol] : 0;
+    } else {
+      viewMessage[Console.ConsoleView._messageSortingTimeSymbol] = viewMessage.consoleMessage().timestamp;
+    }
+
+    let insertAt;
+    if (!this._consoleMessages.length ||
+        timeComparator(viewMessage, this._consoleMessages[this._consoleMessages.length - 1]) > 0)
+      insertAt = this._consoleMessages.length;
+    else
+      insertAt = this._consoleMessages.upperBound(viewMessage, timeComparator);
+    const insertedInMiddle = insertAt < this._consoleMessages.length;
+    this._consoleMessages.splice(insertAt, 0, viewMessage);
+
+    this._filter.onMessageAdded(message);
+    this._sidebar.onMessageAdded(viewMessage);
+
+    // If we already have similar messages, go slow path.
+    let shouldGoIntoGroup = false;
+    if (message.isGroupable()) {
+      const groupKey = viewMessage.groupKey();
+      shouldGoIntoGroup = this._groupSimilarSetting.get() && this._groupableMessages.has(groupKey);
+      let list = this._groupableMessages.get(groupKey);
+      if (!list) {
+        list = [];
+        this._groupableMessages.set(groupKey, list);
+      }
+      list.push(viewMessage);
+    }
+
+    this._computeShouldMessageBeVisible(viewMessage);
+    if (!shouldGoIntoGroup && !insertedInMiddle) {
+      this._appendMessageToEnd(viewMessage);
+      this._updateFilterStatus();
+      this._searchableView.updateSearchMatchesCount(this._regexMatchRanges.length);
+    } else {
+      this._needsFullUpdate = true;
+    }
+
+    this._scheduleViewportRefresh();
+    this._consoleMessageAddedForTest(viewMessage);
 
     /**
-     * @param {!WebInspector.Event} event
+     * @param {!Console.ConsoleViewMessage} viewMessage1
+     * @param {!Console.ConsoleViewMessage} viewMessage2
      */
-    _onMainFrameNavigated: function(event)
-    {
-        var frame = /** @type {!WebInspector.ResourceTreeFrame} */(event.data);
-        WebInspector.console.log(WebInspector.UIString("Navigated to %s", frame.url));
-    },
+    function timeComparator(viewMessage1, viewMessage2) {
+      return viewMessage1[Console.ConsoleView._messageSortingTimeSymbol] -
+          viewMessage2[Console.ConsoleView._messageSortingTimeSymbol];
+    }
+  }
 
-    _initConsoleMessages: function()
-    {
-        var mainTarget = WebInspector.targetManager.mainTarget();
-        if (!mainTarget || !mainTarget.resourceTreeModel.cachedResourcesLoaded()) {
-            WebInspector.targetManager.addModelListener(WebInspector.ResourceTreeModel, WebInspector.ResourceTreeModel.EventTypes.CachedResourcesLoaded, this._onResourceTreeModelLoaded, this);
-            return;
+  /**
+   * @param {!Common.Event} event
+   */
+  _onConsoleMessageUpdated(event) {
+    const message = /** @type {!SDK.ConsoleMessage} */ (event.data);
+    const viewMessage = message[this._viewMessageSymbol];
+    if (viewMessage) {
+      viewMessage.updateMessageElement();
+      this._computeShouldMessageBeVisible(viewMessage);
+      this._updateMessageList();
+    }
+  }
+
+  /**
+   * @param {!Console.ConsoleViewMessage} viewMessage
+   */
+  _consoleMessageAddedForTest(viewMessage) {
+  }
+
+  /**
+   * @param {!Console.ConsoleViewMessage} viewMessage
+   * @return {boolean}
+   */
+  _shouldMessageBeVisible(viewMessage) {
+    return !this._shouldBeHiddenCache.has(viewMessage);
+  }
+
+  /**
+   * @param {!Console.ConsoleViewMessage} viewMessage
+   */
+  _computeShouldMessageBeVisible(viewMessage) {
+    if (this._filter.shouldBeVisible(viewMessage) &&
+        (!this._isSidebarOpen || this._sidebar.shouldBeVisible(viewMessage)))
+      this._shouldBeHiddenCache.delete(viewMessage);
+    else
+      this._shouldBeHiddenCache.add(viewMessage);
+  }
+
+  /**
+   * @param {!Console.ConsoleViewMessage} viewMessage
+   * @param {boolean=} preventCollapse
+   */
+  _appendMessageToEnd(viewMessage, preventCollapse) {
+    if (!this._shouldMessageBeVisible(viewMessage)) {
+      this._hiddenByFilterCount++;
+      return;
+    }
+
+    if (!preventCollapse && this._tryToCollapseMessages(viewMessage, this._visibleViewMessages.peekLast()))
+      return;
+
+    const lastMessage = this._visibleViewMessages.peekLast();
+    if (viewMessage.consoleMessage().type === SDK.ConsoleMessage.MessageType.EndGroup) {
+      if (lastMessage && !this._currentGroup.messagesHidden())
+        lastMessage.incrementCloseGroupDecorationCount();
+      this._currentGroup = this._currentGroup.parentGroup() || this._currentGroup;
+      return;
+    }
+    if (!this._currentGroup.messagesHidden()) {
+      const originatingMessage = viewMessage.consoleMessage().originatingMessage();
+      if (lastMessage && originatingMessage && lastMessage.consoleMessage() === originatingMessage)
+        viewMessage.toMessageElement().classList.add('console-adjacent-user-command-result');
+
+      this._visibleViewMessages.push(viewMessage);
+      this._searchMessage(this._visibleViewMessages.length - 1);
+    }
+
+    if (viewMessage.consoleMessage().isGroupStartMessage())
+      this._currentGroup = new Console.ConsoleGroup(this._currentGroup, viewMessage);
+
+    this._messageAppendedForTests();
+  }
+
+  _messageAppendedForTests() {
+    // This method is sniffed in tests.
+  }
+
+  /**
+   * @param {!SDK.ConsoleMessage} message
+   * @return {!Console.ConsoleViewMessage}
+   */
+  _createViewMessage(message) {
+    const nestingLevel = this._currentGroup.nestingLevel();
+    switch (message.type) {
+      case SDK.ConsoleMessage.MessageType.Command:
+        return new Console.ConsoleCommand(
+            message, this._linkifier, this._badgePool, nestingLevel, this._onMessageResizedBound);
+      case SDK.ConsoleMessage.MessageType.Result:
+        return new Console.ConsoleCommandResult(
+            message, this._linkifier, this._badgePool, nestingLevel, this._onMessageResizedBound);
+      case SDK.ConsoleMessage.MessageType.StartGroupCollapsed:
+      case SDK.ConsoleMessage.MessageType.StartGroup:
+        return new Console.ConsoleGroupViewMessage(
+            message, this._linkifier, this._badgePool, nestingLevel, this._updateMessageList.bind(this),
+            this._onMessageResizedBound);
+      default:
+        return new Console.ConsoleViewMessage(
+            message, this._linkifier, this._badgePool, nestingLevel, this._onMessageResizedBound);
+    }
+  }
+
+  /**
+   * @param {!Common.Event} event
+   * @return {!Promise}
+   */
+  async _onMessageResized(event) {
+    if (!this._keyboardNavigationEnabled)
+      return;
+    const treeElement = /** @type {!UI.TreeElement} */ (event.data);
+    if (this._pendingBatchResize || !treeElement.treeOutline)
+      return;
+    this._pendingBatchResize = true;
+    await Promise.resolve();
+    const treeOutlineElement = treeElement.treeOutline.element;
+    this._viewport.setStickToBottom(this._isScrolledToBottom());
+    // Scroll, in case mutations moved the element below the visible area.
+    if (treeOutlineElement.offsetHeight <= this._messagesElement.offsetHeight)
+      treeOutlineElement.scrollIntoViewIfNeeded();
+
+    this._pendingBatchResize = false;
+  }
+
+  _consoleCleared() {
+    const hadFocus = this._viewport.element.hasFocus();
+    this._cancelBuildHiddenCache();
+    this._currentMatchRangeIndex = -1;
+    this._consoleMessages = [];
+    this._groupableMessages.clear();
+    this._groupableMessageTitle.clear();
+    this._sidebar.clear();
+    this._updateMessageList();
+    this._hidePromptSuggestBox();
+    this._viewport.setStickToBottom(true);
+    this._linkifier.reset();
+    this._badgePool.reset();
+    this._filter.clear();
+    if (hadFocus)
+      this._prompt.focus();
+  }
+
+  _handleContextMenuEvent(event) {
+    const contextMenu = new UI.ContextMenu(event);
+    if (event.target.isSelfOrDescendant(this._promptElement)) {
+      contextMenu.show();
+      return;
+    }
+
+    const sourceElement = event.target.enclosingNodeOrSelfWithClass('console-message-wrapper');
+    const consoleMessage = sourceElement ? sourceElement.message.consoleMessage() : null;
+
+    if (consoleMessage && consoleMessage.url) {
+      const menuTitle = ls`Hide messages from ${new Common.ParsedURL(consoleMessage.url).displayName}`;
+      contextMenu.headerSection().appendItem(
+          menuTitle, this._filter.addMessageURLFilter.bind(this._filter, consoleMessage.url));
+    }
+
+    contextMenu.defaultSection().appendAction('console.clear');
+    contextMenu.defaultSection().appendAction('console.clear.history');
+    contextMenu.saveSection().appendItem(Common.UIString('Save as...'), this._saveConsole.bind(this));
+    if (this.element.hasSelection()) {
+      contextMenu.clipboardSection().appendItem(
+          Common.UIString('Copy visible styled selection'), this._viewport.copyWithStyles.bind(this._viewport));
+    }
+
+    if (consoleMessage) {
+      const request = SDK.NetworkLog.requestForConsoleMessage(consoleMessage);
+      if (request && SDK.NetworkManager.canReplayRequest(request))
+        contextMenu.debugSection().appendItem(ls`Replay XHR`, SDK.NetworkManager.replayRequest.bind(null, request));
+    }
+
+    contextMenu.show();
+  }
+
+  async _saveConsole() {
+    const url = SDK.targetManager.mainTarget().inspectedURL();
+    const parsedURL = url.asParsedURL();
+    const filename = String.sprintf('%s-%d.log', parsedURL ? parsedURL.host : 'console', Date.now());
+    const stream = new Bindings.FileOutputStream();
+
+    const progressIndicator = new UI.ProgressIndicator();
+    progressIndicator.setTitle(Common.UIString('Writing file…'));
+    progressIndicator.setTotalWork(this.itemCount());
+
+    /** @const */
+    const chunkSize = 350;
+
+    if (!await stream.open(filename))
+      return;
+    this._progressToolbarItem.element.appendChild(progressIndicator.element);
+
+    let messageIndex = 0;
+    while (messageIndex < this.itemCount() && !progressIndicator.isCanceled()) {
+      const messageContents = [];
+      let i;
+      for (i = 0; i < chunkSize && i + messageIndex < this.itemCount(); ++i) {
+        const message = this.itemElement(messageIndex + i);
+        messageContents.push(message.toExportString());
+      }
+      messageIndex += i;
+      await stream.write(messageContents.join('\n') + '\n');
+      progressIndicator.setWorked(messageIndex);
+    }
+
+    stream.close();
+    progressIndicator.done();
+  }
+
+  /**
+   * @param {!Console.ConsoleViewMessage} viewMessage
+   * @param {!Console.ConsoleViewMessage=} lastMessage
+   * @return {boolean}
+   */
+  _tryToCollapseMessages(viewMessage, lastMessage) {
+    const timestampsShown = this._timestampsSetting.get();
+    if (!timestampsShown && lastMessage && !viewMessage.consoleMessage().isGroupMessage() &&
+        viewMessage.consoleMessage().type !== SDK.ConsoleMessage.MessageType.Command &&
+        viewMessage.consoleMessage().type !== SDK.ConsoleMessage.MessageType.Result &&
+        viewMessage.consoleMessage().isEqual(lastMessage.consoleMessage())) {
+      lastMessage.incrementRepeatCount();
+      if (viewMessage.isLastInSimilarGroup())
+        lastMessage.setInSimilarGroup(true, true);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * @param {number} startIndex
+   * @param {!Array<!Console.ConsoleViewMessage>} viewMessages
+   */
+  _buildHiddenCache(startIndex, viewMessages) {
+    const startTime = Date.now();
+    let i;
+    for (i = startIndex; i < viewMessages.length; ++i) {
+      this._computeShouldMessageBeVisible(viewMessages[i]);
+      if (i % 10 === 0 && Date.now() - startTime > 12)
+        break;
+    }
+
+    if (i === viewMessages.length) {
+      this._updateMessageList();
+      return;
+    }
+    this._buildHiddenCacheTimeout =
+        this.element.window().requestAnimationFrame(this._buildHiddenCache.bind(this, i, viewMessages));
+  }
+
+  _cancelBuildHiddenCache() {
+    this._shouldBeHiddenCache.clear();
+    if (this._buildHiddenCacheTimeout) {
+      this.element.window().cancelAnimationFrame(this._buildHiddenCacheTimeout);
+      delete this._buildHiddenCacheTimeout;
+    }
+  }
+
+  _updateMessageList() {
+    this._topGroup = Console.ConsoleGroup.createTopGroup();
+    this._currentGroup = this._topGroup;
+    this._regexMatchRanges = [];
+    this._hiddenByFilterCount = 0;
+    for (let i = 0; i < this._visibleViewMessages.length; ++i) {
+      this._visibleViewMessages[i].resetCloseGroupDecorationCount();
+      this._visibleViewMessages[i].resetIncrementRepeatCount();
+    }
+    this._visibleViewMessages = [];
+    if (this._groupSimilarSetting.get()) {
+      this._addGroupableMessagesToEnd();
+    } else {
+      for (let i = 0; i < this._consoleMessages.length; ++i) {
+        this._consoleMessages[i].setInSimilarGroup(false);
+        this._appendMessageToEnd(this._consoleMessages[i]);
+      }
+    }
+    this._updateFilterStatus();
+    this._searchableView.updateSearchMatchesCount(this._regexMatchRanges.length);
+    this._viewport.invalidate();
+  }
+
+  _addGroupableMessagesToEnd() {
+    /** @type {!Set<!SDK.ConsoleMessage>} */
+    const alreadyAdded = new Set();
+    /** @type {!Set<string>} */
+    const processedGroupKeys = new Set();
+    for (let i = 0; i < this._consoleMessages.length; ++i) {
+      const viewMessage = this._consoleMessages[i];
+      const message = viewMessage.consoleMessage();
+      if (alreadyAdded.has(message))
+        continue;
+
+      if (!message.isGroupable()) {
+        this._appendMessageToEnd(viewMessage);
+        alreadyAdded.add(message);
+        continue;
+      }
+
+      const key = viewMessage.groupKey();
+      const viewMessagesInGroup = this._groupableMessages.get(key);
+      if (!viewMessagesInGroup || viewMessagesInGroup.length < 5) {
+        viewMessage.setInSimilarGroup(false);
+        this._appendMessageToEnd(viewMessage);
+        alreadyAdded.add(message);
+        continue;
+      }
+
+      if (processedGroupKeys.has(key))
+        continue;
+
+      if (!viewMessagesInGroup.find(x => this._shouldMessageBeVisible(x))) {
+        // Optimize for speed.
+        alreadyAdded.addAll(viewMessagesInGroup);
+        processedGroupKeys.add(key);
+        continue;
+      }
+
+      // Create artificial group start and end messages.
+      let startGroupViewMessage = this._groupableMessageTitle.get(key);
+      if (!startGroupViewMessage) {
+        const startGroupMessage = new SDK.ConsoleMessage(
+            null, message.source, message.level, viewMessage.groupTitle(),
+            SDK.ConsoleMessage.MessageType.StartGroupCollapsed);
+        startGroupViewMessage = this._createViewMessage(startGroupMessage);
+        this._groupableMessageTitle.set(key, startGroupViewMessage);
+      }
+      startGroupViewMessage.setRepeatCount(viewMessagesInGroup.length);
+      this._appendMessageToEnd(startGroupViewMessage);
+
+      for (const viewMessageInGroup of viewMessagesInGroup) {
+        viewMessageInGroup.setInSimilarGroup(true, viewMessagesInGroup.peekLast() === viewMessageInGroup);
+        this._appendMessageToEnd(viewMessageInGroup, true);
+        alreadyAdded.add(viewMessageInGroup.consoleMessage());
+      }
+
+      const endGroupMessage = new SDK.ConsoleMessage(
+          null, message.source, message.level, message.messageText, SDK.ConsoleMessage.MessageType.EndGroup);
+      this._appendMessageToEnd(this._createViewMessage(endGroupMessage));
+    }
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  _messagesClicked(event) {
+    const target = /** @type {?Node} */ (event.target);
+    // Do not focus prompt if messages have selection.
+    if (!this._messagesElement.hasSelection()) {
+      const clickedOutsideMessageList =
+          target === this._messagesElement || this._prompt.belowEditorElement().isSelfOrAncestor(target);
+      if (this._keyboardNavigationEnabled) {
+        if (clickedOutsideMessageList) {
+          this._prompt.moveCaretToEndOfPrompt();
+          this._focusPrompt();
         }
-        this._fetchMultitargetMessages();
-    },
+      } else {
+        if (clickedOutsideMessageList)
+          this._prompt.moveCaretToEndOfPrompt();
+        this._focusPrompt();
+      }
+    }
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  _messagesKeyDown(event) {
+    const hasActionModifier = event.ctrlKey || event.altKey || event.metaKey;
+    if (hasActionModifier || event.key.length !== 1 || UI.isEditing() || this._messagesElement.hasSelection())
+      return;
+    this._prompt.moveCaretToEndOfPrompt();
+    this._focusPrompt();
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  _messagesPasted(event) {
+    if (UI.isEditing())
+      return;
+    this._prompt.focus();
+  }
+
+  _registerShortcuts() {
+    this._shortcuts = {};
+
+    const shortcut = UI.KeyboardShortcut;
+    const section = UI.shortcutsScreen.section(Common.UIString('Console'));
+
+    const shortcutL = shortcut.makeDescriptor('l', UI.KeyboardShortcut.Modifiers.Ctrl);
+    let keys = [shortcutL];
+    if (Host.isMac()) {
+      const shortcutK = shortcut.makeDescriptor('k', UI.KeyboardShortcut.Modifiers.Meta);
+      keys.unshift(shortcutK);
+    }
+    section.addAlternateKeys(keys, Common.UIString('Clear console'));
+
+    keys = [shortcut.makeDescriptor(shortcut.Keys.Tab), shortcut.makeDescriptor(shortcut.Keys.Right)];
+    section.addRelatedKeys(keys, Common.UIString('Accept suggestion'));
+
+    const shortcutU = shortcut.makeDescriptor('u', UI.KeyboardShortcut.Modifiers.Ctrl);
+    this._shortcuts[shortcutU.key] = this._clearPromptBackwards.bind(this);
+    section.addAlternateKeys([shortcutU], Common.UIString('Clear console prompt'));
+
+    keys = [shortcut.makeDescriptor(shortcut.Keys.Down), shortcut.makeDescriptor(shortcut.Keys.Up)];
+    section.addRelatedKeys(keys, Common.UIString('Next/previous line'));
+
+    if (Host.isMac()) {
+      keys =
+          [shortcut.makeDescriptor('N', shortcut.Modifiers.Alt), shortcut.makeDescriptor('P', shortcut.Modifiers.Alt)];
+      section.addRelatedKeys(keys, Common.UIString('Next/previous command'));
+    }
+
+    section.addKey(shortcut.makeDescriptor(shortcut.Keys.Enter), Common.UIString('Execute command'));
+  }
+
+  _clearPromptBackwards() {
+    this._prompt.setText('');
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  _promptKeyDown(event) {
+    const keyboardEvent = /** @type {!KeyboardEvent} */ (event);
+    if (keyboardEvent.key === 'PageUp') {
+      this._updateStickToBottomOnWheel();
+      return;
+    }
+
+    const shortcut = UI.KeyboardShortcut.makeKeyFromEvent(keyboardEvent);
+    const handler = this._shortcuts[shortcut];
+    if (handler) {
+      handler();
+      keyboardEvent.preventDefault();
+    }
+  }
+
+  /**
+   * @param {?SDK.RemoteObject} result
+   * @param {!SDK.ConsoleMessage} originatingConsoleMessage
+   * @param {!Protocol.Runtime.ExceptionDetails=} exceptionDetails
+   */
+  _printResult(result, originatingConsoleMessage, exceptionDetails) {
+    if (!result)
+      return;
+
+    const level = !!exceptionDetails ? SDK.ConsoleMessage.MessageLevel.Error : SDK.ConsoleMessage.MessageLevel.Info;
+    let message;
+    if (!exceptionDetails) {
+      message = new SDK.ConsoleMessage(
+          result.runtimeModel(), SDK.ConsoleMessage.MessageSource.JS, level, '', SDK.ConsoleMessage.MessageType.Result,
+          undefined, undefined, undefined, [result]);
+    } else {
+      message = SDK.ConsoleMessage.fromException(
+          result.runtimeModel(), exceptionDetails, SDK.ConsoleMessage.MessageType.Result, undefined, undefined);
+    }
+    message.setOriginatingMessage(originatingConsoleMessage);
+    SDK.consoleModel.addMessage(message);
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _commandEvaluated(event) {
+    const data =
+        /** @type {{result: ?SDK.RemoteObject, commandMessage: !SDK.ConsoleMessage, exceptionDetails: (!Protocol.Runtime.ExceptionDetails|undefined)}} */
+        (event.data);
+    this._prompt.history().pushHistoryItem(data.commandMessage.messageText);
+    this._consoleHistorySetting.set(
+        this._prompt.history().historyData().slice(-Console.ConsoleView.persistedHistorySize));
+    this._printResult(data.result, data.commandMessage, data.exceptionDetails);
+  }
+
+  /**
+   * @override
+   * @return {!Array.<!Element>}
+   */
+  elementsToRestoreScrollPositionsFor() {
+    return [this._messagesElement];
+  }
+
+  /**
+   * @override
+   */
+  searchCanceled() {
+    this._cleanupAfterSearch();
+    for (let i = 0; i < this._visibleViewMessages.length; ++i) {
+      const message = this._visibleViewMessages[i];
+      message.setSearchRegex(null);
+    }
+    this._currentMatchRangeIndex = -1;
+    this._regexMatchRanges = [];
+    delete this._searchRegex;
+    this._viewport.refresh();
+  }
+
+  /**
+   * @override
+   * @param {!UI.SearchableView.SearchConfig} searchConfig
+   * @param {boolean} shouldJump
+   * @param {boolean=} jumpBackwards
+   */
+  performSearch(searchConfig, shouldJump, jumpBackwards) {
+    this.searchCanceled();
+    this._searchableView.updateSearchMatchesCount(0);
+
+    this._searchRegex = searchConfig.toSearchRegex(true);
+
+    this._regexMatchRanges = [];
+    this._currentMatchRangeIndex = -1;
+
+    if (shouldJump)
+      this._searchShouldJumpBackwards = !!jumpBackwards;
+
+    this._searchProgressIndicator = new UI.ProgressIndicator();
+    this._searchProgressIndicator.setTitle(Common.UIString('Searching…'));
+    this._searchProgressIndicator.setTotalWork(this._visibleViewMessages.length);
+    this._progressToolbarItem.element.appendChild(this._searchProgressIndicator.element);
+
+    this._innerSearch(0);
+  }
+
+  _cleanupAfterSearch() {
+    delete this._searchShouldJumpBackwards;
+    if (this._innerSearchTimeoutId) {
+      clearTimeout(this._innerSearchTimeoutId);
+      delete this._innerSearchTimeoutId;
+    }
+    if (this._searchProgressIndicator) {
+      this._searchProgressIndicator.done();
+      delete this._searchProgressIndicator;
+    }
+  }
+
+  _searchFinishedForTests() {
+    // This method is sniffed in tests.
+  }
+
+  /**
+   * @param {number} index
+   */
+  _innerSearch(index) {
+    delete this._innerSearchTimeoutId;
+    if (this._searchProgressIndicator.isCanceled()) {
+      this._cleanupAfterSearch();
+      return;
+    }
+
+    const startTime = Date.now();
+    for (; index < this._visibleViewMessages.length && Date.now() - startTime < 100; ++index)
+      this._searchMessage(index);
+
+    this._searchableView.updateSearchMatchesCount(this._regexMatchRanges.length);
+    if (typeof this._searchShouldJumpBackwards !== 'undefined' && this._regexMatchRanges.length) {
+      this._jumpToMatch(this._searchShouldJumpBackwards ? -1 : 0);
+      delete this._searchShouldJumpBackwards;
+    }
+
+    if (index === this._visibleViewMessages.length) {
+      this._cleanupAfterSearch();
+      setTimeout(this._searchFinishedForTests.bind(this), 0);
+      return;
+    }
+
+    this._innerSearchTimeoutId = setTimeout(this._innerSearch.bind(this, index), 100);
+    this._searchProgressIndicator.setWorked(index);
+  }
+
+  /**
+   * @param {number} index
+   */
+  _searchMessage(index) {
+    const message = this._visibleViewMessages[index];
+    message.setSearchRegex(this._searchRegex);
+    for (let i = 0; i < message.searchCount(); ++i)
+      this._regexMatchRanges.push({messageIndex: index, matchIndex: i});
+  }
+
+  /**
+   * @override
+   */
+  jumpToNextSearchResult() {
+    this._jumpToMatch(this._currentMatchRangeIndex + 1);
+  }
+
+  /**
+   * @override
+   */
+  jumpToPreviousSearchResult() {
+    this._jumpToMatch(this._currentMatchRangeIndex - 1);
+  }
+
+  /**
+   * @override
+   * @return {boolean}
+   */
+  supportsCaseSensitiveSearch() {
+    return true;
+  }
+
+  /**
+   * @override
+   * @return {boolean}
+   */
+  supportsRegexSearch() {
+    return true;
+  }
+
+  /**
+   * @param {number} index
+   */
+  _jumpToMatch(index) {
+    if (!this._regexMatchRanges.length)
+      return;
+
+    let matchRange;
+    if (this._currentMatchRangeIndex >= 0) {
+      matchRange = this._regexMatchRanges[this._currentMatchRangeIndex];
+      const message = this._visibleViewMessages[matchRange.messageIndex];
+      message.searchHighlightNode(matchRange.matchIndex).classList.remove(UI.highlightedCurrentSearchResultClassName);
+    }
+
+    index = mod(index, this._regexMatchRanges.length);
+    this._currentMatchRangeIndex = index;
+    this._searchableView.updateCurrentMatchIndex(index);
+    matchRange = this._regexMatchRanges[index];
+    const message = this._visibleViewMessages[matchRange.messageIndex];
+    const highlightNode = message.searchHighlightNode(matchRange.matchIndex);
+    highlightNode.classList.add(UI.highlightedCurrentSearchResultClassName);
+    this._viewport.scrollItemIntoView(matchRange.messageIndex);
+    highlightNode.scrollIntoViewIfNeeded();
+  }
+
+  /**
+   * @param {boolean=} isRightClick
+   */
+  _updateStickToBottomOnMouseDown(isRightClick) {
+    this._muteViewportUpdates = !isRightClick;
+    this._viewport.setStickToBottom(false);
+    if (this._waitForScrollTimeout) {
+      clearTimeout(this._waitForScrollTimeout);
+      delete this._waitForScrollTimeout;
+    }
+  }
+
+  _updateStickToBottomOnMouseUp() {
+    if (!this._muteViewportUpdates)
+      return;
+
+    // Delay querying isScrolledToBottom to give time for smooth scroll
+    // events to arrive. The value for the longest timeout duration is
+    // retrieved from crbug.com/575409.
+    this._waitForScrollTimeout = setTimeout(updateViewportState.bind(this), 200);
 
     /**
-     * @param {!WebInspector.Event} event
+     * @this {!Console.ConsoleView}
      */
-    _onResourceTreeModelLoaded: function(event)
-    {
-        var resourceTreeModel = event.target;
-        if (resourceTreeModel.target() !== WebInspector.targetManager.mainTarget())
-            return;
-        WebInspector.targetManager.removeModelListener(WebInspector.ResourceTreeModel, WebInspector.ResourceTreeModel.EventTypes.CachedResourcesLoaded, this._onResourceTreeModelLoaded, this);
-        this._fetchMultitargetMessages();
-    },
-
-    _fetchMultitargetMessages: function()
-    {
-        WebInspector.multitargetConsoleModel.addEventListener(WebInspector.ConsoleModel.Events.ConsoleCleared, this._consoleCleared, this);
-        WebInspector.multitargetConsoleModel.addEventListener(WebInspector.ConsoleModel.Events.MessageAdded, this._onConsoleMessageAdded, this);
-        WebInspector.multitargetConsoleModel.addEventListener(WebInspector.ConsoleModel.Events.MessageUpdated, this._onConsoleMessageUpdated, this);
-        WebInspector.multitargetConsoleModel.addEventListener(WebInspector.ConsoleModel.Events.CommandEvaluated, this._commandEvaluated, this);
-        WebInspector.multitargetConsoleModel.messages().forEach(this._addConsoleMessage, this);
-    },
-
-    /**
-     * @override
-     * @return {number}
-     */
-    itemCount: function()
-    {
-        return this._visibleViewMessages.length;
-    },
-
-    /**
-     * @override
-     * @param {number} index
-     * @return {?WebInspector.ViewportElement}
-     */
-    itemElement: function(index)
-    {
-        return this._visibleViewMessages[index];
-    },
-
-    /**
-     * @override
-     * @param {number} index
-     * @return {number}
-     */
-    fastHeight: function(index)
-    {
-        return this._visibleViewMessages[index].fastHeight();
-    },
-
-    /**
-     * @override
-     * @return {number}
-     */
-    minimumRowHeight: function()
-    {
-        return 16;
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetAdded: function(target)
-    {
-        this._viewport.invalidate();
-        if (WebInspector.targetManager.targets().length > 1 && WebInspector.targetManager.mainTarget().isPage())
-            this._showAllMessagesCheckbox.element.classList.toggle("hidden", false);
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetRemoved: function(target)
-    {
-    },
-
-    _registerWithMessageSink: function()
-    {
-        WebInspector.console.messages().forEach(this._addSinkMessage, this);
-        WebInspector.console.addEventListener(WebInspector.Console.Events.MessageAdded, messageAdded, this);
-
-        /**
-         * @param {!WebInspector.Event} event
-         * @this {WebInspector.ConsoleView}
-         */
-        function messageAdded(event)
-        {
-            this._addSinkMessage(/** @type {!WebInspector.Console.Message} */ (event.data));
-        }
-    },
-
-    /**
-     * @param {!WebInspector.Console.Message} message
-     */
-    _addSinkMessage: function(message)
-    {
-        var level = WebInspector.ConsoleMessage.MessageLevel.Debug;
-        switch (message.level) {
-        case WebInspector.Console.MessageLevel.Error:
-            level = WebInspector.ConsoleMessage.MessageLevel.Error;
-            break;
-        case WebInspector.Console.MessageLevel.Warning:
-            level = WebInspector.ConsoleMessage.MessageLevel.Warning;
-            break;
-        }
-
-        var consoleMessage = new WebInspector.ConsoleMessage(null, WebInspector.ConsoleMessage.MessageSource.Other, level, message.text,
-                undefined, undefined, undefined, undefined, undefined, undefined, undefined, message.timestamp);
-        this._addConsoleMessage(consoleMessage);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _consoleTimestampsSettingChanged: function(event)
-    {
-        var enabled = /** @type {boolean} */ (event.data);
-        this._updateMessageList();
-        this._consoleMessages.forEach(function(viewMessage) {
-            viewMessage.updateTimestamp(enabled);
-        });
-    },
-
-    /**
-     * @override
-     * @return {!Element}
-     */
-    defaultFocusedElement: function()
-    {
-        return this._promptElement;
-    },
-
-    _executionContextChanged: function()
-    {
-        this._prompt.clearAutoComplete(true);
-        if (!this._showAllMessagesCheckbox.checked())
-            this._updateMessageList();
-    },
-
-    willHide: function()
-    {
-        this._hidePromptSuggestBox();
-    },
-
-    wasShown: function()
-    {
-        this._viewport.refresh();
-        if (!this._prompt.isCaretInsidePrompt())
-            this._prompt.moveCaretToEndOfPrompt();
-    },
-
-    focus: function()
-    {
-        if (this._promptElement === WebInspector.currentFocusElement())
-            return;
-        WebInspector.setCurrentFocusElement(this._promptElement);
-        this._prompt.moveCaretToEndOfPrompt();
-    },
-
-    restoreScrollPositions: function()
-    {
-        if (this._viewport.scrolledToBottom())
-            this._immediatelyScrollToBottom();
-        else
-            WebInspector.Widget.prototype.restoreScrollPositions.call(this);
-    },
-
-    onResize: function()
-    {
+    function updateViewportState() {
+      this._muteViewportUpdates = false;
+      if (this.isShowing())
+        this._viewport.setStickToBottom(this._isScrolledToBottom());
+      if (this._maybeDirtyWhileMuted) {
         this._scheduleViewportRefresh();
-        this._hidePromptSuggestBox();
-        if (this._viewport.scrolledToBottom())
-            this._immediatelyScrollToBottom();
-        for (var i = 0; i < this._visibleViewMessages.length; ++i)
-            this._visibleViewMessages[i].onResize();
-    },
-
-    _hidePromptSuggestBox: function()
-    {
-        this._prompt.hideSuggestBox();
-        this._prompt.clearAutoComplete(true);
-    },
-
-    _scheduleViewportRefresh: function()
-    {
-        /**
-         * @this {WebInspector.ConsoleView}
-         * @return {!Promise.<undefined>}
-         */
-        function invalidateViewport()
-        {
-            if (this._needsFullUpdate) {
-                this._updateMessageList();
-                delete this._needsFullUpdate;
-            } else {
-                this._viewport.invalidate();
-            }
-            return Promise.resolve();
-        }
-        this._viewportThrottler.schedule(invalidateViewport.bind(this));
-    },
-
-    _immediatelyScrollToBottom: function()
-    {
-        // This will scroll viewport and trigger its refresh.
-        this._promptElement.scrollIntoView(true);
-    },
-
-    _updateFilterStatus: function()
-    {
-        this._filterStatusTextElement.textContent = WebInspector.UIString(this._hiddenByFilterCount === 1 ? "%d message is hidden by filters." : "%d messages are hidden by filters.", this._hiddenByFilterCount);
-        this._filterStatusMessageElement.style.display = this._hiddenByFilterCount ? "" : "none";
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _onConsoleMessageAdded: function(event)
-    {
-        var message = /** @type {!WebInspector.ConsoleMessage} */ (event.data);
-        this._addConsoleMessage(message);
-    },
-
-    /**
-     * @param {!WebInspector.ConsoleMessage} message
-     */
-    _addConsoleMessage: function(message)
-    {
-        /**
-         * @param {!WebInspector.ConsoleViewMessage} viewMessage1
-         * @param {!WebInspector.ConsoleViewMessage} viewMessage2
-         * @return {number}
-         */
-        function compareTimestamps(viewMessage1, viewMessage2)
-        {
-            return WebInspector.ConsoleMessage.timestampComparator(viewMessage1.consoleMessage(), viewMessage2.consoleMessage());
-        }
-
-        if (message.type === WebInspector.ConsoleMessage.MessageType.Command || message.type === WebInspector.ConsoleMessage.MessageType.Result)
-            message.timestamp = this._consoleMessages.length ? this._consoleMessages.peekLast().consoleMessage().timestamp : 0;
-        var viewMessage = this._createViewMessage(message);
-        message[this._viewMessageSymbol] = viewMessage;
-        var insertAt = insertionIndexForObjectInListSortedByFunction(viewMessage, this._consoleMessages, compareTimestamps, true);
-        var insertedInMiddle = insertAt < this._consoleMessages.length;
-        this._consoleMessages.splice(insertAt, 0, viewMessage);
-
-        if (this._urlToMessageCount[message.url])
-            ++this._urlToMessageCount[message.url];
-        else
-            this._urlToMessageCount[message.url] = 1;
-
-        if (!insertedInMiddle) {
-            this._appendMessageToEnd(viewMessage);
-            this._updateFilterStatus();
-            this._searchableView.updateSearchMatchesCount(this._regexMatchRanges.length);
-        } else {
-            this._needsFullUpdate = true;
-        }
-
-        this._scheduleViewportRefresh();
-        this._consoleMessageAddedForTest(viewMessage);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _onConsoleMessageUpdated: function(event)
-    {
-        var message = /** @type {!WebInspector.ConsoleMessage} */ (event.data);
-        var viewMessage = message[this._viewMessageSymbol];
-        if (viewMessage) {
-            viewMessage.updateMessageElement();
-            this._updateMessageList();
-        }
-    },
-
-    /**
-     * @param {!WebInspector.ConsoleViewMessage} viewMessage
-     */
-    _consoleMessageAddedForTest: function(viewMessage) { },
-
-    /**
-     * @param {!WebInspector.ConsoleViewMessage} viewMessage
-     */
-    _appendMessageToEnd: function(viewMessage)
-    {
-        if (!this._filter.shouldBeVisible(viewMessage)) {
-            this._hiddenByFilterCount++;
-            return;
-        }
-
-        if (this._tryToCollapseMessages(viewMessage, this._visibleViewMessages.peekLast()))
-            return;
-
-        var lastMessage = this._visibleViewMessages.peekLast();
-        if (viewMessage.consoleMessage().type === WebInspector.ConsoleMessage.MessageType.EndGroup) {
-            if (lastMessage && !this._currentGroup.messagesHidden())
-                lastMessage.incrementCloseGroupDecorationCount();
-            this._currentGroup = this._currentGroup.parentGroup();
-            return;
-        }
-        if (!this._currentGroup.messagesHidden()) {
-            var originatingMessage = viewMessage.consoleMessage().originatingMessage();
-            if (lastMessage && originatingMessage && lastMessage.consoleMessage() === originatingMessage)
-                lastMessage.toMessageElement().classList.add("console-adjacent-user-command-result");
-
-            this._visibleViewMessages.push(viewMessage);
-            this._searchMessage(this._visibleViewMessages.length - 1);
-        }
-
-        if (viewMessage.consoleMessage().isGroupStartMessage())
-            this._currentGroup = new WebInspector.ConsoleGroup(this._currentGroup, viewMessage);
-
-        this._messageAppendedForTests();
-    },
-
-    _messageAppendedForTests: function()
-    {
-        // This method is sniffed in tests.
-    },
-
-    /**
-     * @param {!WebInspector.ConsoleMessage} message
-     * @return {!WebInspector.ConsoleViewMessage}
-     */
-    _createViewMessage: function(message)
-    {
-        var nestingLevel = this._currentGroup.nestingLevel();
-        switch (message.type) {
-        case WebInspector.ConsoleMessage.MessageType.Command:
-            return new WebInspector.ConsoleCommand(message, this._linkifier, nestingLevel);
-        case WebInspector.ConsoleMessage.MessageType.Result:
-            return new WebInspector.ConsoleCommandResult(message, this._linkifier, nestingLevel);
-        case WebInspector.ConsoleMessage.MessageType.StartGroupCollapsed:
-        case WebInspector.ConsoleMessage.MessageType.StartGroup:
-            return new WebInspector.ConsoleGroupViewMessage(message, this._linkifier, nestingLevel);
-        default:
-            return new WebInspector.ConsoleViewMessage(message, this._linkifier, nestingLevel);
-        }
-    },
-
-    _consoleCleared: function()
-    {
-        this._currentMatchRangeIndex = -1;
-        this._consoleMessages = [];
-        this._updateMessageList();
-        this._hidePromptSuggestBox();
-        this._linkifier.reset();
-    },
-
-    _handleContextMenuEvent: function(event)
-    {
-        if (event.target.enclosingNodeOrSelfWithNodeName("a"))
-            return;
-
-        var contextMenu = new WebInspector.ContextMenu(event);
-        if (event.target.isSelfOrDescendant(this._promptElement)) {
-            contextMenu.show()
-            return;
-        }
-
-        function monitoringXHRItemAction()
-        {
-            WebInspector.moduleSetting("monitoringXHREnabled").set(!WebInspector.moduleSetting("monitoringXHREnabled").get());
-        }
-        contextMenu.appendCheckboxItem(WebInspector.UIString("Log XMLHttpRequests"), monitoringXHRItemAction, WebInspector.moduleSetting("monitoringXHREnabled").get());
-
-        var sourceElement = event.target.enclosingNodeOrSelfWithClass("console-message-wrapper");
-        var consoleMessage = sourceElement ? sourceElement.message.consoleMessage() : null;
-
-        var filterSubMenu = contextMenu.appendSubMenuItem(WebInspector.UIString("Filter"));
-
-        if (consoleMessage && consoleMessage.url) {
-            var menuTitle = WebInspector.UIString.capitalize("Hide ^messages from %s", new WebInspector.ParsedURL(consoleMessage.url).displayName);
-            filterSubMenu.appendItem(menuTitle, this._filter.addMessageURLFilter.bind(this._filter, consoleMessage.url));
-        }
-
-        filterSubMenu.appendSeparator();
-        var unhideAll = filterSubMenu.appendItem(WebInspector.UIString.capitalize("Unhide ^all"), this._filter.removeMessageURLFilter.bind(this._filter));
-        filterSubMenu.appendSeparator();
-
-        var hasFilters = false;
-
-        for (var url in this._filter.messageURLFilters) {
-            filterSubMenu.appendCheckboxItem(String.sprintf("%s (%d)", new WebInspector.ParsedURL(url).displayName, this._urlToMessageCount[url]), this._filter.removeMessageURLFilter.bind(this._filter, url), true);
-            hasFilters = true;
-        }
-
-        filterSubMenu.setEnabled(hasFilters || (consoleMessage && consoleMessage.url));
-        unhideAll.setEnabled(hasFilters);
-
-        contextMenu.appendSeparator();
-        contextMenu.appendAction("console.clear");
-        contextMenu.appendItem(WebInspector.UIString("Save as..."), this._saveConsole.bind(this));
-
-        var request = consoleMessage ? consoleMessage.request : null;
-        if (request && request.resourceType() === WebInspector.resourceTypes.XHR) {
-            contextMenu.appendSeparator();
-            contextMenu.appendItem(WebInspector.UIString("Replay XHR"), request.replayXHR.bind(request));
-        }
-
-        contextMenu.show();
-    },
-
-    _saveConsole: function()
-    {
-        var filename = String.sprintf("%s-%d.log", WebInspector.targetManager.inspectedPageDomain(), Date.now());
-        var stream = new WebInspector.FileOutputStream();
-
-        var progressIndicator = new WebInspector.ProgressIndicator();
-        progressIndicator.setTitle(WebInspector.UIString("Writing file…"));
-        progressIndicator.setTotalWork(this.itemCount());
-
-        /** @const */
-        var chunkSize = 350;
-        var messageIndex = 0;
-
-        stream.open(filename, openCallback.bind(this));
-
-        /**
-         * @param {boolean} accepted
-         * @this {WebInspector.ConsoleView}
-         */
-        function openCallback(accepted)
-        {
-            if (!accepted)
-                return;
-            this._progressToolbarItem.element.appendChild(progressIndicator.element);
-            writeNextChunk.call(this, stream);
-        }
-
-        /**
-         * @param {!WebInspector.OutputStream} stream
-         * @param {string=} error
-         * @this {WebInspector.ConsoleView}
-         */
-        function writeNextChunk(stream, error)
-        {
-            if (messageIndex >= this.itemCount() || error) {
-                stream.close();
-                progressIndicator.done();
-                return;
-            }
-            var lines = [];
-            for (var i = 0; i < chunkSize && i + messageIndex < this.itemCount(); ++i) {
-                var message = this.itemElement(messageIndex + i);
-                lines.push(message.searchableElement().deepTextContent());
-            }
-            messageIndex += i;
-            stream.write(lines.join("\n") + "\n", writeNextChunk.bind(this));
-            progressIndicator.setWorked(messageIndex);
-        }
-
-    },
-
-    /**
-     * @param {!WebInspector.ConsoleViewMessage} lastMessage
-     * @param {?WebInspector.ConsoleViewMessage=} viewMessage
-     * @return {boolean}
-     */
-    _tryToCollapseMessages: function(lastMessage, viewMessage)
-    {
-        if (!WebInspector.moduleSetting("consoleTimestampsEnabled").get() && viewMessage && !lastMessage.consoleMessage().isGroupMessage() && lastMessage.consoleMessage().isEqual(viewMessage.consoleMessage())) {
-            viewMessage.incrementRepeatCount();
-            return true;
-        }
-
-        return false;
-    },
-
-    _updateMessageList: function()
-    {
-        this._topGroup = WebInspector.ConsoleGroup.createTopGroup();
-        this._currentGroup = this._topGroup;
-        this._regexMatchRanges = [];
-        this._hiddenByFilterCount = 0;
-        for (var i = 0; i < this._visibleViewMessages.length; ++i) {
-            this._visibleViewMessages[i].resetCloseGroupDecorationCount();
-            this._visibleViewMessages[i].resetIncrementRepeatCount();
-        }
-        this._visibleViewMessages = [];
-        for (var i = 0; i < this._consoleMessages.length; ++i)
-            this._appendMessageToEnd(this._consoleMessages[i]);
-        this._updateFilterStatus();
-        this._searchableView.updateSearchMatchesCount(this._regexMatchRanges.length);
-        this._viewport.invalidate();
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _monitoringXHREnabledSettingChanged: function(event)
-    {
-        var enabled = /** @type {boolean} */ (event.data);
-        WebInspector.targetManager.targets().forEach(function(target) {target.networkAgent().setMonitoringXHREnabled(enabled);});
-    },
-
-    /**
-     * @param {!Event} event
-     */
-    _messagesClicked: function(event)
-    {
-        var targetElement = event.deepElementFromPoint();
-        if (!this._prompt.isCaretInsidePrompt() && (!targetElement || targetElement.isComponentSelectionCollapsed()))
-            this._prompt.moveCaretToEndOfPrompt();
-        var groupMessage = event.target.enclosingNodeOrSelfWithClass("console-group-title");
-        if (!groupMessage)
-            return;
-        var consoleGroupViewMessage = groupMessage.parentElement.message;
-        consoleGroupViewMessage.setCollapsed(!consoleGroupViewMessage.collapsed());
-        this._updateMessageList();
-    },
-
-    _registerShortcuts: function()
-    {
-        this._shortcuts = {};
-
-        var shortcut = WebInspector.KeyboardShortcut;
-        var section = WebInspector.shortcutsScreen.section(WebInspector.UIString("Console"));
-
-        var shortcutL = shortcut.makeDescriptor("l", WebInspector.KeyboardShortcut.Modifiers.Ctrl);
-        var keys = [shortcutL];
-        if (WebInspector.isMac()) {
-            var shortcutK = shortcut.makeDescriptor("k", WebInspector.KeyboardShortcut.Modifiers.Meta);
-            keys.unshift(shortcutK);
-        }
-        section.addAlternateKeys(keys, WebInspector.UIString("Clear console"));
-
-        section.addKey(shortcut.makeDescriptor(shortcut.Keys.Tab), WebInspector.UIString("Autocomplete common prefix"));
-        section.addKey(shortcut.makeDescriptor(shortcut.Keys.Right), WebInspector.UIString("Accept suggestion"));
-
-        var shortcutU = shortcut.makeDescriptor("u", WebInspector.KeyboardShortcut.Modifiers.Ctrl);
-        this._shortcuts[shortcutU.key] = this._clearPromptBackwards.bind(this);
-        section.addAlternateKeys([shortcutU], WebInspector.UIString("Clear console prompt"));
-
-        keys = [
-            shortcut.makeDescriptor(shortcut.Keys.Down),
-            shortcut.makeDescriptor(shortcut.Keys.Up)
-        ];
-        section.addRelatedKeys(keys, WebInspector.UIString("Next/previous line"));
-
-        if (WebInspector.isMac()) {
-            keys = [
-                shortcut.makeDescriptor("N", shortcut.Modifiers.Alt),
-                shortcut.makeDescriptor("P", shortcut.Modifiers.Alt)
-            ];
-            section.addRelatedKeys(keys, WebInspector.UIString("Next/previous command"));
-        }
-
-        section.addKey(shortcut.makeDescriptor(shortcut.Keys.Enter), WebInspector.UIString("Execute command"));
-    },
-
-    _clearPromptBackwards: function()
-    {
-        this._prompt.setText("");
-    },
-
-    _promptKeyDown: function(event)
-    {
-        if (isEnterKey(event)) {
-            this._enterKeyPressed(event);
-            return;
-        }
-
-        var shortcut = WebInspector.KeyboardShortcut.makeKeyFromEvent(event);
-        var handler = this._shortcuts[shortcut];
-        if (handler) {
-            handler();
-            event.preventDefault();
-        }
-    },
-
-    _enterKeyPressed: function(event)
-    {
-        if (event.altKey || event.ctrlKey || event.shiftKey)
-            return;
-
-        event.consume(true);
-
-        this._prompt.clearAutoComplete(true);
-
-        var str = this._prompt.text();
-        if (!str.length)
-            return;
-        this._appendCommand(str, true);
-    },
-
-    /**
-     * @param {?WebInspector.RemoteObject} result
-     * @param {boolean} wasThrown
-     * @param {!WebInspector.ConsoleMessage} originatingConsoleMessage
-     * @param {?DebuggerAgent.ExceptionDetails=} exceptionDetails
-     */
-    _printResult: function(result, wasThrown, originatingConsoleMessage, exceptionDetails)
-    {
-        if (!result)
-            return;
-
-        var level = wasThrown ? WebInspector.ConsoleMessage.MessageLevel.Error : WebInspector.ConsoleMessage.MessageLevel.Log;
-        var message;
-        if (!wasThrown)
-            message = new WebInspector.ConsoleMessage(result.target(), WebInspector.ConsoleMessage.MessageSource.JS, level, "", WebInspector.ConsoleMessage.MessageType.Result, undefined, undefined, undefined, undefined, [result]);
-        else
-            message = new WebInspector.ConsoleMessage(result.target(), WebInspector.ConsoleMessage.MessageSource.JS, level, exceptionDetails.text, WebInspector.ConsoleMessage.MessageType.Result, exceptionDetails.url, exceptionDetails.line, exceptionDetails.column, undefined, [WebInspector.UIString("Uncaught"), result], exceptionDetails.stackTrace, undefined, undefined, undefined, exceptionDetails.scriptId);
-        message.setOriginatingMessage(originatingConsoleMessage);
-        result.target().consoleModel.addMessage(message);
-    },
-
-    /**
-     * @param {string} text
-     * @param {boolean} useCommandLineAPI
-     */
-    _appendCommand: function(text, useCommandLineAPI)
-    {
-        this._prompt.setText("");
-        var currentExecutionContext = WebInspector.context.flavor(WebInspector.ExecutionContext);
-        if (currentExecutionContext) {
-            WebInspector.ConsoleModel.evaluateCommandInConsole(currentExecutionContext, text, useCommandLineAPI);
-            if (WebInspector.inspectorView.currentPanel() && WebInspector.inspectorView.currentPanel().name === "console")
-                WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.CommandEvaluatedInConsolePanel);
-        }
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _commandEvaluated: function(event)
-    {
-        var data = /**{{result: ?WebInspector.RemoteObject, wasThrown: boolean, text: string, commandMessage: !WebInspector.ConsoleMessage}} */ (event.data);
-        this._prompt.pushHistoryItem(data.text);
-        this._consoleHistorySetting.set(this._prompt.historyData().slice(-WebInspector.ConsoleView.persistedHistorySize));
-        this._printResult(data.result, data.wasThrown, data.commandMessage, data.exceptionDetails);
-    },
-
-    /**
-     * @override
-     * @return {!Array.<!Element>}
-     */
-    elementsToRestoreScrollPositionsFor: function()
-    {
-        return [this._messagesElement];
-    },
-
-    /**
-     * @override
-     */
-    searchCanceled: function()
-    {
-        this._cleanupAfterSearch();
-        for (var i = 0; i < this._visibleViewMessages.length; ++i) {
-            var message = this._visibleViewMessages[i];
-            message.setSearchRegex(null);
-        }
-        this._currentMatchRangeIndex = -1;
-        this._regexMatchRanges = [];
-        delete this._searchRegex;
-        this._viewport.refresh();
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.SearchableView.SearchConfig} searchConfig
-     * @param {boolean} shouldJump
-     * @param {boolean=} jumpBackwards
-     */
-    performSearch: function(searchConfig, shouldJump, jumpBackwards)
-    {
-        this.searchCanceled();
-        this._searchableView.updateSearchMatchesCount(0);
-
-        this._searchRegex = searchConfig.toSearchRegex(true);
-
-        this._regexMatchRanges = [];
-        this._currentMatchRangeIndex = -1;
-
-        if (shouldJump)
-            this._searchShouldJumpBackwards = !!jumpBackwards;
-
-        this._searchProgressIndicator = new WebInspector.ProgressIndicator();
-        this._searchProgressIndicator.setTitle(WebInspector.UIString("Searching…"));
-        this._searchProgressIndicator.setTotalWork(this._visibleViewMessages.length);
-        this._progressToolbarItem.element.appendChild(this._searchProgressIndicator.element);
-
-        this._innerSearch(0);
-    },
-
-    _cleanupAfterSearch: function()
-    {
-        delete this._searchShouldJumpBackwards;
-        if (this._innerSearchTimeoutId) {
-            clearTimeout(this._innerSearchTimeoutId);
-            delete this._innerSearchTimeoutId;
-        }
-        if (this._searchProgressIndicator) {
-            this._searchProgressIndicator.done();
-            delete this._searchProgressIndicator;
-        }
-    },
-
-    _searchFinishedForTests: function()
-    {
-        // This method is sniffed in tests.
-    },
-
-    /**
-     * @param {number} index
-     */
-    _innerSearch: function(index)
-    {
-        delete this._innerSearchTimeoutId;
-        if (this._searchProgressIndicator.isCanceled()) {
-            this._cleanupAfterSearch();
-            return;
-        }
-
-        var startTime = Date.now();
-        for (; index < this._visibleViewMessages.length && Date.now() - startTime < 100; ++index)
-            this._searchMessage(index);
-
-        this._searchableView.updateSearchMatchesCount(this._regexMatchRanges.length);
-        if (typeof this._searchShouldJumpBackwards !== "undefined" && this._regexMatchRanges.length) {
-            this._jumpToMatch(this._searchShouldJumpBackwards ? -1 : 0);
-            delete this._searchShouldJumpBackwards;
-        }
-
-        if (index === this._visibleViewMessages.length) {
-            this._cleanupAfterSearch();
-            setTimeout(this._searchFinishedForTests.bind(this), 0);
-            return;
-        }
-
-        this._innerSearchTimeoutId = setTimeout(this._innerSearch.bind(this, index), 100);
-        this._searchProgressIndicator.setWorked(index);
-    },
-
-    /**
-     * @param {number} index
-     */
-    _searchMessage: function(index)
-    {
-        var message = this._visibleViewMessages[index];
-        message.setSearchRegex(this._searchRegex);
-        for (var i = 0; i < message.searchCount(); ++i) {
-            this._regexMatchRanges.push({
-                messageIndex: index,
-                matchIndex: i
-            });
-        }
-    },
-
-    /**
-     * @override
-     */
-    jumpToNextSearchResult: function()
-    {
-        this._jumpToMatch(this._currentMatchRangeIndex + 1);
-    },
-
-    /**
-     * @override
-     */
-    jumpToPreviousSearchResult: function()
-    {
-        this._jumpToMatch(this._currentMatchRangeIndex - 1);
-    },
-
-    /**
-     * @override
-     * @return {boolean}
-     */
-    supportsCaseSensitiveSearch: function()
-    {
-        return true;
-    },
-
-    /**
-     * @override
-     * @return {boolean}
-     */
-    supportsRegexSearch: function()
-    {
-        return true;
-    },
-
-    /**
-     * @param {number} index
-     */
-    _jumpToMatch: function(index)
-    {
-        if (!this._regexMatchRanges.length)
-            return;
-
-        var currentSearchResultClassName = "current-search-result";
-
-        var matchRange;
-        if (this._currentMatchRangeIndex >= 0) {
-            matchRange = this._regexMatchRanges[this._currentMatchRangeIndex];
-            var message = this._visibleViewMessages[matchRange.messageIndex];
-            message.searchHighlightNode(matchRange.matchIndex).classList.remove(currentSearchResultClassName);
-        }
-
-        index = mod(index, this._regexMatchRanges.length);
-        this._currentMatchRangeIndex = index;
-        this._searchableView.updateCurrentMatchIndex(index);
-        matchRange = this._regexMatchRanges[index];
-        var message = this._visibleViewMessages[matchRange.messageIndex];
-        var highlightNode = message.searchHighlightNode(matchRange.matchIndex);
-        highlightNode.classList.add(currentSearchResultClassName);
-        this._viewport.scrollItemIntoView(matchRange.messageIndex);
-        highlightNode.scrollIntoViewIfNeeded();
-    },
-
-    __proto__: WebInspector.VBox.prototype
-}
-
-/**
- * @constructor
- * @extends {WebInspector.Object}
- * @param {!WebInspector.ConsoleView} view
- */
-WebInspector.ConsoleViewFilter = function(view)
-{
-    this._messageURLFiltersSetting = WebInspector.settings.createSetting("messageURLFilters", {});
-    this._messageLevelFiltersSetting = WebInspector.settings.createSetting("messageLevelFilters", {});
-
-    this._view = view;
-    this._messageURLFilters = this._messageURLFiltersSetting.get();
-    this._filterChanged = this.dispatchEventToListeners.bind(this, WebInspector.ConsoleViewFilter.Events.FilterChanged);
+        delete this._maybeDirtyWhileMuted;
+      }
+      delete this._waitForScrollTimeout;
+      this._updateViewportStickinessForTest();
+    }
+  }
+
+  _updateViewportStickinessForTest() {
+    // This method is sniffed in tests.
+  }
+
+  _updateStickToBottomOnWheel() {
+    this._updateStickToBottomOnMouseDown();
+    this._updateStickToBottomOnMouseUp();
+  }
+
+  _promptTextChanged() {
+    const oldStickToBottom = this._viewport.stickToBottom();
+    const willStickToBottom = this._isScrolledToBottom();
+    this._viewport.setStickToBottom(willStickToBottom);
+    if (willStickToBottom && !oldStickToBottom)
+      this._scheduleViewportRefresh();
+    this._promptTextChangedForTest();
+  }
+
+  _promptTextChangedForTest() {
+    // This method is sniffed in tests.
+  }
+
+  /**
+   * @return {boolean}
+   */
+  _isScrolledToBottom() {
+    if (!this._isBelowPromptEnabled)
+      return this._messagesElement.isScrolledToBottom();
+    const distanceToPromptEditorBottom = this._messagesElement.scrollHeight - this._messagesElement.scrollTop -
+        this._messagesElement.clientHeight - this._prompt.belowEditorElement().offsetHeight;
+    return distanceToPromptEditorBottom <= 2;
+  }
 };
 
-WebInspector.ConsoleViewFilter.Events = {
-    FilterChanged: "FilterChanged"
+Console.ConsoleView.persistedHistorySize = 300;
+
+Console.ConsoleViewFilter = class {
+  /**
+   * @param {function()} filterChangedCallback
+   */
+  constructor(filterChangedCallback) {
+    this._filterChanged = filterChangedCallback;
+
+    this._messageLevelFiltersSetting = Console.ConsoleViewFilter.levelFilterSetting();
+    this._hideNetworkMessagesSetting = Common.moduleSetting('hideNetworkMessages');
+    this._filterByExecutionContextSetting = Common.moduleSetting('selectedContextFilterEnabled');
+
+    this._messageLevelFiltersSetting.addChangeListener(this._onFilterChanged.bind(this));
+    this._hideNetworkMessagesSetting.addChangeListener(this._onFilterChanged.bind(this));
+    this._filterByExecutionContextSetting.addChangeListener(this._onFilterChanged.bind(this));
+    UI.context.addFlavorChangeListener(SDK.ExecutionContext, this._onFilterChanged, this);
+
+    const filterKeys = Object.values(Console.ConsoleFilter.FilterType);
+    this._suggestionBuilder = new UI.FilterSuggestionBuilder(filterKeys);
+    this._textFilterUI = new UI.ToolbarInput(
+        Common.UIString('Filter'), 0.2, 1, Common.UIString('e.g. /event\\d/ -cdn url:a.com'),
+        this._suggestionBuilder.completions.bind(this._suggestionBuilder));
+    this._textFilterSetting = Common.settings.createSetting('console.textFilter', '');
+    if (this._textFilterSetting.get())
+      this._textFilterUI.setValue(this._textFilterSetting.get());
+    this._textFilterUI.addEventListener(UI.ToolbarInput.Event.TextChanged, () => {
+      this._textFilterSetting.set(this._textFilterUI.value());
+      this._onFilterChanged();
+    });
+    this._filterParser = new TextUtils.FilterParser(filterKeys);
+    this._currentFilter = new Console.ConsoleFilter('', [], null, this._messageLevelFiltersSetting.get());
+    this._updateCurrentFilter();
+
+    this._levelLabels = {};
+    this._levelLabels[SDK.ConsoleMessage.MessageLevel.Verbose] = Common.UIString('Verbose');
+    this._levelLabels[SDK.ConsoleMessage.MessageLevel.Info] = Common.UIString('Info');
+    this._levelLabels[SDK.ConsoleMessage.MessageLevel.Warning] = Common.UIString('Warnings');
+    this._levelLabels[SDK.ConsoleMessage.MessageLevel.Error] = Common.UIString('Errors');
+
+    this._levelMenuButton = new UI.ToolbarButton(ls`Log levels`);
+    this._levelMenuButton.turnIntoSelect();
+    this._levelMenuButton.addEventListener(UI.ToolbarButton.Events.Click, this._showLevelContextMenu.bind(this));
+
+    this._updateLevelMenuButtonText();
+    this._messageLevelFiltersSetting.addChangeListener(this._updateLevelMenuButtonText.bind(this));
+  }
+
+  /**
+   * @param {!SDK.ConsoleMessage} message
+   */
+  onMessageAdded(message) {
+    if (message.type === SDK.ConsoleMessage.MessageType.Command ||
+        message.type === SDK.ConsoleMessage.MessageType.Result || message.isGroupMessage())
+      return;
+    if (message.context)
+      this._suggestionBuilder.addItem(Console.ConsoleFilter.FilterType.Context, message.context);
+    if (message.source)
+      this._suggestionBuilder.addItem(Console.ConsoleFilter.FilterType.Source, message.source);
+    if (message.url)
+      this._suggestionBuilder.addItem(Console.ConsoleFilter.FilterType.Url, message.url);
+  }
+
+  /**
+   * @return {!Common.Setting}
+   */
+  static levelFilterSetting() {
+    return Common.settings.createSetting('messageLevelFilters', Console.ConsoleFilter.defaultLevelsFilterValue());
+  }
+
+  _updateCurrentFilter() {
+    const parsedFilters = this._filterParser.parse(this._textFilterUI.value());
+    if (this._hideNetworkMessagesSetting.get()) {
+      parsedFilters.push({
+        key: Console.ConsoleFilter.FilterType.Source,
+        text: SDK.ConsoleMessage.MessageSource.Network,
+        negative: true
+      });
+    }
+
+    this._currentFilter.executionContext =
+        this._filterByExecutionContextSetting.get() ? UI.context.flavor(SDK.ExecutionContext) : null;
+    this._currentFilter.parsedFilters = parsedFilters;
+    this._currentFilter.levelsMask = this._messageLevelFiltersSetting.get();
+  }
+
+  _onFilterChanged() {
+    this._updateCurrentFilter();
+    this._filterChanged();
+  }
+
+  _updateLevelMenuButtonText() {
+    let isAll = true;
+    let isDefault = true;
+    const allValue = Console.ConsoleFilter.allLevelsFilterValue();
+    const defaultValue = Console.ConsoleFilter.defaultLevelsFilterValue();
+
+    let text = null;
+    const levels = this._messageLevelFiltersSetting.get();
+    for (const name of Object.values(SDK.ConsoleMessage.MessageLevel)) {
+      isAll = isAll && levels[name] === allValue[name];
+      isDefault = isDefault && levels[name] === defaultValue[name];
+      if (levels[name])
+        text = text ? Common.UIString('Custom levels') : Common.UIString('%s only', this._levelLabels[name]);
+    }
+    if (isAll)
+      text = Common.UIString('All levels');
+    else if (isDefault)
+      text = Common.UIString('Default levels');
+    else
+      text = text || Common.UIString('Hide all');
+    this._levelMenuButton.element.classList.toggle('warning', !isAll && !isDefault);
+    this._levelMenuButton.setText(text);
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _showLevelContextMenu(event) {
+    const mouseEvent = /** @type {!Event} */ (event.data);
+    const setting = this._messageLevelFiltersSetting;
+    const levels = setting.get();
+
+    const contextMenu = new UI.ContextMenu(
+        mouseEvent, true /* useSoftMenu */, this._levelMenuButton.element.totalOffsetLeft(),
+        this._levelMenuButton.element.totalOffsetTop() + this._levelMenuButton.element.offsetHeight);
+    contextMenu.headerSection().appendItem(
+        Common.UIString('Default'), () => setting.set(Console.ConsoleFilter.defaultLevelsFilterValue()));
+    for (const level in this._levelLabels) {
+      contextMenu.defaultSection().appendCheckboxItem(
+          this._levelLabels[level], toggleShowLevel.bind(null, level), levels[level]);
+    }
+    contextMenu.show();
+
+    /**
+     * @param {string} level
+     */
+    function toggleShowLevel(level) {
+      levels[level] = !levels[level];
+      setting.set(levels);
+    }
+  }
+
+  /**
+   * @param {string} url
+   */
+  addMessageURLFilter(url) {
+    if (!url)
+      return;
+    const suffix = this._textFilterUI.value() ? ` ${this._textFilterUI.value()}` : '';
+    this._textFilterUI.setValue(`-url:${url}${suffix}`);
+    this._textFilterSetting.set(this._textFilterUI.value());
+    this._onFilterChanged();
+  }
+
+  /**
+   * @param {!Console.ConsoleViewMessage} viewMessage
+   * @return {boolean}
+   */
+  shouldBeVisible(viewMessage) {
+    return this._currentFilter.shouldBeVisible(viewMessage);
+  }
+
+  clear() {
+    this._suggestionBuilder.clear();
+  }
+
+  reset() {
+    this._messageLevelFiltersSetting.set(Console.ConsoleFilter.defaultLevelsFilterValue());
+    this._filterByExecutionContextSetting.set(false);
+    this._hideNetworkMessagesSetting.set(false);
+    this._textFilterUI.setValue('');
+    this._onFilterChanged();
+  }
 };
 
-WebInspector.ConsoleViewFilter.prototype = {
-    addFilters: function(filterBar)
-    {
-        this._textFilterUI = new WebInspector.TextFilterUI(true);
-        this._textFilterUI.addEventListener(WebInspector.FilterUI.Events.FilterChanged, this._textFilterChanged, this);
-        filterBar.addFilter(this._textFilterUI);
+/**
+ * @unrestricted
+ */
+Console.ConsoleCommand = class extends Console.ConsoleViewMessage {
+  /**
+   * @override
+   * @return {!Element}
+   */
+  contentElement() {
+    if (!this._contentElement) {
+      this._contentElement = createElementWithClass('div', 'console-user-command');
+      const icon = UI.Icon.create('smallicon-user-command', 'command-result-icon');
+      this._contentElement.appendChild(icon);
 
-        this._hideNetworkMessagesCheckbox = new WebInspector.CheckboxFilterUI("hide-network-messages", WebInspector.UIString("Hide network messages"), true, WebInspector.moduleSetting("hideNetworkMessages"));
-        this._hideNetworkMessagesCheckbox.addEventListener(WebInspector.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
-        filterBar.addFilter(this._hideNetworkMessagesCheckbox);
+      this._contentElement.message = this;
 
-        var levels = [
-            {name: WebInspector.ConsoleMessage.MessageLevel.Error, label: WebInspector.UIString("Errors")},
-            {name: WebInspector.ConsoleMessage.MessageLevel.Warning, label: WebInspector.UIString("Warnings")},
-            {name: WebInspector.ConsoleMessage.MessageLevel.Info, label: WebInspector.UIString("Info")},
-            {name: WebInspector.ConsoleMessage.MessageLevel.Log, label: WebInspector.UIString("Logs")},
-            {name: WebInspector.ConsoleMessage.MessageLevel.Debug, label: WebInspector.UIString("Debug")},
-            {name: WebInspector.ConsoleMessage.MessageLevel.RevokedError, label: WebInspector.UIString("Handled")}
-        ];
-        this._levelFilterUI = new WebInspector.NamedBitSetFilterUI(levels, this._messageLevelFiltersSetting);
-        this._levelFilterUI.addEventListener(WebInspector.FilterUI.Events.FilterChanged, this._filterChanged, this);
-        filterBar.addFilter(this._levelFilterUI);
-    },
+      this._formattedCommand = createElementWithClass('span', 'source-code');
+      this._formattedCommand.textContent = this.text.replaceControlCharacters();
+      this._contentElement.appendChild(this._formattedCommand);
 
-    _textFilterChanged: function(event)
-    {
-        this._filterRegex = this._textFilterUI.regex();
+      if (this._formattedCommand.textContent.length < Console.ConsoleCommand.MaxLengthToIgnoreHighlighter) {
+        const javascriptSyntaxHighlighter = new UI.SyntaxHighlighter('text/javascript', true);
+        javascriptSyntaxHighlighter.syntaxHighlightNode(this._formattedCommand).then(this._updateSearch.bind(this));
+      } else {
+        this._updateSearch();
+      }
 
-        this._filterChanged();
-    },
+      this.updateTimestamp();
+    }
+    return this._contentElement;
+  }
 
-    /**
-     * @param {string} url
-     */
-    addMessageURLFilter: function(url)
-    {
-        this._messageURLFilters[url] = true;
-        this._messageURLFiltersSetting.set(this._messageURLFilters);
-        this._filterChanged();
-    },
-
-    /**
-     * @param {string} url
-     */
-    removeMessageURLFilter: function(url)
-    {
-        if (!url)
-            this._messageURLFilters = {};
-        else
-            delete this._messageURLFilters[url];
-
-        this._messageURLFiltersSetting.set(this._messageURLFilters);
-        this._filterChanged();
-    },
-
-    /**
-     * @returns {!Object}
-     */
-    get messageURLFilters()
-    {
-        return this._messageURLFilters;
-    },
-
-    /**
-     * @param {!WebInspector.ConsoleViewMessage} viewMessage
-     * @return {boolean}
-     */
-    shouldBeVisible: function(viewMessage)
-    {
-        var message = viewMessage.consoleMessage();
-        var executionContext = WebInspector.context.flavor(WebInspector.ExecutionContext);
-        if (!message.target())
-            return true;
-
-        if (!this._view._showAllMessagesCheckbox.checked() && executionContext) {
-            if (message.target() !== executionContext.target())
-                return false;
-            if (message.executionContextId  && message.executionContextId !== executionContext.id) {
-                return false;
-            }
-        }
-
-        if (WebInspector.moduleSetting("hideNetworkMessages").get() && viewMessage.consoleMessage().source === WebInspector.ConsoleMessage.MessageSource.Network)
-            return false;
-
-        if (viewMessage.consoleMessage().isGroupMessage())
-            return true;
-
-        if (message.type === WebInspector.ConsoleMessage.MessageType.Result || message.type === WebInspector.ConsoleMessage.MessageType.Command)
-            return true;
-
-        if (message.url && this._messageURLFilters[message.url])
-            return false;
-
-        if (message.level && !this._levelFilterUI.accept(message.level))
-            return false;
-
-        if (this._filterRegex) {
-            this._filterRegex.lastIndex = 0;
-            if (!viewMessage.matchesFilterRegex(this._filterRegex))
-                return false;
-        }
-
-        return true;
-    },
-
-    reset: function()
-    {
-        this._messageURLFilters = {};
-        this._messageURLFiltersSetting.set(this._messageURLFilters);
-        this._messageLevelFiltersSetting.set({});
-        this._view._showAllMessagesCheckbox.inputElement.checked = true;
-        WebInspector.moduleSetting("hideNetworkMessages").set(false);
-        this._textFilterUI.setValue("");
-        this._filterChanged();
-    },
-
-    __proto__: WebInspector.Object.prototype
+  _updateSearch() {
+    this.setSearchRegex(this.searchRegex());
+  }
 };
 
-
 /**
- * @constructor
- * @extends {WebInspector.ConsoleViewMessage}
- * @param {!WebInspector.ConsoleMessage} message
- * @param {!WebInspector.Linkifier} linkifier
- * @param {number} nestingLevel
+ * The maximum length before strings are considered too long for syntax highlighting.
+ * @const
+ * @type {number}
  */
-WebInspector.ConsoleCommand = function(message, linkifier, nestingLevel)
-{
-    WebInspector.ConsoleViewMessage.call(this, message, linkifier, nestingLevel);
-}
+Console.ConsoleCommand.MaxLengthToIgnoreHighlighter = 10000;
 
-WebInspector.ConsoleCommand.prototype = {
-    /**
-     * @override
-     * @return {!Element})
-     */
-    searchableElement: function()
-    {
-        return this.contentElement();
-    },
+Console.ConsoleCommandResult = class extends Console.ConsoleViewMessage {
+  /**
+   * @override
+   * @return {!Element}
+   */
+  contentElement() {
+    const element = super.contentElement();
+    if (!element.classList.contains('console-user-command-result')) {
+      element.classList.add('console-user-command-result');
+      if (this.consoleMessage().level === SDK.ConsoleMessage.MessageLevel.Info) {
+        const icon = UI.Icon.create('smallicon-command-result', 'command-result-icon');
+        element.insertBefore(icon, element.firstChild);
+      }
+    }
+    return element;
+  }
+};
 
-    /**
-     * @override
-     * @return {!Element}
-     */
-    contentElement: function()
-    {
-        if (!this._element) {
-            this._element = createElementWithClass("div", "console-user-command");
-            this._element.message = this;
-
-            this._formattedCommand = createElementWithClass("span", "console-message-text source-code");
-            this._formattedCommand.textContent = this.text;
-            this._element.appendChild(this._formattedCommand);
-
-            var javascriptSyntaxHighlighter = new WebInspector.DOMSyntaxHighlighter("text/javascript", true);
-            javascriptSyntaxHighlighter.syntaxHighlightNode(this._formattedCommand).then(this._updateSearch.bind(this))
-        }
-        return this._element;
-    },
-
-    _updateSearch: function()
-    {
-        this.setSearchRegex(this.searchRegex());
-    },
-
-    __proto__: WebInspector.ConsoleViewMessage.prototype
-}
-
-/**
- * @constructor
- * @extends {WebInspector.ConsoleViewMessage}
- * @param {!WebInspector.ConsoleMessage} message
- * @param {!WebInspector.Linkifier} linkifier
- * @param {number} nestingLevel
- */
-WebInspector.ConsoleCommandResult = function(message, linkifier, nestingLevel)
-{
-    WebInspector.ConsoleViewMessage.call(this, message, linkifier, nestingLevel);
-}
-
-WebInspector.ConsoleCommandResult.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.RemoteObject} array
-     * @return {boolean}
-     */
-    useArrayPreviewInFormatter: function(array)
-    {
-        return false;
-    },
-
-    /**
-     * @override
-     * @return {!Element}
-     */
-    contentElement: function()
-    {
-        var element = WebInspector.ConsoleViewMessage.prototype.contentElement.call(this);
-        element.classList.add("console-user-command-result");
-        this.updateTimestamp(false);
-        return element;
-    },
-
-    __proto__: WebInspector.ConsoleViewMessage.prototype
-}
-
-/**
- * @constructor
- * @param {?WebInspector.ConsoleGroup} parentGroup
- * @param {?WebInspector.ConsoleViewMessage} groupMessage
- */
-WebInspector.ConsoleGroup = function(parentGroup, groupMessage)
-{
+Console.ConsoleGroup = class {
+  /**
+   * @param {?Console.ConsoleGroup} parentGroup
+   * @param {?Console.ConsoleViewMessage} groupMessage
+   */
+  constructor(parentGroup, groupMessage) {
     this._parentGroup = parentGroup;
     this._nestingLevel = parentGroup ? parentGroup.nestingLevel() + 1 : 0;
-    this._messagesHidden = groupMessage && groupMessage.collapsed() || this._parentGroup && this._parentGroup.messagesHidden();
-}
+    this._messagesHidden =
+        groupMessage && groupMessage.collapsed() || this._parentGroup && this._parentGroup.messagesHidden();
+  }
+
+  /**
+   * @return {!Console.ConsoleGroup}
+   */
+  static createTopGroup() {
+    return new Console.ConsoleGroup(null, null);
+  }
+
+  /**
+   * @return {boolean}
+   */
+  messagesHidden() {
+    return this._messagesHidden;
+  }
+
+  /**
+   * @return {number}
+   */
+  nestingLevel() {
+    return this._nestingLevel;
+  }
+
+  /**
+   * @return {?Console.ConsoleGroup}
+   */
+  parentGroup() {
+    return this._parentGroup;
+  }
+};
 
 /**
- * @return {!WebInspector.ConsoleGroup}
+ * @implements {UI.ActionDelegate}
  */
-WebInspector.ConsoleGroup.createTopGroup = function()
-{
-    return new WebInspector.ConsoleGroup(null, null);
-}
-
-WebInspector.ConsoleGroup.prototype = {
-    /**
-     * @return {boolean}
-     */
-    messagesHidden: function()
-    {
-        return this._messagesHidden;
-    },
-
-    /**
-     * @return {number}
-     */
-    nestingLevel: function()
-    {
-        return this._nestingLevel;
-    },
-
-    /**
-     * @return {?WebInspector.ConsoleGroup}
-     */
-    parentGroup: function()
-    {
-        return this._parentGroup || this;
-    },
-}
-
-/**
- * @constructor
- * @implements {WebInspector.ActionDelegate}
- */
-WebInspector.ConsoleView.ActionDelegate = function()
-{
-}
-
-WebInspector.ConsoleView.ActionDelegate.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.Context} context
-     * @param {string} actionId
-     * @return {boolean}
-     */
-    handleAction: function(context, actionId)
-    {
-        switch (actionId) {
-        case "console.show":
-            WebInspector.console.show();
-            return true;
-        case "console.clear":
-            WebInspector.ConsoleModel.clearConsole();
-            return true;
+Console.ConsoleView.ActionDelegate = class {
+  /**
+   * @override
+   * @param {!UI.Context} context
+   * @param {string} actionId
+   * @return {boolean}
+   */
+  handleAction(context, actionId) {
+    switch (actionId) {
+      case 'console.show':
+        InspectorFrontendHost.bringToFront();
+        Common.console.show();
+        Console.ConsoleView.instance()._focusPrompt();
+        return true;
+      case 'console.clear':
+        Console.ConsoleView.clearConsole();
+        return true;
+      case 'console.clear.history':
+        Console.ConsoleView.instance()._clearHistory();
+        return true;
+      case 'console.create-pin':
+        if (Runtime.experiments.isEnabled('pinnedExpressions')) {
+          Console.ConsoleView.instance()._pinPane.addPin('', true /* userGesture */);
+          return true;
         }
-        return false;
     }
-}
+    return false;
+  }
+};
 
 /**
-* @typedef {{messageIndex: number, matchIndex: number}}
-*/
-WebInspector.ConsoleView.RegexMatchRange;
+ * @typedef {{messageIndex: number, matchIndex: number}}
+ */
+Console.ConsoleView.RegexMatchRange;
+
+/** @type {symbol} */
+Console.ConsoleView._messageSortingTimeSymbol = Symbol('messageSortingTime');

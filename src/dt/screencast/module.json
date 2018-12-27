@@ -1,21 +1,29 @@
 {
     "extensions": [
         {
-            "type": "@WebInspector.AppProvider",
-            "className": "WebInspector.ScreencastAppProvider",
+            "type": "@Common.AppProvider",
+            "className": "Screencast.ScreencastAppProvider",
             "order": 1
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.ScreencastApp.ToolbarButtonProvider",
+            "type": "@UI.ToolbarItem.Provider",
+            "className": "Screencast.ScreencastApp.ToolbarButtonProvider",
             "order": 1,
             "location": "main-toolbar-left"
+        },
+        {
+            "type": "context-menu-item",
+            "location": "mainMenu",
+            "order": 10,
+            "actionId": "components.request-app-banner"
         }
     ],
     "dependencies": [
-        "components"
+        "components",
+        "emulation"
     ],
     "scripts": [
+        "InputModel.js",
         "ScreencastApp.js",
         "ScreencastView.js"
     ],

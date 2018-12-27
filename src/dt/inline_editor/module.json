@@ -1,0 +1,21 @@
+{
+    "dependencies": [
+        "ui"
+    ],
+    "scripts": [
+        "BezierEditor.js",
+        "BezierUI.js",
+        "ColorSwatch.js",
+        "CSSShadowEditor.js",
+        "SwatchPopoverHelper.js",
+        "CSSShadowModel.js"
+    ],
+    "resources": [
+        "bezierEditor.css",
+        "colorSwatch.css",
+        "bezierSwatch.css",
+        "cssShadowSwatch.css",
+        "cssShadowEditor.css",
+        "swatchPopover.css"
+    ]
+}

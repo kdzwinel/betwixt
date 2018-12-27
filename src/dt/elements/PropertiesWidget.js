@@ -28,153 +28,128 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.ThrottledWidget}
+ * @unrestricted
  */
-WebInspector.PropertiesWidget = function()
-{
-    WebInspector.ThrottledWidget.call(this);
+Elements.PropertiesWidget = class extends UI.ThrottledWidget {
+  constructor() {
+    super(true /* isWebComponent */);
+    this.registerRequiredCSS('elements/propertiesWidget.css');
 
-    WebInspector.targetManager.addModelListener(WebInspector.DOMModel, WebInspector.DOMModel.Events.AttrModified, this._onNodeChange, this);
-    WebInspector.targetManager.addModelListener(WebInspector.DOMModel, WebInspector.DOMModel.Events.AttrRemoved, this._onNodeChange, this);
-    WebInspector.targetManager.addModelListener(WebInspector.DOMModel, WebInspector.DOMModel.Events.CharacterDataModified, this._onNodeChange, this);
-    WebInspector.targetManager.addModelListener(WebInspector.DOMModel, WebInspector.DOMModel.Events.ChildNodeCountUpdated, this._onNodeChange, this);
-    WebInspector.context.addFlavorChangeListener(WebInspector.DOMNode, this._setNode, this);
-}
+    SDK.targetManager.addModelListener(SDK.DOMModel, SDK.DOMModel.Events.AttrModified, this._onNodeChange, this);
+    SDK.targetManager.addModelListener(SDK.DOMModel, SDK.DOMModel.Events.AttrRemoved, this._onNodeChange, this);
+    SDK.targetManager.addModelListener(
+        SDK.DOMModel, SDK.DOMModel.Events.CharacterDataModified, this._onNodeChange, this);
+    SDK.targetManager.addModelListener(
+        SDK.DOMModel, SDK.DOMModel.Events.ChildNodeCountUpdated, this._onNodeChange, this);
+    UI.context.addFlavorChangeListener(SDK.DOMNode, this._setNode, this);
+    this._node = UI.context.flavor(SDK.DOMNode);
+    this.update();
+  }
 
-/**
- * @return {!WebInspector.ElementsSidebarViewWrapperPane}
- */
-WebInspector.PropertiesWidget.createSidebarWrapper = function()
-{
-    return new WebInspector.ElementsSidebarViewWrapperPane(WebInspector.UIString("Properties"), new WebInspector.PropertiesWidget());
-}
+  /**
+   * @param {!Common.Event} event
+   */
+  _setNode(event) {
+    this._node = /** @type {?SDK.DOMNode} */ (event.data);
+    this.update();
+  }
 
-WebInspector.PropertiesWidget._objectGroupName = "properties-sidebar-pane";
+  /**
+   * @override
+   * @protected
+   * @return {!Promise<undefined>}
+   */
+  async doUpdate() {
+    if (this._lastRequestedNode) {
+      this._lastRequestedNode.domModel().runtimeModel().releaseObjectGroup(Elements.PropertiesWidget._objectGroupName);
+      delete this._lastRequestedNode;
+    }
 
-WebInspector.PropertiesWidget.prototype = {
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _setNode: function(event)
-    {
-        this._node = /** @type {?WebInspector.DOMNode} */(event.data);
-        this.update();
-    },
+    if (!this._node) {
+      this.contentElement.removeChildren();
+      this.sections = [];
+      return;
+    }
 
-    /**
-     * @override
-     * @protected
-     * @return {!Promise.<?>}
-     */
-    doUpdate: function()
-    {
-        if (this._lastRequestedNode) {
-            this._lastRequestedNode.target().runtimeAgent().releaseObjectGroup(WebInspector.PropertiesWidget._objectGroupName);
-            delete this._lastRequestedNode;
-        }
+    this._lastRequestedNode = this._node;
+    const object = await this._node.resolveToObject(Elements.PropertiesWidget._objectGroupName);
+    if (!object)
+      return;
 
-        if (!this._node) {
-            this.element.removeChildren();
-            this.sections = [];
-            return Promise.resolve();
-        }
+    const result = await object.callFunction(protoList);
+    object.release();
 
-        this._lastRequestedNode = this._node;
-        return this._node.resolveToObjectPromise(WebInspector.PropertiesWidget._objectGroupName)
-            .then(nodeResolved.bind(this))
+    if (!result.object || result.wasThrown)
+      return;
 
-        /**
-         * @param {?WebInspector.RemoteObject} object
-         * @this {WebInspector.PropertiesWidget}
-         */
-        function nodeResolved(object)
-        {
-            if (!object)
-                return;
+    const propertiesResult = await result.object.getOwnProperties(false /* generatePreview */);
+    result.object.release();
 
-            /**
-             * @suppressReceiverCheck
-             * @this {*}
-             */
-            function protoList()
-            {
-                var proto = this;
-                var result = { __proto__: null };
-                var counter = 1;
-                while (proto) {
-                    result[counter++] = proto;
-                    proto = proto.__proto__;
-                }
-                return result;
-            }
-            var promise = object.callFunctionPromise(protoList).then(nodePrototypesReady.bind(this));
-            object.release();
-            return promise;
-        }
+    if (!propertiesResult || !propertiesResult.properties)
+      return;
 
-        /**
-         * @param {!{object: ?WebInspector.RemoteObject, wasThrown: (boolean|undefined)}} result
-         * @this {WebInspector.PropertiesWidget}
-         */
-        function nodePrototypesReady(result)
-        {
-            if (!result.object || result.wasThrown)
-                return;
+    const properties = propertiesResult.properties;
+    const expanded = [];
+    const sections = this.sections || [];
+    for (let i = 0; i < sections.length; ++i)
+      expanded.push(sections[i].expanded);
 
-            var promise = result.object.getOwnPropertiesPromise().then(fillSection.bind(this));
-            result.object.release();
-            return promise;
-        }
+    this.contentElement.removeChildren();
+    this.sections = [];
 
-        /**
-         * @param {!{properties: ?Array.<!WebInspector.RemoteObjectProperty>, internalProperties: ?Array.<!WebInspector.RemoteObjectProperty>}} result
-         * @this {WebInspector.PropertiesWidget}
-         */
-        function fillSection(result)
-        {
-            if (!result || !result.properties)
-                return;
-
-            var properties = result.properties;
-            var expanded = [];
-            var sections = this.sections || [];
-            for (var i = 0; i < sections.length; ++i)
-                expanded.push(sections[i].expanded);
-
-            this.element.removeChildren();
-            this.sections = [];
-
-            // Get array of property user-friendly names.
-            for (var i = 0; i < properties.length; ++i) {
-                if (!parseInt(properties[i].name, 10))
-                    continue;
-                var property = properties[i].value;
-                var title = property.description;
-                title = title.replace(/Prototype$/, "");
-                var section = new WebInspector.ObjectPropertiesSection(property, title);
-                section.element.classList.add("properties-widget-section");
-                this.sections.push(section);
-                this.element.appendChild(section.element);
-                if (expanded[this.sections.length - 1])
-                    section.expand();
-            }
-        }
-    },
+    // Get array of property user-friendly names.
+    for (let i = 0; i < properties.length; ++i) {
+      if (!parseInt(properties[i].name, 10))
+        continue;
+      const property = properties[i].value;
+      let title = property.description;
+      title = title.replace(/Prototype$/, '');
+      const section = new ObjectUI.ObjectPropertiesSection(property, title);
+      section.element.classList.add('properties-widget-section');
+      this.sections.push(section);
+      this.contentElement.appendChild(section.element);
+      if (expanded[this.sections.length - 1])
+        section.expand();
+      section.addEventListener(UI.TreeOutline.Events.ElementExpanded, this._propertyExpanded, this);
+    }
 
     /**
-     * @param {!WebInspector.Event} event
+     * @suppressReceiverCheck
+     * @this {*}
      */
-    _onNodeChange: function(event)
-    {
-        if (!this._node)
-            return;
-        var data = event.data;
-        var node = /** @type {!WebInspector.DOMNode} */ (data instanceof WebInspector.DOMNode ? data : data.node);
-        if (this._node !== node)
-            return;
-        this.update();
-    },
+    function protoList() {
+      let proto = this;
+      const result = {__proto__: null};
+      let counter = 1;
+      while (proto) {
+        result[counter++] = proto;
+        proto = proto.__proto__;
+      }
+      return result;
+    }
+  }
 
-    __proto__: WebInspector.ThrottledWidget.prototype
-}
+  /**
+   * @param {!Common.Event} event
+   */
+  _propertyExpanded(event) {
+    Host.userMetrics.actionTaken(Host.UserMetrics.Action.DOMPropertiesExpanded);
+    for (const section of this.sections)
+      section.removeEventListener(UI.TreeOutline.Events.ElementExpanded, this._propertyExpanded, this);
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _onNodeChange(event) {
+    if (!this._node)
+      return;
+    const data = event.data;
+    const node = /** @type {!SDK.DOMNode} */ (data instanceof SDK.DOMNode ? data : data.node);
+    if (this._node !== node)
+      return;
+    this.update();
+  }
+};
+
+Elements.PropertiesWidget._objectGroupName = 'properties-sidebar-pane';

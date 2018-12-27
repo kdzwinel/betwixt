@@ -29,67 +29,67 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.VBox}
- * @param {!WebInspector.NetworkRequest} request
+ * @unrestricted
  */
-WebInspector.RequestCookiesView = function(request)
-{
-    WebInspector.VBox.call(this);
-    this.registerRequiredCSS("network/requestCookiesView.css");
-    this.element.classList.add("request-cookies-view");
+Network.RequestCookiesView = class extends UI.VBox {
+  /**
+   * @param {!SDK.NetworkRequest} request
+   */
+  constructor(request) {
+    super();
+    this.registerRequiredCSS('network/requestCookiesView.css');
+    this.element.classList.add('request-cookies-view');
 
     this._request = request;
-}
+  }
 
-WebInspector.RequestCookiesView.prototype = {
-    wasShown: function()
-    {
-        this._request.addEventListener(WebInspector.NetworkRequest.Events.RequestHeadersChanged, this._refreshCookies, this);
-        this._request.addEventListener(WebInspector.NetworkRequest.Events.ResponseHeadersChanged, this._refreshCookies, this);
+  /**
+   * @override
+   */
+  wasShown() {
+    this._request.addEventListener(SDK.NetworkRequest.Events.RequestHeadersChanged, this._refreshCookies, this);
+    this._request.addEventListener(SDK.NetworkRequest.Events.ResponseHeadersChanged, this._refreshCookies, this);
 
-        if (!this._gotCookies) {
-            if (!this._emptyWidget) {
-                this._emptyWidget = new WebInspector.EmptyWidget(WebInspector.UIString("This request has no cookies."));
-                this._emptyWidget.show(this.element);
-            }
-            return;
-        }
+    if (!this._gotCookies) {
+      if (!this._emptyWidget) {
+        this._emptyWidget = new UI.EmptyWidget(Common.UIString('This request has no cookies.'));
+        this._emptyWidget.show(this.element);
+      }
+      return;
+    }
 
-        if (!this._cookiesTable)
-            this._buildCookiesTable();
-    },
+    if (!this._cookiesTable)
+      this._buildCookiesTable();
+  }
 
-    willHide: function()
-    {
-        this._request.removeEventListener(WebInspector.NetworkRequest.Events.RequestHeadersChanged, this._refreshCookies, this);
-        this._request.removeEventListener(WebInspector.NetworkRequest.Events.ResponseHeadersChanged, this._refreshCookies, this);
-    },
+  /**
+   * @override
+   */
+  willHide() {
+    this._request.removeEventListener(SDK.NetworkRequest.Events.RequestHeadersChanged, this._refreshCookies, this);
+    this._request.removeEventListener(SDK.NetworkRequest.Events.ResponseHeadersChanged, this._refreshCookies, this);
+  }
 
-    get _gotCookies()
-    {
-        return (this._request.requestCookies && this._request.requestCookies.length) || (this._request.responseCookies && this._request.responseCookies.length);
-    },
+  get _gotCookies() {
+    return (this._request.requestCookies && this._request.requestCookies.length) ||
+        (this._request.responseCookies && this._request.responseCookies.length);
+  }
 
-    _buildCookiesTable: function()
-    {
-        this.detachChildWidgets();
+  _buildCookiesTable() {
+    this.detachChildWidgets();
 
-        this._cookiesTable = new WebInspector.CookiesTable(true);
-        this._cookiesTable.setCookieFolders([
-            {folderName: WebInspector.UIString("Request Cookies"), cookies: this._request.requestCookies},
-            {folderName: WebInspector.UIString("Response Cookies"), cookies: this._request.responseCookies}
-        ]);
-        this._cookiesTable.show(this.element);
-    },
+    this._cookiesTable = new CookieTable.CookiesTable();
+    this._cookiesTable.setCookieFolders([
+      {folderName: Common.UIString('Request Cookies'), cookies: this._request.requestCookies},
+      {folderName: Common.UIString('Response Cookies'), cookies: this._request.responseCookies}
+    ]);
+    this._cookiesTable.show(this.element);
+  }
 
-    _refreshCookies: function()
-    {
-        delete this._cookiesTable;
-        if (!this._gotCookies || !this.isShowing())
-            return;
-        this._buildCookiesTable();
-    },
-
-    __proto__: WebInspector.VBox.prototype
-}
+  _refreshCookies() {
+    delete this._cookiesTable;
+    if (!this._gotCookies || !this.isShowing())
+      return;
+    this._buildCookiesTable();
+  }
+};

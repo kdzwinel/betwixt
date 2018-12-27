@@ -4,12 +4,14 @@
  * found in the LICENSE file.
  */
 
+.text-prompt-root {
+    display: flex;
+    align-items: center;
+}
+
 .text-prompt-editing {
-    -webkit-user-select: text;
-    box-shadow: rgba(0, 0, 0, .5) 3px 3px 4px;
-    outline: 1px solid rgb(66%, 66%, 66%) !important;
+    box-shadow: var(--drop-shadow);
     background-color: white;
-    -webkit-user-modify: read-write-plaintext-only;
     text-overflow: clip !important;
     padding-left: 2px;
     margin-left: -2px;
@@ -24,16 +26,42 @@
 .text-prompt-editing ::content * {
     color: #222 !important;
     text-decoration: none !important;
-    -webkit-user-modify: read-write-plaintext-only;
+    white-space: pre;
 }
 
-::content .auto-complete-text,
-.text-prompt-editing ::content .auto-complete-text {
+::content .auto-complete-text {
     color: rgb(128, 128, 128) !important;
-    -webkit-user-select: none;
-    -webkit-user-modify: read-only;
+}
+
+::content .text-prompt[data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: rgb(128, 128, 128);
+}
+
+::content .text-prompt:not([data-placeholder]):empty::after {
+    content: '\00A0';
+    width: 0;
+    display: block;
+}
+
+::content .text-prompt {
+    cursor: text;
+    overflow-x: visible;
+}
+
+::content .text-prompt::-webkit-scrollbar {
+    display: none;
+}
+
+::content .text-prompt.disabled {
+    opacity: 0.5;
+    cursor: default;
 }
 
 .text-prompt-editing ::content br {
     display: none;
+}
+
+:host-context(:not(:focus-within)) ::content ::selection {
+    background: transparent;
 }

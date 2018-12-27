@@ -27,1165 +27,1280 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
- * @constructor
- * @extends {WebInspector.SDKObject}
- * @implements {WebInspector.ContentProvider}
- * @param {!NetworkAgent.RequestId} requestId
- * @param {!WebInspector.Target} target
- * @param {string} url
- * @param {string} documentURL
- * @param {!PageAgent.FrameId} frameId
- * @param {!NetworkAgent.LoaderId} loaderId
- * @param {?NetworkAgent.Initiator} initiator
+ * @implements {Common.ContentProvider}
+ * @unrestricted
  */
-WebInspector.NetworkRequest = function(target, requestId, url, documentURL, frameId, loaderId, initiator)
-{
-    WebInspector.SDKObject.call(this, target);
+SDK.NetworkRequest = class extends Common.Object {
+  /**
+   * @param {!Protocol.Network.RequestId} requestId
+   * @param {string} url
+   * @param {string} documentURL
+   * @param {!Protocol.Page.FrameId} frameId
+   * @param {!Protocol.Network.LoaderId} loaderId
+   * @param {?Protocol.Network.Initiator} initiator
+   */
+  constructor(requestId, url, documentURL, frameId, loaderId, initiator) {
+    super();
 
     this._requestId = requestId;
-    this.url = url;
+    this._backendRequestId = requestId;
+    this.setUrl(url);
     this._documentURL = documentURL;
     this._frameId = frameId;
     this._loaderId = loaderId;
-    /** @type {?NetworkAgent.Initiator} */
+    /** @type {?Protocol.Network.Initiator} */
     this._initiator = initiator;
+    /** @type {?SDK.NetworkRequest} */
+    this._redirectSource = null;
+    /** @type {?SDK.NetworkRequest} */
+    this._redirectDestination = null;
     this._issueTime = -1;
     this._startTime = -1;
     this._endTime = -1;
-    /** @type {!NetworkAgent.BlockedReason|undefined} */
+    /** @type {!Protocol.Network.BlockedReason|undefined} */
     this._blockedReason = undefined;
 
     this.statusCode = 0;
-    this.statusText = "";
-    this.requestMethod = "";
+    this.statusText = '';
+    this.requestMethod = '';
     this.requestTime = 0;
-    this.protocol = "";
-    /** @type {!NetworkAgent.RequestMixedContentType} */
-    this.mixedContentType = NetworkAgent.RequestMixedContentType.None;
+    this.protocol = '';
+    /** @type {!Protocol.Security.MixedContentType} */
+    this.mixedContentType = Protocol.Security.MixedContentType.None;
 
-    /** @type {?NetworkAgent.ResourcePriority} */
+    /** @type {?Protocol.Network.ResourcePriority} */
     this._initialPriority = null;
+    /** @type {?Protocol.Network.ResourcePriority} */
+    this._currentPriority = null;
 
-    /** @type {!WebInspector.ResourceType} */
-    this._resourceType = WebInspector.resourceTypes.Other;
-    this._contentEncoded = false;
-    this._pendingContentCallbacks = [];
-    /** @type {!Array.<!WebInspector.NetworkRequest.WebSocketFrame>} */
+    /** @type {?Protocol.Network.SignedExchangeInfo} */
+    this._signedExchangeInfo = null;
+
+    /** @type {!Common.ResourceType} */
+    this._resourceType = Common.resourceTypes.Other;
+    /** @type {?Promise<!SDK.NetworkRequest.ContentData>} */
+    this._contentData = null;
+    /** @type {!Array.<!SDK.NetworkRequest.WebSocketFrame>} */
     this._frames = [];
-    /** @type {!Array.<!WebInspector.NetworkRequest.EventSourceMessage>} */
+    /** @type {!Array.<!SDK.NetworkRequest.EventSourceMessage>} */
     this._eventSourceMessages = [];
 
+    /** @type {!Object<string, (string|undefined)>} */
     this._responseHeaderValues = {};
+    this._responseHeadersText = '';
 
-    this._remoteAddress = "";
+    /** @type {!Array<!SDK.NetworkRequest.NameValue>} */
+    this._requestHeaders = [];
+    /** @type {!Object<string, (string|undefined)>} */
+    this._requestHeaderValues = {};
 
-    /** @type {!SecurityAgent.SecurityState} */
-    this._securityState = SecurityAgent.SecurityState.Unknown;
-    /** @type {?NetworkAgent.SecurityDetails} */
+    this._remoteAddress = '';
+
+    /** @type {?Protocol.Network.RequestReferrerPolicy} */
+    this._referrerPolicy = null;
+
+    /** @type {!Protocol.Security.SecurityState} */
+    this._securityState = Protocol.Security.SecurityState.Unknown;
+    /** @type {?Protocol.Network.SecurityDetails} */
     this._securityDetails = null;
 
     /** @type {string} */
-    this.connectionId = "0";
-}
+    this.connectionId = '0';
+    /** @type {?Promise<?Array.<!SDK.NetworkRequest.NameValue>>} */
+    this._formParametersPromise = null;
+    // Assume no body initially
+    /** @type {?Promise<?string>} */
+    this._requestFormDataPromise = /** @type {?Promise<?string>} */ (Promise.resolve(null));
+  }
 
-WebInspector.NetworkRequest.Events = {
-    FinishedLoading: "FinishedLoading",
-    TimingChanged: "TimingChanged",
-    RemoteAddressChanged: "RemoteAddressChanged",
-    RequestHeadersChanged: "RequestHeadersChanged",
-    ResponseHeadersChanged: "ResponseHeadersChanged",
-    WebsocketFrameAdded: "WebsocketFrameAdded",
-    EventSourceMessageAdded: "EventSourceMessageAdded",
-}
+  /**
+   * @param {!SDK.NetworkRequest} other
+   * @return {number}
+   */
+  indentityCompare(other) {
+    const thisId = this.requestId();
+    const thatId = other.requestId();
+    if (thisId > thatId)
+      return 1;
+    if (thisId < thatId)
+      return -1;
+    return 0;
+  }
+
+  /**
+   * @return {!Protocol.Network.RequestId}
+   */
+  requestId() {
+    return this._requestId;
+  }
+
+  /**
+   * @return {!Protocol.Network.RequestId}
+   */
+  backendRequestId() {
+    return this._backendRequestId;
+  }
+
+  /**
+   * @return {string}
+   */
+  url() {
+    return this._url;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  isBlobRequest() {
+    return this._url.startsWith('blob:');
+  }
+
+  /**
+   * @param {string} x
+   */
+  setUrl(x) {
+    if (this._url === x)
+      return;
+
+    this._url = x;
+    this._parsedURL = new Common.ParsedURL(x);
+    delete this._queryString;
+    delete this._parsedQueryParameters;
+    delete this._name;
+    delete this._path;
+  }
+
+  /**
+   * @return {string}
+   */
+  get documentURL() {
+    return this._documentURL;
+  }
+
+  get parsedURL() {
+    return this._parsedURL;
+  }
+
+  /**
+   * @return {!Protocol.Page.FrameId}
+   */
+  get frameId() {
+    return this._frameId;
+  }
+
+  /**
+   * @return {!Protocol.Network.LoaderId}
+   */
+  get loaderId() {
+    return this._loaderId;
+  }
+
+  /**
+   * @param {string} ip
+   * @param {number} port
+   */
+  setRemoteAddress(ip, port) {
+    this._remoteAddress = ip + ':' + port;
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.RemoteAddressChanged, this);
+  }
+
+  /**
+   * @return {string}
+   */
+  remoteAddress() {
+    return this._remoteAddress;
+  }
+
+  /**
+   * @param {!Protocol.Network.RequestReferrerPolicy} referrerPolicy
+   */
+  setReferrerPolicy(referrerPolicy) {
+    this._referrerPolicy = referrerPolicy;
+  }
+
+  /**
+   * @return {?Protocol.Network.RequestReferrerPolicy}
+   */
+  referrerPolicy() {
+    return this._referrerPolicy;
+  }
+
+  /**
+   * @return {!Protocol.Security.SecurityState}
+   */
+  securityState() {
+    return this._securityState;
+  }
+
+  /**
+   * @param {!Protocol.Security.SecurityState} securityState
+   */
+  setSecurityState(securityState) {
+    this._securityState = securityState;
+  }
+
+  /**
+   * @return {?Protocol.Network.SecurityDetails}
+   */
+  securityDetails() {
+    return this._securityDetails;
+  }
+
+  /**
+   * @param {!Protocol.Network.SecurityDetails} securityDetails
+   */
+  setSecurityDetails(securityDetails) {
+    this._securityDetails = securityDetails;
+  }
+
+  /**
+   * @return {number}
+   */
+  get startTime() {
+    return this._startTime || -1;
+  }
+
+  /**
+   * @param {number} monotonicTime
+   * @param {number} wallTime
+   */
+  setIssueTime(monotonicTime, wallTime) {
+    this._issueTime = monotonicTime;
+    this._wallIssueTime = wallTime;
+    this._startTime = monotonicTime;
+  }
+
+  /**
+   * @return {number}
+   */
+  issueTime() {
+    return this._issueTime;
+  }
+
+  /**
+   * @param {number} monotonicTime
+   * @return {number}
+   */
+  pseudoWallTime(monotonicTime) {
+    return this._wallIssueTime ? this._wallIssueTime - this._issueTime + monotonicTime : monotonicTime;
+  }
+
+  /**
+   * @return {number}
+   */
+  get responseReceivedTime() {
+    return this._responseReceivedTime || -1;
+  }
+
+  /**
+   * @param {number} x
+   */
+  set responseReceivedTime(x) {
+    this._responseReceivedTime = x;
+  }
+
+  /**
+   * @return {number}
+   */
+  get endTime() {
+    return this._endTime || -1;
+  }
+
+  /**
+   * @param {number} x
+   */
+  set endTime(x) {
+    if (this.timing && this.timing.requestTime) {
+      // Check against accurate responseReceivedTime.
+      this._endTime = Math.max(x, this.responseReceivedTime);
+    } else {
+      // Prefer endTime since it might be from the network stack.
+      this._endTime = x;
+      if (this._responseReceivedTime > x)
+        this._responseReceivedTime = x;
+    }
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.TimingChanged, this);
+  }
+
+  /**
+   * @return {number}
+   */
+  get duration() {
+    if (this._endTime === -1 || this._startTime === -1)
+      return -1;
+    return this._endTime - this._startTime;
+  }
+
+  /**
+   * @return {number}
+   */
+  get latency() {
+    if (this._responseReceivedTime === -1 || this._startTime === -1)
+      return -1;
+    return this._responseReceivedTime - this._startTime;
+  }
+
+  /**
+   * @return {number}
+   */
+  get resourceSize() {
+    return this._resourceSize || 0;
+  }
+
+  /**
+   * @param {number} x
+   */
+  set resourceSize(x) {
+    this._resourceSize = x;
+  }
+
+  /**
+   * @return {number}
+   */
+  get transferSize() {
+    return this._transferSize || 0;
+  }
+
+  /**
+   * @param {number} x
+   */
+  increaseTransferSize(x) {
+    this._transferSize = (this._transferSize || 0) + x;
+  }
+
+  /**
+   * @param {number} x
+   */
+  setTransferSize(x) {
+    this._transferSize = x;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  get finished() {
+    return this._finished;
+  }
+
+  /**
+   * @param {boolean} x
+   */
+  set finished(x) {
+    if (this._finished === x)
+      return;
+
+    this._finished = x;
+
+    if (x)
+      this.dispatchEventToListeners(SDK.NetworkRequest.Events.FinishedLoading, this);
+  }
+
+  /**
+   * @return {boolean}
+   */
+  get failed() {
+    return this._failed;
+  }
+
+  /**
+   * @param {boolean} x
+   */
+  set failed(x) {
+    this._failed = x;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  get canceled() {
+    return this._canceled;
+  }
+
+  /**
+   * @param {boolean} x
+   */
+  set canceled(x) {
+    this._canceled = x;
+  }
+
+  /**
+   * @return {!Protocol.Network.BlockedReason|undefined}
+   */
+  blockedReason() {
+    return this._blockedReason;
+  }
+
+  /**
+   * @param {!Protocol.Network.BlockedReason} reason
+   */
+  setBlockedReason(reason) {
+    this._blockedReason = reason;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  wasBlocked() {
+    return !!this._blockedReason;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  cached() {
+    return (!!this._fromMemoryCache || !!this._fromDiskCache) && !this._transferSize;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  cachedInMemory() {
+    return !!this._fromMemoryCache && !this._transferSize;
+  }
+
+  setFromMemoryCache() {
+    this._fromMemoryCache = true;
+    delete this._timing;
+  }
+
+  setFromDiskCache() {
+    this._fromDiskCache = true;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  get fetchedViaServiceWorker() {
+    return this._fetchedViaServiceWorker;
+  }
+
+  /**
+   * @param {boolean} x
+   */
+  set fetchedViaServiceWorker(x) {
+    this._fetchedViaServiceWorker = x;
+  }
+
+  /**
+   * @return {!Protocol.Network.ResourceTiming|undefined}
+   */
+  get timing() {
+    return this._timing;
+  }
+
+  /**
+   * @param {!Protocol.Network.ResourceTiming|undefined} timingInfo
+   */
+  set timing(timingInfo) {
+    if (!timingInfo || this._fromMemoryCache)
+      return;
+    // Take startTime and responseReceivedTime from timing data for better accuracy.
+    // Timing's requestTime is a baseline in seconds, rest of the numbers there are ticks in millis.
+    this._startTime = timingInfo.requestTime;
+    const headersReceivedTime = timingInfo.requestTime + timingInfo.receiveHeadersEnd / 1000.0;
+    if ((this._responseReceivedTime || -1) < 0 || this._responseReceivedTime > headersReceivedTime)
+      this._responseReceivedTime = headersReceivedTime;
+    if (this._startTime > this._responseReceivedTime)
+      this._responseReceivedTime = this._startTime;
+
+    this._timing = timingInfo;
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.TimingChanged, this);
+  }
+
+  /**
+   * @return {string}
+   */
+  get mimeType() {
+    return this._mimeType;
+  }
+
+  /**
+   * @param {string} x
+   */
+  set mimeType(x) {
+    this._mimeType = x;
+  }
+
+  /**
+   * @return {string}
+   */
+  get displayName() {
+    return this._parsedURL.displayName;
+  }
+
+  /**
+   * @return {string}
+   */
+  name() {
+    if (this._name)
+      return this._name;
+    this._parseNameAndPathFromURL();
+    return this._name;
+  }
+
+  /**
+   * @return {string}
+   */
+  path() {
+    if (this._path)
+      return this._path;
+    this._parseNameAndPathFromURL();
+    return this._path;
+  }
+
+  _parseNameAndPathFromURL() {
+    if (this._parsedURL.isDataURL()) {
+      this._name = this._parsedURL.dataURLDisplayName();
+      this._path = '';
+    } else if (this._parsedURL.isAboutBlank()) {
+      this._name = this._parsedURL.url;
+      this._path = '';
+    } else {
+      this._path = this._parsedURL.host + this._parsedURL.folderPathComponents;
+
+      const networkManager = SDK.NetworkManager.forRequest(this);
+      const inspectedURL = networkManager ? networkManager.target().inspectedURL().asParsedURL() : null;
+      this._path = this._path.trimURL(inspectedURL ? inspectedURL.host : '');
+      if (this._parsedURL.lastPathComponent || this._parsedURL.queryParams) {
+        this._name =
+            this._parsedURL.lastPathComponent + (this._parsedURL.queryParams ? '?' + this._parsedURL.queryParams : '');
+      } else if (this._parsedURL.folderPathComponents) {
+        this._name =
+            this._parsedURL.folderPathComponents.substring(this._parsedURL.folderPathComponents.lastIndexOf('/') + 1) +
+            '/';
+        this._path = this._path.substring(0, this._path.lastIndexOf('/'));
+      } else {
+        this._name = this._parsedURL.host;
+        this._path = '';
+      }
+    }
+  }
+
+  /**
+   * @return {string}
+   */
+  get folder() {
+    let path = this._parsedURL.path;
+    const indexOfQuery = path.indexOf('?');
+    if (indexOfQuery !== -1)
+      path = path.substring(0, indexOfQuery);
+    const lastSlashIndex = path.lastIndexOf('/');
+    return lastSlashIndex !== -1 ? path.substring(0, lastSlashIndex) : '';
+  }
+
+  /**
+   * @return {!Common.ResourceType}
+   */
+  resourceType() {
+    return this._resourceType;
+  }
+
+  /**
+   * @param {!Common.ResourceType} resourceType
+   */
+  setResourceType(resourceType) {
+    this._resourceType = resourceType;
+  }
+
+  /**
+   * @return {string}
+   */
+  get domain() {
+    return this._parsedURL.host;
+  }
+
+  /**
+   * @return {string}
+   */
+  get scheme() {
+    return this._parsedURL.scheme;
+  }
+
+  /**
+   * @return {?SDK.NetworkRequest}
+   */
+  redirectSource() {
+    return this._redirectSource;
+  }
+
+  /**
+   * @param {?SDK.NetworkRequest} originatingRequest
+   */
+  setRedirectSource(originatingRequest) {
+    this._redirectSource = originatingRequest;
+  }
+
+  /**
+   * @return {?SDK.NetworkRequest}
+   */
+  redirectDestination() {
+    return this._redirectDestination;
+  }
+
+  /**
+   * @param {?SDK.NetworkRequest} redirectDestination
+   */
+  setRedirectDestination(redirectDestination) {
+    this._redirectDestination = redirectDestination;
+  }
+
+  /**
+   * @return {!Array.<!SDK.NetworkRequest.NameValue>}
+   */
+  requestHeaders() {
+    return this._requestHeaders;
+  }
+
+  /**
+   * @param {!Array.<!SDK.NetworkRequest.NameValue>} headers
+   */
+  setRequestHeaders(headers) {
+    this._requestHeaders = headers;
+    delete this._requestCookies;
+
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.RequestHeadersChanged);
+  }
+
+  /**
+   * @return {string|undefined}
+   */
+  requestHeadersText() {
+    return this._requestHeadersText;
+  }
+
+  /**
+   * @param {string} text
+   */
+  setRequestHeadersText(text) {
+    this._requestHeadersText = text;
+
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.RequestHeadersChanged);
+  }
+
+  /**
+   * @param {string} headerName
+   * @return {string|undefined}
+   */
+  requestHeaderValue(headerName) {
+    if (headerName in this._requestHeaderValues)
+      return this._requestHeaderValues[headerName];
+    this._requestHeaderValues[headerName] = this._computeHeaderValue(this.requestHeaders(), headerName);
+    return this._requestHeaderValues[headerName];
+  }
+
+  /**
+   * @return {!Array.<!SDK.Cookie>}
+   */
+  get requestCookies() {
+    if (!this._requestCookies)
+      this._requestCookies = SDK.CookieParser.parseCookie(this.requestHeaderValue('Cookie'));
+    return this._requestCookies;
+  }
+
+  /**
+   * @return {!Promise<?string>}
+   */
+  requestFormData() {
+    if (!this._requestFormDataPromise)
+      this._requestFormDataPromise = SDK.NetworkManager.requestPostData(this);
+    return this._requestFormDataPromise;
+  }
+
+  /**
+   * @param {boolean} hasData
+   * @param {?string} data
+   */
+  setRequestFormData(hasData, data) {
+    this._requestFormDataPromise = (hasData && data === null) ? null : Promise.resolve(data);
+    this._formParametersPromise = null;
+  }
+
+  /**
+   * @return {string}
+   */
+  _filteredProtocolName() {
+    const protocol = this.protocol.toLowerCase();
+    if (protocol === 'h2')
+      return 'http/2.0';
+    return protocol.replace(/^http\/2(\.0)?\+/, 'http/2.0+');
+  }
+
+  /**
+   * @return {string}
+   */
+  requestHttpVersion() {
+    const headersText = this.requestHeadersText();
+    if (!headersText) {
+      const version = this.requestHeaderValue('version') || this.requestHeaderValue(':version');
+      if (version)
+        return version;
+      return this._filteredProtocolName();
+    }
+    const firstLine = headersText.split(/\r\n/)[0];
+    const match = firstLine.match(/(HTTP\/\d+\.\d+)$/);
+    return match ? match[1] : 'HTTP/0.9';
+  }
+
+  /**
+   * @return {!Array.<!SDK.NetworkRequest.NameValue>}
+   */
+  get responseHeaders() {
+    return this._responseHeaders || [];
+  }
+
+  /**
+   * @param {!Array.<!SDK.NetworkRequest.NameValue>} x
+   */
+  set responseHeaders(x) {
+    this._responseHeaders = x;
+    delete this._sortedResponseHeaders;
+    delete this._serverTimings;
+    delete this._responseCookies;
+    this._responseHeaderValues = {};
+
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.ResponseHeadersChanged);
+  }
+
+  /**
+   * @return {string}
+   */
+  get responseHeadersText() {
+    return this._responseHeadersText;
+  }
+
+  /**
+   * @param {string} x
+   */
+  set responseHeadersText(x) {
+    this._responseHeadersText = x;
+
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.ResponseHeadersChanged);
+  }
+
+  /**
+   * @return {!Array.<!SDK.NetworkRequest.NameValue>}
+   */
+  get sortedResponseHeaders() {
+    if (this._sortedResponseHeaders !== undefined)
+      return this._sortedResponseHeaders;
+
+    this._sortedResponseHeaders = this.responseHeaders.slice();
+    this._sortedResponseHeaders.sort(function(a, b) {
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return this._sortedResponseHeaders;
+  }
+
+  /**
+   * @param {string} headerName
+   * @return {string|undefined}
+   */
+  responseHeaderValue(headerName) {
+    if (headerName in this._responseHeaderValues)
+      return this._responseHeaderValues[headerName];
+    this._responseHeaderValues[headerName] = this._computeHeaderValue(this.responseHeaders, headerName);
+    return this._responseHeaderValues[headerName];
+  }
+
+  /**
+   * @return {!Array.<!SDK.Cookie>}
+   */
+  get responseCookies() {
+    if (!this._responseCookies)
+      this._responseCookies = SDK.CookieParser.parseSetCookie(this.responseHeaderValue('Set-Cookie'));
+    return this._responseCookies;
+  }
+
+  /**
+   * @return {string|undefined}
+   */
+  responseLastModified() {
+    return this.responseHeaderValue('last-modified');
+  }
+
+  /**
+   * @return {?Array.<!SDK.ServerTiming>}
+   */
+  get serverTimings() {
+    if (typeof this._serverTimings === 'undefined')
+      this._serverTimings = SDK.ServerTiming.parseHeaders(this.responseHeaders);
+    return this._serverTimings;
+  }
+
+  /**
+   * @return {?string}
+   */
+  queryString() {
+    if (this._queryString !== undefined)
+      return this._queryString;
+
+    let queryString = null;
+    const url = this.url();
+    const questionMarkPosition = url.indexOf('?');
+    if (questionMarkPosition !== -1) {
+      queryString = url.substring(questionMarkPosition + 1);
+      const hashSignPosition = queryString.indexOf('#');
+      if (hashSignPosition !== -1)
+        queryString = queryString.substring(0, hashSignPosition);
+    }
+    this._queryString = queryString;
+    return this._queryString;
+  }
+
+  /**
+   * @return {?Array.<!SDK.NetworkRequest.NameValue>}
+   */
+  get queryParameters() {
+    if (this._parsedQueryParameters)
+      return this._parsedQueryParameters;
+    const queryString = this.queryString();
+    if (!queryString)
+      return null;
+    this._parsedQueryParameters = this._parseParameters(queryString);
+    return this._parsedQueryParameters;
+  }
+
+  /**
+   * @return {!Promise<?Array<!SDK.NetworkRequest.NameValue>>}
+   */
+  async _parseFormParameters() {
+    const requestContentType = this.requestContentType();
+
+    if (!requestContentType)
+      return null;
+
+    // Handling application/x-www-form-urlencoded request bodies.
+    if (requestContentType.match(/^application\/x-www-form-urlencoded\s*(;.*)?$/i)) {
+      const formData = await this.requestFormData();
+      if (!formData)
+        return null;
+
+      return this._parseParameters(formData);
+    }
+
+    // Handling multipart/form-data request bodies.
+    const multipartDetails = requestContentType.match(/^multipart\/form-data\s*;\s*boundary\s*=\s*(\S+)\s*$/);
+
+    if (!multipartDetails)
+      return null;
+
+    const boundary = multipartDetails[1];
+    if (!boundary)
+      return null;
+
+    const formData = await this.requestFormData();
+    if (!formData)
+      return null;
+
+    return this._parseMultipartFormDataParameters(formData, boundary);
+  }
+
+  /**
+   * @return {!Promise<?Array<!SDK.NetworkRequest.NameValue>>}
+   */
+  formParameters() {
+    if (!this._formParametersPromise)
+      this._formParametersPromise = this._parseFormParameters();
+    return this._formParametersPromise;
+  }
+
+  /**
+   * @return {string}
+   */
+  responseHttpVersion() {
+    const headersText = this._responseHeadersText;
+    if (!headersText) {
+      const version = this.responseHeaderValue('version') || this.responseHeaderValue(':version');
+      if (version)
+        return version;
+      return this._filteredProtocolName();
+    }
+    const firstLine = headersText.split(/\r\n/)[0];
+    const match = firstLine.match(/^(HTTP\/\d+\.\d+)/);
+    return match ? match[1] : 'HTTP/0.9';
+  }
+
+  /**
+   * @param {string} queryString
+   * @return {!Array.<!SDK.NetworkRequest.NameValue>}
+   */
+  _parseParameters(queryString) {
+    function parseNameValue(pair) {
+      const position = pair.indexOf('=');
+      if (position === -1)
+        return {name: pair, value: ''};
+      else
+        return {name: pair.substring(0, position), value: pair.substring(position + 1)};
+    }
+    return queryString.split('&').map(parseNameValue);
+  }
+
+  /**
+   * Parses multipart/form-data; boundary=boundaryString request bodies -
+   * --boundaryString
+   * Content-Disposition: form-data; name="field-name"; filename="r.gif"
+   * Content-Type: application/octet-stream
+   *
+   * optionalValue
+   * --boundaryString
+   * Content-Disposition: form-data; name="field-name-2"
+   *
+   * optionalValue2
+   * --boundaryString--
+   *
+   * @param {string} data
+   * @param {string} boundary
+   * @return {!Array.<!SDK.NetworkRequest.NameValue>}
+   */
+  _parseMultipartFormDataParameters(data, boundary) {
+    const sanitizedBoundary = boundary.escapeForRegExp();
+    const keyValuePattern = new RegExp(
+        // Header with an optional file name.
+        '^\\r\\ncontent-disposition\\s*:\\s*form-data\\s*;\\s*name="([^"]*)"(?:\\s*;\\s*filename="([^"]*)")?' +
+            // Optional secondary header with the content type.
+            '(?:\\r\\ncontent-type\\s*:\\s*([^\\r\\n]*))?' +
+            // Padding.
+            '\\r\\n\\r\\n' +
+            // Value
+            '(.*)' +
+            // Padding.
+            '\\r\\n$',
+        'is');
+    const fields = data.split(new RegExp(`--${sanitizedBoundary}(?:--\s*$)?`, 'g'));
+    return fields.reduce(parseMultipartField, []);
+
+    /**
+     * @param {!Array.<!SDK.NetworkRequest.NameValue>} result
+     * @param {string} field
+     * @return {!Array.<!SDK.NetworkRequest.NameValue>}
+     */
+    function parseMultipartField(result, field) {
+      const [match, name, filename, contentType, value] = field.match(keyValuePattern) || [];
+
+      if (!match)
+        return result;
+
+      const processedValue = (filename || contentType) ? ls`(binary)` : value;
+      result.push({name, value: processedValue});
+
+      return result;
+    }
+  }
+
+  /**
+   * @param {!Array.<!SDK.NetworkRequest.NameValue>} headers
+   * @param {string} headerName
+   * @return {string|undefined}
+   */
+  _computeHeaderValue(headers, headerName) {
+    headerName = headerName.toLowerCase();
+
+    const values = [];
+    for (let i = 0; i < headers.length; ++i) {
+      if (headers[i].name.toLowerCase() === headerName)
+        values.push(headers[i].value);
+    }
+    if (!values.length)
+      return undefined;
+    // Set-Cookie values should be separated by '\n', not comma, otherwise cookies could not be parsed.
+    if (headerName === 'set-cookie')
+      return values.join('\n');
+    return values.join(', ');
+  }
+
+  /**
+   * @return {!Promise<!SDK.NetworkRequest.ContentData>}
+   */
+  contentData() {
+    if (this._contentData)
+      return this._contentData;
+    if (this._contentDataProvider)
+      this._contentData = this._contentDataProvider();
+    else
+      this._contentData = SDK.NetworkManager.requestContentData(this);
+    return this._contentData;
+  }
+
+  /**
+   * @param {function():!Promise<!SDK.NetworkRequest.ContentData>} dataProvider
+   */
+  setContentDataProvider(dataProvider) {
+    console.assert(!this._contentData, 'contentData can only be set once.');
+    this._contentDataProvider = dataProvider;
+  }
+
+  /**
+   * @override
+   * @return {string}
+   */
+  contentURL() {
+    return this._url;
+  }
+
+  /**
+   * @override
+   * @return {!Common.ResourceType}
+   */
+  contentType() {
+    return this._resourceType;
+  }
+
+  /**
+   * @override
+   * @return {!Promise<boolean>}
+   */
+  async contentEncoded() {
+    return (await this.contentData()).encoded;
+  }
+
+  /**
+   * @override
+   * @return {!Promise<?string>}
+   */
+  async requestContent() {
+    return (await this.contentData()).content;
+  }
+
+  /**
+   * @override
+   * @param {string} query
+   * @param {boolean} caseSensitive
+   * @param {boolean} isRegex
+   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   */
+  async searchInContent(query, caseSensitive, isRegex) {
+    if (!this._contentDataProvider)
+      return SDK.NetworkManager.searchInRequest(this, query, caseSensitive, isRegex);
+
+    const contentData = await this.contentData();
+    let content = contentData.content;
+    if (!content)
+      return [];
+    if (contentData.encoded)
+      content = window.atob(content);
+    return Common.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex);
+  }
+
+  /**
+   * @return {boolean}
+   */
+  isHttpFamily() {
+    return !!this.url().match(/^https?:/i);
+  }
+
+  /**
+   * @return {string|undefined}
+   */
+  requestContentType() {
+    return this.requestHeaderValue('Content-Type');
+  }
+
+  /**
+   * @return {boolean}
+   */
+  hasErrorStatusCode() {
+    return this.statusCode >= 400;
+  }
+
+  /**
+   * @param {!Protocol.Network.ResourcePriority} priority
+   */
+  setInitialPriority(priority) {
+    this._initialPriority = priority;
+  }
+
+  /**
+   * @return {?Protocol.Network.ResourcePriority}
+   */
+  initialPriority() {
+    return this._initialPriority;
+  }
+
+  /**
+   * @param {!Protocol.Network.ResourcePriority} priority
+   */
+  setPriority(priority) {
+    this._currentPriority = priority;
+  }
+
+  /**
+   * @return {?Protocol.Network.ResourcePriority}
+   */
+  priority() {
+    return this._currentPriority || this._initialPriority || null;
+  }
+
+  /**
+   * @param {!Protocol.Network.SignedExchangeInfo} info
+   */
+  setSignedExchangeInfo(info) {
+    this._signedExchangeInfo = info;
+  }
+
+  /**
+   * @return {?Protocol.Network.SignedExchangeInfo}
+   */
+  signedExchangeInfo() {
+    return this._signedExchangeInfo;
+  }
+
+  /**
+   * @param {!Element} image
+   */
+  async populateImageSource(image) {
+    const {content, encoded} = await this.contentData();
+    let imageSrc = Common.ContentProvider.contentAsDataURL(content, this._mimeType, encoded);
+    if (imageSrc === null && !this._failed) {
+      const cacheControl = this.responseHeaderValue('cache-control') || '';
+      if (!cacheControl.includes('no-cache'))
+        imageSrc = this._url;
+    }
+    if (imageSrc !== null)
+      image.src = imageSrc;
+  }
+
+  /**
+   * @return {?Protocol.Network.Initiator}
+   */
+  initiator() {
+    return this._initiator;
+  }
+
+  /**
+   * @return {!Array.<!SDK.NetworkRequest.WebSocketFrame>}
+   */
+  frames() {
+    return this._frames;
+  }
+
+  /**
+   * @param {string} errorMessage
+   * @param {number} time
+   */
+  addFrameError(errorMessage, time) {
+    this._addFrame({
+      type: SDK.NetworkRequest.WebSocketFrameType.Error,
+      text: errorMessage,
+      time: this.pseudoWallTime(time),
+      opCode: -1,
+      mask: false
+    });
+  }
+
+  /**
+   * @param {!Protocol.Network.WebSocketFrame} response
+   * @param {number} time
+   * @param {boolean} sent
+   */
+  addFrame(response, time, sent) {
+    const type = sent ? SDK.NetworkRequest.WebSocketFrameType.Send : SDK.NetworkRequest.WebSocketFrameType.Receive;
+    this._addFrame({
+      type: type,
+      text: response.payloadData,
+      time: this.pseudoWallTime(time),
+      opCode: response.opcode,
+      mask: response.mask
+    });
+  }
+
+  /**
+   * @param {!SDK.NetworkRequest.WebSocketFrame} frame
+   */
+  _addFrame(frame) {
+    this._frames.push(frame);
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.WebsocketFrameAdded, frame);
+  }
+
+  /**
+   * @return {!Array.<!SDK.NetworkRequest.EventSourceMessage>}
+   */
+  eventSourceMessages() {
+    return this._eventSourceMessages;
+  }
+
+  /**
+   * @param {number} time
+   * @param {string} eventName
+   * @param {string} eventId
+   * @param {string} data
+   */
+  addEventSourceMessage(time, eventName, eventId, data) {
+    const message = {time: this.pseudoWallTime(time), eventName: eventName, eventId: eventId, data: data};
+    this._eventSourceMessages.push(message);
+    this.dispatchEventToListeners(SDK.NetworkRequest.Events.EventSourceMessageAdded, message);
+  }
+
+  /**
+   * @param {number} redirectCount
+   */
+  markAsRedirect(redirectCount) {
+    this._requestId = `${this._backendRequestId}:redirected.${redirectCount}`;
+  }
+
+  /**
+   * @param {string} requestId
+   */
+  setRequestIdForTest(requestId) {
+    this._backendRequestId = requestId;
+    this._requestId = requestId;
+  }
+
+  /**
+   * @return {?string}
+   */
+  charset() {
+    const contentTypeHeader = this.responseHeaderValue('content-type');
+    if (!contentTypeHeader)
+      return null;
+
+    const responseCharsets = contentTypeHeader.replace(/ /g, '')
+                                 .split(';')
+                                 .filter(parameter => parameter.toLowerCase().startsWith('charset='))
+                                 .map(parameter => parameter.slice('charset='.length));
+    if (responseCharsets.length)
+      return responseCharsets[0];
+
+    return null;
+  }
+};
+
+/** @enum {symbol} */
+SDK.NetworkRequest.Events = {
+  FinishedLoading: Symbol('FinishedLoading'),
+  TimingChanged: Symbol('TimingChanged'),
+  RemoteAddressChanged: Symbol('RemoteAddressChanged'),
+  RequestHeadersChanged: Symbol('RequestHeadersChanged'),
+  ResponseHeadersChanged: Symbol('ResponseHeadersChanged'),
+  WebsocketFrameAdded: Symbol('WebsocketFrameAdded'),
+  EventSourceMessageAdded: Symbol('EventSourceMessageAdded')
+};
 
 /** @enum {string} */
-WebInspector.NetworkRequest.InitiatorType = {
-    Other: "other",
-    Parser: "parser",
-    Redirect: "redirect",
-    Script: "script"
-}
+SDK.NetworkRequest.InitiatorType = {
+  Other: 'other',
+  Parser: 'parser',
+  Redirect: 'redirect',
+  Script: 'script',
+  Preload: 'preload',
+  SignedExchange: 'signedExchange'
+};
 
 /** @typedef {!{name: string, value: string}} */
-WebInspector.NetworkRequest.NameValue;
+SDK.NetworkRequest.NameValue;
 
 /** @enum {string} */
-WebInspector.NetworkRequest.WebSocketFrameType = {
-    Send: "send",
-    Receive: "receive",
-    Error: "error"
-}
+SDK.NetworkRequest.WebSocketFrameType = {
+  Send: 'send',
+  Receive: 'receive',
+  Error: 'error'
+};
 
-/** @typedef {!{type: WebInspector.NetworkRequest.WebSocketFrameType, time: number, text: string, opCode: number, mask: boolean}} */
-WebInspector.NetworkRequest.WebSocketFrame;
+/** @typedef {!{type: SDK.NetworkRequest.WebSocketFrameType, time: number, text: string, opCode: number, mask: boolean}} */
+SDK.NetworkRequest.WebSocketFrame;
 
 /** @typedef {!{time: number, eventName: string, eventId: string, data: string}} */
-WebInspector.NetworkRequest.EventSourceMessage;
+SDK.NetworkRequest.EventSourceMessage;
 
-WebInspector.NetworkRequest.prototype = {
-    /**
-     * @param {!WebInspector.NetworkRequest} other
-     * @return {number}
-     */
-    indentityCompare: function(other)
-    {
-        if (this._requestId > other._requestId)
-            return 1;
-        if (this._requestId < other._requestId)
-            return -1;
-        return 0;
-    },
-
-    /**
-     * @return {!NetworkAgent.RequestId}
-     */
-    get requestId()
-    {
-        return this._requestId;
-    },
-
-    set requestId(requestId)
-    {
-        this._requestId = requestId;
-    },
-
-    /**
-     * @return {string}
-     */
-    get url()
-    {
-        return this._url;
-    },
-
-    set url(x)
-    {
-        if (this._url === x)
-            return;
-
-        this._url = x;
-        this._parsedURL = new WebInspector.ParsedURL(x);
-        delete this._queryString;
-        delete this._parsedQueryParameters;
-        delete this._name;
-        delete this._path;
-    },
-
-    /**
-     * @return {string}
-     */
-    get documentURL()
-    {
-        return this._documentURL;
-    },
-
-    get parsedURL()
-    {
-        return this._parsedURL;
-    },
-
-    /**
-     * @return {!PageAgent.FrameId}
-     */
-    get frameId()
-    {
-        return this._frameId;
-    },
-
-    /**
-     * @return {!NetworkAgent.LoaderId}
-     */
-    get loaderId()
-    {
-        return this._loaderId;
-    },
-
-    /**
-     * @param {string} ip
-     * @param {number} port
-     */
-    setRemoteAddress: function(ip, port)
-    {
-        if (ip.indexOf(":") !== -1)
-            ip = "[" + ip + "]";
-        this._remoteAddress = ip + ":" + port;
-        this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.RemoteAddressChanged, this);
-    },
-
-    /**
-     * @return {string}
-     */
-    remoteAddress: function()
-    {
-        return this._remoteAddress;
-    },
-
-    /**
-     * @return {!SecurityAgent.SecurityState}
-     */
-    securityState: function()
-    {
-        return this._securityState;
-    },
-
-    /**
-     * @param {!SecurityAgent.SecurityState} securityState
-     */
-    setSecurityState: function(securityState)
-    {
-        this._securityState = securityState;
-    },
-
-    /**
-     * @return {?NetworkAgent.SecurityDetails}
-     */
-    securityDetails: function()
-    {
-        return this._securityDetails;
-    },
-
-    /**
-     * @param {!NetworkAgent.SecurityDetails} securityDetails
-     */
-    setSecurityDetails: function(securityDetails)
-    {
-        this._securityDetails = securityDetails;
-    },
-
-    /**
-     * @return {number}
-     */
-    get startTime()
-    {
-        return this._startTime || -1;
-    },
-
-    /**
-     * @param {number} monotonicTime
-     * @param {number} wallTime
-     */
-    setIssueTime: function(monotonicTime, wallTime)
-    {
-        this._issueTime = monotonicTime;
-        this._wallIssueTime = wallTime;
-        this._startTime = monotonicTime;
-    },
-
-    /**
-     * @return {number}
-     */
-    issueTime: function()
-    {
-        return this._issueTime;
-    },
-
-    /**
-     * @param {number} monotonicTime
-     * @return {number}
-     */
-    pseudoWallTime: function(monotonicTime)
-    {
-        return this._wallIssueTime ? this._wallIssueTime - this._issueTime + monotonicTime : monotonicTime;
-    },
-
-    /**
-     * @return {number}
-     */
-    get responseReceivedTime()
-    {
-        return this._responseReceivedTime || -1;
-    },
-
-    set responseReceivedTime(x)
-    {
-        this._responseReceivedTime = x;
-    },
-
-    /**
-     * @return {number}
-     */
-    get endTime()
-    {
-        return this._endTime || -1;
-    },
-
-    set endTime(x)
-    {
-        if (this.timing && this.timing.requestTime) {
-            // Check against accurate responseReceivedTime.
-            this._endTime = Math.max(x, this.responseReceivedTime);
-        } else {
-            // Prefer endTime since it might be from the network stack.
-            this._endTime = x;
-            if (this._responseReceivedTime > x)
-                this._responseReceivedTime = x;
-        }
-        this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.TimingChanged, this);
-    },
-
-    /**
-     * @return {number}
-     */
-    get duration()
-    {
-        if (this._endTime === -1 || this._startTime === -1)
-            return -1;
-        return this._endTime - this._startTime;
-    },
-
-    /**
-     * @return {number}
-     */
-    get latency()
-    {
-        if (this._responseReceivedTime === -1 || this._startTime === -1)
-            return -1;
-        return this._responseReceivedTime - this._startTime;
-    },
-
-    /**
-     * @return {number}
-     */
-    get resourceSize()
-    {
-        return this._resourceSize || 0;
-    },
-
-    set resourceSize(x)
-    {
-        this._resourceSize = x;
-    },
-
-    /**
-     * @return {number}
-     */
-    get transferSize()
-    {
-        return this._transferSize || 0;
-    },
-
-    /**
-     * @param {number} x
-     */
-    increaseTransferSize: function(x)
-    {
-        this._transferSize = (this._transferSize || 0) + x;
-    },
-
-    /**
-     * @param {number} x
-     */
-    setTransferSize: function(x)
-    {
-        this._transferSize = x;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    get finished()
-    {
-        return this._finished;
-    },
-
-    set finished(x)
-    {
-        if (this._finished === x)
-            return;
-
-        this._finished = x;
-
-        if (x) {
-            this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.FinishedLoading, this);
-            if (this._pendingContentCallbacks.length)
-                this._innerRequestContent();
-        }
-    },
-
-    /**
-     * @return {boolean}
-     */
-    get failed()
-    {
-        return this._failed;
-    },
-
-    set failed(x)
-    {
-        this._failed = x;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    get canceled()
-    {
-        return this._canceled;
-    },
-
-    set canceled(x)
-    {
-        this._canceled = x;
-    },
-
-    /**
-     * @return {!NetworkAgent.BlockedReason|undefined}
-     */
-    blockedReason: function()
-    {
-        return this._blockedReason;
-    },
-
-    /**
-     * @param {!NetworkAgent.BlockedReason} reason
-     */
-    setBlockedReason: function(reason)
-    {
-        this._blockedReason = reason;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    wasBlocked: function()
-    {
-        return !!this._blockedReason;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    cached: function()
-    {
-        return (!!this._fromMemoryCache || !!this._fromDiskCache) && !this._transferSize;
-    },
-
-    setFromMemoryCache: function()
-    {
-        this._fromMemoryCache = true;
-        delete this._timing;
-    },
-
-    setFromDiskCache: function()
-    {
-        this._fromDiskCache = true;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    get fetchedViaServiceWorker()
-    {
-        return this._fetchedViaServiceWorker;
-    },
-
-    set fetchedViaServiceWorker(x)
-    {
-        this._fetchedViaServiceWorker = x;
-    },
-
-    /**
-     * @return {!NetworkAgent.ResourceTiming|undefined}
-     */
-    get timing()
-    {
-        return this._timing;
-    },
-
-    set timing(x)
-    {
-        if (x && !this._fromMemoryCache) {
-            // Take startTime and responseReceivedTime from timing data for better accuracy.
-            // Timing's requestTime is a baseline in seconds, rest of the numbers there are ticks in millis.
-            this._startTime = x.requestTime;
-            this._responseReceivedTime = x.requestTime + x.receiveHeadersEnd / 1000.0;
-
-            this._timing = x;
-            this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.TimingChanged, this);
-        }
-    },
-
-    /**
-     * @return {string}
-     */
-    get mimeType()
-    {
-        return this._mimeType;
-    },
-
-    set mimeType(x)
-    {
-        this._mimeType = x;
-    },
-
-    /**
-     * @return {string}
-     */
-    get displayName()
-    {
-        return this._parsedURL.displayName;
-    },
-
-    /**
-     * @return {string}
-     */
-    name: function()
-    {
-        if (this._name)
-            return this._name;
-        this._parseNameAndPathFromURL();
-        return this._name;
-    },
-
-    /**
-     * @return {string}
-     */
-    path: function()
-    {
-        if (this._path)
-            return this._path;
-        this._parseNameAndPathFromURL();
-        return this._path;
-    },
-
-    _parseNameAndPathFromURL: function()
-    {
-        if (this._parsedURL.isDataURL()) {
-            this._name = this._parsedURL.dataURLDisplayName();
-            this._path = "";
-        } else if (this._parsedURL.isAboutBlank()) {
-            this._name = this._parsedURL.url;
-            this._path = "";
-        } else {
-            this._path = this._parsedURL.host + this._parsedURL.folderPathComponents;
-            this._path = this._path.trimURL(this.target().resourceTreeModel.inspectedPageDomain());
-            if (this._parsedURL.lastPathComponent || this._parsedURL.queryParams)
-                this._name = this._parsedURL.lastPathComponent + (this._parsedURL.queryParams ? "?" + this._parsedURL.queryParams : "");
-            else if (this._parsedURL.folderPathComponents) {
-                this._name = this._parsedURL.folderPathComponents.substring(this._parsedURL.folderPathComponents.lastIndexOf("/") + 1) + "/";
-                this._path = this._path.substring(0, this._path.lastIndexOf("/"));
-            } else {
-                this._name = this._parsedURL.host;
-                this._path = "";
-            }
-        }
-    },
-
-    /**
-     * @return {string}
-     */
-    get folder()
-    {
-        var path = this._parsedURL.path;
-        var indexOfQuery = path.indexOf("?");
-        if (indexOfQuery !== -1)
-            path = path.substring(0, indexOfQuery);
-        var lastSlashIndex = path.lastIndexOf("/");
-        return lastSlashIndex !== -1 ? path.substring(0, lastSlashIndex) : "";
-    },
-
-    /**
-     * @return {!WebInspector.ResourceType}
-     */
-    resourceType: function()
-    {
-        return this._resourceType;
-    },
-
-    /**
-     * @param {!WebInspector.ResourceType} resourceType
-     */
-    setResourceType: function(resourceType)
-    {
-        this._resourceType = resourceType;
-    },
-
-    /**
-     * @return {string}
-     */
-    get domain()
-    {
-        return this._parsedURL.host;
-    },
-
-    /**
-     * @return {string}
-     */
-    get scheme()
-    {
-        return this._parsedURL.scheme;
-    },
-
-    /**
-     * @return {?WebInspector.NetworkRequest}
-     */
-    get redirectSource()
-    {
-        if (this.redirects && this.redirects.length > 0)
-            return this.redirects[this.redirects.length - 1];
-        return this._redirectSource;
-    },
-
-    set redirectSource(x)
-    {
-        this._redirectSource = x;
-        delete this._initiatorInfo;
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.NetworkRequest.NameValue>}
-     */
-    requestHeaders: function()
-    {
-        return this._requestHeaders || [];
-    },
-
-    /**
-     * @param {!Array.<!WebInspector.NetworkRequest.NameValue>} headers
-     */
-    setRequestHeaders: function(headers)
-    {
-        this._requestHeaders = headers;
-        delete this._requestCookies;
-
-        this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.RequestHeadersChanged);
-    },
-
-    /**
-     * @return {string|undefined}
-     */
-    requestHeadersText: function()
-    {
-        return this._requestHeadersText;
-    },
-
-    /**
-     * @param {string} text
-     */
-    setRequestHeadersText: function(text)
-    {
-        this._requestHeadersText = text;
-
-        this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.RequestHeadersChanged);
-    },
-
-    /**
-     * @param {string} headerName
-     * @return {string|undefined}
-     */
-    requestHeaderValue: function(headerName)
-    {
-        return this._headerValue(this.requestHeaders(), headerName);
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.Cookie>}
-     */
-    get requestCookies()
-    {
-        if (!this._requestCookies)
-            this._requestCookies = WebInspector.CookieParser.parseCookie(this.target(), this.requestHeaderValue("Cookie"));
-        return this._requestCookies;
-    },
-
-    /**
-     * @return {string|undefined}
-     */
-    get requestFormData()
-    {
-        return this._requestFormData;
-    },
-
-    set requestFormData(x)
-    {
-        this._requestFormData = x;
-        delete this._parsedFormParameters;
-    },
-
-    /**
-     * @return {string}
-     */
-    requestHttpVersion: function()
-    {
-        var headersText = this.requestHeadersText();
-        if (!headersText)
-            return this.requestHeaderValue("version") || this.requestHeaderValue(":version") || "unknown";
-        var firstLine = headersText.split(/\r\n/)[0];
-        var match = firstLine.match(/(HTTP\/\d+\.\d+)$/);
-        return match ? match[1] : "HTTP/0.9";
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.NetworkRequest.NameValue>}
-     */
-    get responseHeaders()
-    {
-        return this._responseHeaders || [];
-    },
-
-    set responseHeaders(x)
-    {
-        this._responseHeaders = x;
-        delete this._sortedResponseHeaders;
-        delete this._responseCookies;
-        this._responseHeaderValues = {};
-
-        this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.ResponseHeadersChanged);
-    },
-
-    /**
-     * @return {string}
-     */
-    get responseHeadersText()
-    {
-        return this._responseHeadersText;
-    },
-
-    set responseHeadersText(x)
-    {
-        this._responseHeadersText = x;
-
-        this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.ResponseHeadersChanged);
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.NetworkRequest.NameValue>}
-     */
-    get sortedResponseHeaders()
-    {
-        if (this._sortedResponseHeaders !== undefined)
-            return this._sortedResponseHeaders;
-
-        this._sortedResponseHeaders = this.responseHeaders.slice();
-        this._sortedResponseHeaders.sort(function(a, b) { return a.name.toLowerCase().compareTo(b.name.toLowerCase()); });
-        return this._sortedResponseHeaders;
-    },
-
-    /**
-     * @param {string} headerName
-     * @return {string|undefined}
-     */
-    responseHeaderValue: function(headerName)
-    {
-        var value = this._responseHeaderValues[headerName];
-        if (value === undefined) {
-            value = this._headerValue(this.responseHeaders, headerName);
-            this._responseHeaderValues[headerName] = (value !== undefined) ? value : null;
-        }
-        return (value !== null) ? value : undefined;
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.Cookie>}
-     */
-    get responseCookies()
-    {
-        if (!this._responseCookies)
-            this._responseCookies = WebInspector.CookieParser.parseSetCookie(this.target(), this.responseHeaderValue("Set-Cookie"));
-        return this._responseCookies;
-    },
-
-    /**
-     * @return {?string}
-     */
-    queryString: function()
-    {
-        if (this._queryString !== undefined)
-            return this._queryString;
-
-        var queryString = null;
-        var url = this.url;
-        var questionMarkPosition = url.indexOf("?");
-        if (questionMarkPosition !== -1) {
-            queryString = url.substring(questionMarkPosition + 1);
-            var hashSignPosition = queryString.indexOf("#");
-            if (hashSignPosition !== -1)
-                queryString = queryString.substring(0, hashSignPosition);
-        }
-        this._queryString = queryString;
-        return this._queryString;
-    },
-
-    /**
-     * @return {?Array.<!WebInspector.NetworkRequest.NameValue>}
-     */
-    get queryParameters()
-    {
-        if (this._parsedQueryParameters)
-            return this._parsedQueryParameters;
-        var queryString = this.queryString();
-        if (!queryString)
-            return null;
-        this._parsedQueryParameters = this._parseParameters(queryString);
-        return this._parsedQueryParameters;
-    },
-
-    /**
-     * @return {?Array.<!WebInspector.NetworkRequest.NameValue>}
-     */
-    get formParameters()
-    {
-        if (this._parsedFormParameters)
-            return this._parsedFormParameters;
-        if (!this.requestFormData)
-            return null;
-        var requestContentType = this.requestContentType();
-        if (!requestContentType || !requestContentType.match(/^application\/x-www-form-urlencoded\s*(;.*)?$/i))
-            return null;
-        this._parsedFormParameters = this._parseParameters(this.requestFormData);
-        return this._parsedFormParameters;
-    },
-
-    /**
-     * @return {string}
-     */
-    responseHttpVersion: function()
-    {
-        var headersText = this._responseHeadersText;
-        if (!headersText)
-            return this.responseHeaderValue("version") || this.responseHeaderValue(":version") || "unknown";
-        var firstLine = headersText.split(/\r\n/)[0];
-        var match = firstLine.match(/^(HTTP\/\d+\.\d+)/);
-        return match ? match[1] : "HTTP/0.9";
-    },
-
-    /**
-     * @param {string} queryString
-     * @return {!Array.<!WebInspector.NetworkRequest.NameValue>}
-     */
-    _parseParameters: function(queryString)
-    {
-        function parseNameValue(pair)
-        {
-            var position = pair.indexOf("=");
-            if (position === -1)
-                return {name: pair, value: ""};
-            else
-                return {name: pair.substring(0, position), value: pair.substring(position + 1)};
-        }
-        return queryString.split("&").map(parseNameValue);
-    },
-
-    /**
-     * @param {!Array.<!WebInspector.NetworkRequest.NameValue>} headers
-     * @param {string} headerName
-     * @return {string|undefined}
-     */
-    _headerValue: function(headers, headerName)
-    {
-        headerName = headerName.toLowerCase();
-
-        var values = [];
-        for (var i = 0; i < headers.length; ++i) {
-            if (headers[i].name.toLowerCase() === headerName)
-                values.push(headers[i].value);
-        }
-        if (!values.length)
-            return undefined;
-        // Set-Cookie values should be separated by '\n', not comma, otherwise cookies could not be parsed.
-        if (headerName === "set-cookie")
-            return values.join("\n");
-        return values.join(", ");
-    },
-
-    /**
-     * @return {?string|undefined}
-     */
-    get content()
-    {
-        return this._content;
-    },
-
-    /**
-     * @return {?Protocol.Error|undefined}
-     */
-    contentError: function()
-    {
-        return this._contentError;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    get contentEncoded()
-    {
-        return this._contentEncoded;
-    },
-
-    /**
-     * @override
-     * @return {string}
-     */
-    contentURL: function()
-    {
-        return this._url;
-    },
-
-    /**
-     * @override
-     * @return {!WebInspector.ResourceType}
-     */
-    contentType: function()
-    {
-        return this._resourceType;
-    },
-
-    /**
-     * @override
-     * @param {function(?string)} callback
-     */
-    requestContent: function(callback)
-    {
-        // We do not support content retrieval for WebSockets at the moment.
-        // Since WebSockets are potentially long-living, fail requests immediately
-        // to prevent caller blocking until resource is marked as finished.
-        if (this._resourceType === WebInspector.resourceTypes.WebSocket) {
-            callback(null);
-            return;
-        }
-        if (typeof this._content !== "undefined") {
-            callback(this.content || null);
-            return;
-        }
-        this._pendingContentCallbacks.push(callback);
-        if (this.finished)
-            this._innerRequestContent();
-    },
-
-    /**
-     * @override
-     * @param {string} query
-     * @param {boolean} caseSensitive
-     * @param {boolean} isRegex
-     * @param {function(!Array.<!WebInspector.ContentProvider.SearchMatch>)} callback
-     */
-    searchInContent: function(query, caseSensitive, isRegex, callback)
-    {
-        callback([]);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    isHttpFamily: function()
-    {
-        return !!this.url.match(/^https?:/i);
-    },
-
-    /**
-     * @return {string|undefined}
-     */
-    requestContentType: function()
-    {
-        return this.requestHeaderValue("Content-Type");
-    },
-
-    /**
-     * @return {boolean}
-     */
-    hasErrorStatusCode: function()
-    {
-        return this.statusCode >= 400;
-    },
-
-    /**
-     * @param {!NetworkAgent.ResourcePriority} priority
-     */
-    setInitialPriority: function(priority)
-    {
-        this._initialPriority = priority;
-    },
-
-    /**
-     * @return {?NetworkAgent.ResourcePriority}
-     */
-    initialPriority: function()
-    {
-        return this._initialPriority;
-    },
-
-    /**
-     * @param {!Element} image
-     */
-    populateImageSource: function(image)
-    {
-        WebInspector.Resource.populateImageSource(this._url, this._mimeType, this, image);
-    },
-
-    /**
-     * @return {?string}
-     */
-    asDataURL: function()
-    {
-        var content = this._content;
-        var charset = null;
-        if (!this._contentEncoded) {
-            content = content.toBase64();
-            charset = "utf-8";
-        }
-        return WebInspector.Resource.contentAsDataURL(content, this.mimeType, true, charset);
-    },
-
-    _innerRequestContent: function()
-    {
-        if (this._contentRequested)
-            return;
-        this._contentRequested = true;
-
-        /**
-         * @param {?Protocol.Error} error
-         * @param {string} content
-         * @param {boolean} contentEncoded
-         * @this {WebInspector.NetworkRequest}
-         */
-        function onResourceContent(error, content, contentEncoded)
-        {
-            this._content = error ? null : content;
-            this._contentError = error;
-            this._contentEncoded = contentEncoded;
-            var callbacks = this._pendingContentCallbacks.slice();
-            for (var i = 0; i < callbacks.length; ++i)
-                callbacks[i](this._content);
-            this._pendingContentCallbacks.length = 0;
-            delete this._contentRequested;
-        }
-        this.target().networkAgent().getResponseBody(this._requestId, onResourceContent.bind(this));
-    },
-
-    /**
-     * @return {?NetworkAgent.Initiator}
-     */
-    initiator: function()
-    {
-        return this._initiator;
-    },
-
-    /**
-     * @return {!{type: !WebInspector.NetworkRequest.InitiatorType, url: string, lineNumber: number, columnNumber: number}}
-     */
-    initiatorInfo: function()
-    {
-        if (this._initiatorInfo)
-            return this._initiatorInfo;
-
-        var type = WebInspector.NetworkRequest.InitiatorType.Other;
-        var url = "";
-        var lineNumber = -Infinity;
-        var columnNumber = -Infinity;
-        var initiator = this._initiator;
-
-        if (this.redirectSource) {
-            type = WebInspector.NetworkRequest.InitiatorType.Redirect;
-            url = this.redirectSource.url;
-        } else if (initiator) {
-            if (initiator.type === NetworkAgent.InitiatorType.Parser) {
-                type = WebInspector.NetworkRequest.InitiatorType.Parser;
-                url = initiator.url ? initiator.url : url;
-                lineNumber = initiator.lineNumber ? initiator.lineNumber : lineNumber;
-            } else if (initiator.type === NetworkAgent.InitiatorType.Script) {
-                var topFrame = initiator.stackTrace ? initiator.stackTrace[0] : null;
-                if (topFrame && topFrame.url) {
-                    type = WebInspector.NetworkRequest.InitiatorType.Script;
-                    url = topFrame.url;
-                    lineNumber = topFrame.lineNumber;
-                    columnNumber = topFrame.columnNumber;
-                }
-            }
-        }
-
-        this._initiatorInfo = {type: type, url: url, lineNumber: lineNumber, columnNumber: columnNumber};
-        return this._initiatorInfo;
-    },
-
-    /**
-     * @return {?WebInspector.NetworkRequest}
-     */
-    initiatorRequest: function()
-    {
-        if (this._initiatorRequest === undefined)
-            this._initiatorRequest = this.target().networkLog.requestForURL(this.initiatorInfo().url);
-        return this._initiatorRequest;
-    },
-
-    /**
-     * @return {!Set<!WebInspector.NetworkRequest>}
-     */
-    initiatorChain: function()
-    {
-        if (this._initiatorChain)
-            return this._initiatorChain;
-        this._initiatorChain = new Set();
-        var request = this;
-        while (request) {
-            this._initiatorChain.add(request);
-            request = request.initiatorRequest();
-        }
-        return this._initiatorChain;
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.NetworkRequest.WebSocketFrame>}
-     */
-    frames: function()
-    {
-        return this._frames;
-    },
-
-    /**
-     * @param {string} errorMessage
-     * @param {number} time
-     */
-    addFrameError: function(errorMessage, time)
-    {
-        this._addFrame({ type: WebInspector.NetworkRequest.WebSocketFrameType.Error, text: errorMessage, time: this.pseudoWallTime(time), opCode: -1, mask: false });
-    },
-
-    /**
-     * @param {!NetworkAgent.WebSocketFrame} response
-     * @param {number} time
-     * @param {boolean} sent
-     */
-    addFrame: function(response, time, sent)
-    {
-        var type = sent ? WebInspector.NetworkRequest.WebSocketFrameType.Send : WebInspector.NetworkRequest.WebSocketFrameType.Receive;
-        this._addFrame({ type: type, text: response.payloadData, time: this.pseudoWallTime(time), opCode: response.opcode, mask: response.mask });
-    },
-
-    /**
-     * @param {!WebInspector.NetworkRequest.WebSocketFrame} frame
-     */
-    _addFrame: function(frame)
-    {
-        this._frames.push(frame);
-        this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.WebsocketFrameAdded, frame);
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.NetworkRequest.EventSourceMessage>}
-     */
-    eventSourceMessages: function()
-    {
-        return this._eventSourceMessages;
-    },
-
-    /**
-     * @param {number} time
-     * @param {string} eventName
-     * @param {string} eventId
-     * @param {string} data
-     */
-    addEventSourceMessage: function(time, eventName, eventId, data)
-    {
-        var message = {time: this.pseudoWallTime(time), eventName: eventName, eventId: eventId, data: data};
-        this._eventSourceMessages.push(message);
-        this.dispatchEventToListeners(WebInspector.NetworkRequest.Events.EventSourceMessageAdded, message);
-    },
-
-    replayXHR: function()
-    {
-        this.target().networkAgent().replayXHR(this.requestId);
-    },
-
-    __proto__: WebInspector.SDKObject.prototype
-}
+/** @typedef {!{error: ?string, content: ?string, encoded: boolean}} */
+SDK.NetworkRequest.ContentData;

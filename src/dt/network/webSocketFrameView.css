@@ -30,7 +30,22 @@
     border-left-color: #ccc;
 }
 
-.websocket-frame-view-row-outcoming {
+.websocket-frame-view-row-send td:first-child::before {
+    content: "\2B06 ";
+    color: #080;
+}
+
+.websocket-frame-view-row-receive td:first-child::before {
+    content: "\2B07 ";
+    color: #E65100;
+}
+
+.data-grid:focus .websocket-frame-view-row-send.selected td:first-child::before,
+.data-grid:focus .websocket-frame-view-row-receive.selected td:first-child::before {
+    color: white;
+}
+
+.websocket-frame-view-row-send {
     background-color: rgb(226, 247, 218);
 }
 
@@ -42,4 +57,8 @@
 .websocket-frame-view-row-error {
     background-color: rgb(255, 237, 237);
     color: rgb(182, 0, 0);
+}
+
+.websocket-frame-view .toolbar {
+    border-bottom: var(--divider-border);
 }

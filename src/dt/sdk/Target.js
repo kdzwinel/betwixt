@@ -5,628 +5,309 @@
  */
 
 /**
- * @constructor
- * @extends {Protocol.Agents}
- * @param {!WebInspector.TargetManager} targetManager
- * @param {string} name
- * @param {number} type
- * @param {!InspectorBackendClass.Connection} connection
- * @param {?WebInspector.Target} parentTarget
- * @param {function(?WebInspector.Target)=} callback
+ * @unrestricted
  */
-WebInspector.Target = function(targetManager, name, type, connection, parentTarget, callback)
-{
-    Protocol.Agents.call(this, connection.agentsMap());
+SDK.Target = class extends Protocol.TargetBase {
+  /**
+   * @param {!SDK.TargetManager} targetManager
+   * @param {string} id
+   * @param {string} name
+   * @param {!SDK.Target.Type} type
+   * @param {?SDK.Target} parentTarget
+   * @param {string} sessionId
+   * @param {boolean} suspended
+   */
+  constructor(targetManager, id, name, type, parentTarget, sessionId, suspended) {
+    const needsNodeJSPatching = type === SDK.Target.Type.Node;
+    super(needsNodeJSPatching, parentTarget, sessionId);
     this._targetManager = targetManager;
     this._name = name;
+    this._inspectedURL = '';
+    this._capabilitiesMask = 0;
+    switch (type) {
+      case SDK.Target.Type.Frame:
+        this._capabilitiesMask = SDK.Target.Capability.Browser | SDK.Target.Capability.DOM | SDK.Target.Capability.JS |
+            SDK.Target.Capability.Log | SDK.Target.Capability.Network | SDK.Target.Capability.Target |
+            SDK.Target.Capability.Tracing | SDK.Target.Capability.Emulation | SDK.Target.Capability.Input;
+        if (!parentTarget) {
+          this._capabilitiesMask |= SDK.Target.Capability.DeviceEmulation | SDK.Target.Capability.ScreenCapture |
+              SDK.Target.Capability.Security | SDK.Target.Capability.Inspector;
+        }
+        break;
+      case SDK.Target.Type.ServiceWorker:
+        this._capabilitiesMask =
+            SDK.Target.Capability.Log | SDK.Target.Capability.Network | SDK.Target.Capability.Target;
+        if (!parentTarget)
+          this._capabilitiesMask |= SDK.Target.Capability.Browser | SDK.Target.Capability.Inspector;
+        break;
+      case SDK.Target.Type.Worker:
+        this._capabilitiesMask = SDK.Target.Capability.JS | SDK.Target.Capability.Log | SDK.Target.Capability.Network |
+            SDK.Target.Capability.Target;
+        break;
+      case SDK.Target.Type.Node:
+        this._capabilitiesMask = SDK.Target.Capability.JS;
+        break;
+      case SDK.Target.Type.Browser:
+        this._capabilitiesMask = SDK.Target.Capability.Target;
+        break;
+    }
     this._type = type;
-    this._connection = connection;
     this._parentTarget = parentTarget;
-    connection.addEventListener(InspectorBackendClass.Connection.Events.Disconnected, this._onDisconnect, this);
-    this._id = WebInspector.Target._nextId++;
-
-    /** @type {!Map.<!Function, !WebInspector.SDKModel>} */
+    this._id = id;
     this._modelByConstructor = new Map();
+    this._isSuspended = suspended;
+  }
 
-    /** @type {!Object.<string, boolean>} */
-    this._capabilities = {};
-    this.pageAgent().canScreencast(this._initializeCapability.bind(this, WebInspector.Target.Capabilities.CanScreencast, this._loadedWithCapabilities.bind(this, callback)));
-}
+  createModels(required) {
+    this._creatingModels = true;
+    // TODO(dgozman): fix this in bindings layer.
+    this.model(SDK.ResourceTreeModel);
+    const registered = Array.from(SDK.SDKModel._registeredModels.keys());
+    for (const modelClass of registered) {
+      const info = SDK.SDKModel._registeredModels.get(modelClass);
+      if (info.autostart || required.has(modelClass))
+        this.model(modelClass);
+    }
+    this._creatingModels = false;
+  }
 
-/**
- * @enum {string}
- */
-WebInspector.Target.Capabilities = {
-    CanScreencast: "CanScreencast"
-}
+  /**
+   * @return {string}
+   */
+  id() {
+    return this._id;
+  }
+
+  /**
+   * @return {string}
+   */
+  name() {
+    return this._name || this._inspectedURLName;
+  }
+
+  /**
+   * @return {!SDK.Target.Type}
+   */
+  type() {
+    return this._type;
+  }
+
+  /**
+   * @override
+   */
+  markAsNodeJSForTest() {
+    super.markAsNodeJSForTest();
+    this._type = SDK.Target.Type.Node;
+  }
+
+  /**
+   * @return {!SDK.TargetManager}
+   */
+  targetManager() {
+    return this._targetManager;
+  }
+
+  /**
+   * @param {number} capabilitiesMask
+   * @return {boolean}
+   */
+  hasAllCapabilities(capabilitiesMask) {
+    // TODO(dgozman): get rid of this method, once we never observe targets with
+    // capability mask.
+    return (this._capabilitiesMask & capabilitiesMask) === capabilitiesMask;
+  }
+
+  /**
+   * @param {string} label
+   * @return {string}
+   */
+  decorateLabel(label) {
+    return (this._type === SDK.Target.Type.Worker || this._type === SDK.Target.Type.ServiceWorker) ? '\u2699 ' + label :
+                                                                                                     label;
+  }
+
+  /**
+   * @return {?SDK.Target}
+   */
+  parentTarget() {
+    return this._parentTarget;
+  }
+
+  /**
+   * @override
+   * @param {string} reason
+   */
+  dispose(reason) {
+    super.dispose(reason);
+    this._targetManager.removeTarget(this);
+    for (const model of this._modelByConstructor.valuesArray())
+      model.dispose();
+  }
+
+  /**
+   * @param {function(new:T, !SDK.Target)} modelClass
+   * @return {?T}
+   * @template T
+   */
+  model(modelClass) {
+    if (!this._modelByConstructor.get(modelClass)) {
+      const info = SDK.SDKModel._registeredModels.get(modelClass);
+      if (info === undefined)
+        throw 'Model class is not registered @' + new Error().stack;
+      if ((this._capabilitiesMask & info.capabilities) === info.capabilities) {
+        const model = new modelClass(this);
+        this._modelByConstructor.set(modelClass, model);
+        if (!this._creatingModels)
+          this._targetManager.modelAdded(this, modelClass, model);
+      }
+    }
+    return this._modelByConstructor.get(modelClass) || null;
+  }
+
+  /**
+   * @return {!Map<function(new:SDK.SDKModel, !SDK.Target), !SDK.SDKModel>}
+   */
+  models() {
+    return this._modelByConstructor;
+  }
+
+  /**
+   * @return {string}
+   */
+  inspectedURL() {
+    return this._inspectedURL;
+  }
+
+  /**
+   * @param {string} inspectedURL
+   */
+  setInspectedURL(inspectedURL) {
+    this._inspectedURL = inspectedURL;
+    const parsedURL = inspectedURL.asParsedURL();
+    this._inspectedURLName = parsedURL ? parsedURL.lastPathComponentWithFragment() : '#' + this._id;
+    if (!this.parentTarget())
+      InspectorFrontendHost.inspectedURLChanged(inspectedURL || '');
+    this._targetManager.dispatchEventToListeners(SDK.TargetManager.Events.InspectedURLChanged, this);
+    if (!this._name)
+      this._targetManager.dispatchEventToListeners(SDK.TargetManager.Events.NameChanged, this);
+  }
+
+  /**
+   * @return {!Promise}
+   */
+  suspend() {
+    if (this._isSuspended)
+      return Promise.resolve();
+    this._isSuspended = true;
+
+    const promises = [];
+    for (const model of this.models().values())
+      promises.push(model.suspendModel());
+    return Promise.all(promises);
+  }
+
+  /**
+   * @return {!Promise}
+   */
+  resume() {
+    if (!this._isSuspended)
+      return Promise.resolve();
+    this._isSuspended = false;
+
+    const promises = [];
+    for (const model of this.models().values())
+      promises.push(model.resumeModel());
+    return Promise.all(promises);
+  }
+
+  /**
+   * @return {boolean}
+   */
+  suspended() {
+    return this._isSuspended;
+  }
+};
 
 /**
  * @enum {number}
  */
-WebInspector.Target.Type = {
-    Page: 1,
-    DedicatedWorker: 2,
-    ServiceWorker: 4
-}
+SDK.Target.Capability = {
+  Browser: 1 << 0,
+  DOM: 1 << 1,
+  JS: 1 << 2,
+  Log: 1 << 3,
+  Network: 1 << 4,
+  Target: 1 << 5,
+  ScreenCapture: 1 << 6,
+  Tracing: 1 << 7,
+  Emulation: 1 << 8,
+  Security: 1 << 9,
+  Input: 1 << 10,
+  Inspector: 1 << 11,
+  DeviceEmulation: 1 << 12,
 
-WebInspector.Target._nextId = 1;
-
-WebInspector.Target.prototype = {
-    /**
-     * @return {number}
-     */
-    id: function()
-    {
-        return this._id;
-    },
-
-    /**
-     *
-     * @return {string}
-     */
-    name: function()
-    {
-        return this._name;
-    },
-
-    /**
-     *
-     * @return {!WebInspector.TargetManager}
-     */
-    targetManager: function()
-    {
-        return this._targetManager;
-    },
-
-    /**
-     * @param {string} label
-     * @return {string}
-     */
-    decorateLabel: function(label)
-    {
-        return this.isWorker() ? "\u2699 " + label : label;
-    },
-
-    /**
-     * @param {string} name
-     * @param {function()|null} callback
-     * @param {?Protocol.Error} error
-     * @param {boolean} result
-     */
-    _initializeCapability: function(name, callback, error, result)
-    {
-        this._capabilities[name] = result;
-        if (callback)
-            callback();
-    },
-
-    /**
-     * @param {string} capability
-     * @return {boolean}
-     */
-    hasCapability: function(capability)
-    {
-        return !!this._capabilities[capability];
-    },
-
-    /**
-     * @param {function(?WebInspector.Target)=} callback
-     */
-    _loadedWithCapabilities: function(callback)
-    {
-        if (this._connection.isClosed()) {
-            callback(null);
-            return;
-        }
-
-        /** @type {!WebInspector.ConsoleModel} */
-        this.consoleModel = new WebInspector.ConsoleModel(this);
-        /** @type {!WebInspector.NetworkManager} */
-        this.networkManager = new WebInspector.NetworkManager(this);
-        /** @type {!WebInspector.ResourceTreeModel} */
-        this.resourceTreeModel = new WebInspector.ResourceTreeModel(this);
-        /** @type {!WebInspector.NetworkLog} */
-        this.networkLog = new WebInspector.NetworkLog(this);
-
-        if (this.hasJSContext())
-            new WebInspector.DebuggerModel(this);
-
-        /** @type {!WebInspector.RuntimeModel} */
-        this.runtimeModel = new WebInspector.RuntimeModel(this);
-
-        if (this._type === WebInspector.Target.Type.Page) {
-            new WebInspector.DOMModel(this);
-            new WebInspector.CSSStyleModel(this);
-        }
-
-        /** @type {?WebInspector.WorkerManager} */
-        this.workerManager = !this.isDedicatedWorker() ? new WebInspector.WorkerManager(this) : null;
-        /** @type {!WebInspector.CPUProfilerModel} */
-        this.cpuProfilerModel = new WebInspector.CPUProfilerModel(this);
-        /** @type {!WebInspector.HeapProfilerModel} */
-        this.heapProfilerModel = new WebInspector.HeapProfilerModel(this);
-
-        this.tracingManager = new WebInspector.TracingManager(this);
-
-        if (this.isPage())
-            this.serviceWorkerManager = new WebInspector.ServiceWorkerManager(this);
-
-        if (callback)
-            callback(this);
-    },
-
-    /**
-     * @override
-     * @param {string} domain
-     * @param {!Object} dispatcher
-     */
-    registerDispatcher: function(domain, dispatcher)
-    {
-        this._connection.registerDispatcher(domain, dispatcher);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    isPage: function()
-    {
-        return this._type === WebInspector.Target.Type.Page;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    isWorker: function()
-    {
-        return this.isDedicatedWorker() || this.isServiceWorker();
-    },
-
-    /**
-     * @return {boolean}
-     */
-    isDedicatedWorker: function()
-    {
-        return this._type === WebInspector.Target.Type.DedicatedWorker;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    isServiceWorker: function()
-    {
-        return this._type === WebInspector.Target.Type.ServiceWorker;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    hasJSContext: function()
-    {
-        return !this.isServiceWorker();
-    },
-
-    /**
-     * @return {?WebInspector.Target}
-     */
-    parentTarget: function()
-    {
-        return this._parentTarget;
-    },
-
-    _onDisconnect: function()
-    {
-        this._targetManager.removeTarget(this);
-        this._dispose();
-    },
-
-    _dispose: function()
-    {
-        this._targetManager.dispatchEventToListeners(WebInspector.TargetManager.Events.TargetDisposed, this);
-        this.networkManager.dispose();
-        this.cpuProfilerModel.dispose();
-        WebInspector.ServiceWorkerCacheModel.fromTarget(this).dispose();
-        if (this.workerManager)
-            this.workerManager.dispose();
-    },
-
-    /**
-     * @return {boolean}
-     */
-    isDetached: function()
-    {
-        return this._connection.isClosed();
-    },
-
-    /**
-     * @param {!Function} modelClass
-     * @return {?WebInspector.SDKModel}
-     */
-    model: function(modelClass)
-    {
-        return this._modelByConstructor.get(modelClass) || null;
-    },
-
-    __proto__: Protocol.Agents.prototype
-}
+  None: 0,
+};
 
 /**
- * @constructor
- * @extends {WebInspector.Object}
- * @param {!WebInspector.Target} target
+ * @enum {string}
  */
-WebInspector.SDKObject = function(target)
-{
-    WebInspector.Object.call(this);
+SDK.Target.Type = {
+  Frame: 'frame',
+  ServiceWorker: 'service-worker',
+  Worker: 'worker',
+  Node: 'node',
+  Browser: 'browser',
+};
+
+/**
+ * @unrestricted
+ */
+SDK.SDKModel = class extends Common.Object {
+  /**
+   * @param {!SDK.Target} target
+   */
+  constructor(target) {
+    super();
     this._target = target;
-}
+  }
 
-WebInspector.SDKObject.prototype = {
-    /**
-     * @return {!WebInspector.Target}
-     */
-    target: function()
-    {
-        return this._target;
-    },
+  /**
+   * @return {!SDK.Target}
+   */
+  target() {
+    return this._target;
+  }
 
-    __proto__: WebInspector.Object.prototype
-}
+  /**
+   * @return {!Promise}
+   */
+  suspendModel() {
+    return Promise.resolve();
+  }
 
-/**
- * @constructor
- * @extends {WebInspector.SDKObject}
- * @param {!Function} modelClass
- * @param {!WebInspector.Target} target
- */
-WebInspector.SDKModel = function(modelClass, target)
-{
-    WebInspector.SDKObject.call(this, target);
-    target._modelByConstructor.set(modelClass, this);
-}
+  /**
+   * @return {!Promise}
+   */
+  resumeModel() {
+    return Promise.resolve();
+  }
 
-WebInspector.SDKModel.prototype = {
-    __proto__: WebInspector.SDKObject.prototype
-}
+  dispose() {
+  }
+};
+
 
 /**
- * @constructor
- * @extends {WebInspector.Object}
+ * @param {function(new:SDK.SDKModel, !SDK.Target)} modelClass
+ * @param {number} capabilities
+ * @param {boolean} autostart
  */
-WebInspector.TargetManager = function()
-{
-    WebInspector.Object.call(this);
-    /** @type {!Array.<!WebInspector.Target>} */
-    this._targets = [];
-    /** @type {!Array.<!WebInspector.TargetManager.Observer>} */
-    this._observers = [];
-    this._observerTypeSymbol = Symbol("observerType");
-    /** @type {!Object.<string, !Array.<{modelClass: !Function, thisObject: (!Object|undefined), listener: function(!WebInspector.Event)}>>} */
-    this._modelListeners = {};
-    /** @type {number} */
-    this._suspendCount = 0;
-}
+SDK.SDKModel.register = function(modelClass, capabilities, autostart) {
+  if (!SDK.SDKModel._registeredModels)
+    SDK.SDKModel._registeredModels = new Map();
+  SDK.SDKModel._registeredModels.set(modelClass, {capabilities: capabilities, autostart: autostart});
+};
 
-WebInspector.TargetManager.Events = {
-    InspectedURLChanged: "InspectedURLChanged",
-    MainFrameNavigated: "MainFrameNavigated",
-    Load: "Load",
-    PageReloadRequested: "PageReloadRequested",
-    WillReloadPage: "WillReloadPage",
-    SuspendStateChanged: "SuspendStateChanged",
-    TargetDisposed: "TargetDisposed"
-}
-
-WebInspector.TargetManager.prototype = {
-    suspendAllTargets: function()
-    {
-        if (this._suspendCount++)
-            return;
-        this.dispatchEventToListeners(WebInspector.TargetManager.Events.SuspendStateChanged);
-    },
-
-    resumeAllTargets: function()
-    {
-        console.assert(this._suspendCount > 0);
-        if (--this._suspendCount)
-            return;
-        this.dispatchEventToListeners(WebInspector.TargetManager.Events.SuspendStateChanged);
-    },
-
-    suspendAndResumeAllTargets: function()
-    {
-        this.suspendAllTargets();
-        this.resumeAllTargets();
-    },
-
-    /**
-     * @return {boolean}
-     */
-    allTargetsSuspended: function()
-    {
-        return !!this._suspendCount;
-    },
-
-    /**
-     * @return {string}
-     */
-    inspectedPageURL: function()
-    {
-        if (!this._targets.length)
-            return "";
-
-        return this._targets[0].resourceTreeModel.inspectedPageURL();
-    },
-
-    /**
-     * @return {string}
-     */
-    inspectedPageDomain: function()
-    {
-        if (!this._targets.length)
-            return "";
-
-        return this._targets[0].resourceTreeModel.inspectedPageDomain();
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _redispatchEvent: function(event)
-    {
-        this.dispatchEventToListeners(event.type, event.data);
-    },
-
-    /**
-     * @param {boolean=} ignoreCache
-     * @param {string=} injectedScript
-     */
-    reloadPage: function(ignoreCache, injectedScript)
-    {
-        if (this._targets.length)
-            this._targets[0].resourceTreeModel.reloadPage(ignoreCache, injectedScript);
-    },
-
-    /**
-     * @param {!Function} modelClass
-     * @param {string} eventType
-     * @param {function(!WebInspector.Event)} listener
-     * @param {!Object=} thisObject
-     */
-    addModelListener: function(modelClass, eventType, listener, thisObject)
-    {
-        for (var i = 0; i < this._targets.length; ++i) {
-            var model = this._targets[i]._modelByConstructor.get(modelClass);
-            if (model)
-                model.addEventListener(eventType, listener, thisObject);
-        }
-        if (!this._modelListeners[eventType])
-            this._modelListeners[eventType] = [];
-        this._modelListeners[eventType].push({ modelClass: modelClass, thisObject: thisObject, listener: listener });
-    },
-
-    /**
-     * @param {!Function} modelClass
-     * @param {string} eventType
-     * @param {function(!WebInspector.Event)} listener
-     * @param {!Object=} thisObject
-     */
-    removeModelListener: function(modelClass, eventType, listener, thisObject)
-    {
-        if (!this._modelListeners[eventType])
-            return;
-
-        for (var i = 0; i < this._targets.length; ++i) {
-            var model = this._targets[i]._modelByConstructor.get(modelClass);
-            if (model)
-                model.removeEventListener(eventType, listener, thisObject);
-        }
-
-        var listeners = this._modelListeners[eventType];
-        for (var i = 0; i < listeners.length; ++i) {
-            if (listeners[i].modelClass === modelClass && listeners[i].listener === listener && listeners[i].thisObject === thisObject)
-                listeners.splice(i--, 1);
-        }
-        if (!listeners.length)
-            delete this._modelListeners[eventType];
-    },
-
-    /**
-     * @param {!WebInspector.TargetManager.Observer} targetObserver
-     * @param {number=} type
-     */
-    observeTargets: function(targetObserver, type)
-    {
-        if (this._observerTypeSymbol in targetObserver)
-            throw new Error("Observer can only be registered once");
-        targetObserver[this._observerTypeSymbol] = type || 0x7fff;
-        this.targets(type).forEach(targetObserver.targetAdded.bind(targetObserver));
-        this._observers.push(targetObserver);
-    },
-
-    /**
-     * @param {!WebInspector.TargetManager.Observer} targetObserver
-     */
-    unobserveTargets: function(targetObserver)
-    {
-        delete targetObserver[this._observerTypeSymbol];
-        this._observers.remove(targetObserver);
-    },
-
-    /**
-     * @param {string} name
-     * @param {number} type
-     * @param {!InspectorBackendClass.Connection} connection
-     * @param {?WebInspector.Target} parentTarget
-     * @param {function(?WebInspector.Target)=} callback
-     */
-    createTarget: function(name, type, connection, parentTarget, callback)
-    {
-        new WebInspector.Target(this, name, type, connection, parentTarget, callbackWrapper.bind(this));
-
-        /**
-         * @this {WebInspector.TargetManager}
-         * @param {?WebInspector.Target} newTarget
-         */
-        function callbackWrapper(newTarget)
-        {
-            if (newTarget)
-                this.addTarget(newTarget);
-            if (callback)
-                callback(newTarget);
-        }
-    },
-
-    /**
-     * @param {number} type
-     * @return {!Array<!WebInspector.TargetManager.Observer>}
-     */
-    _observersByType: function(type)
-    {
-        var result = [];
-        for (var observer of this._observers) {
-            if (observer[this._observerTypeSymbol] & type)
-                result.push(observer);
-        }
-        return result;
-    },
-
-    /**
-     * @param {!WebInspector.Target} target
-     */
-    addTarget: function(target)
-    {
-        this._targets.push(target);
-        if (this._targets.length === 1) {
-            target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.InspectedURLChanged, this._redispatchEvent, this);
-            target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.MainFrameNavigated, this._redispatchEvent, this);
-            target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.Load, this._redispatchEvent, this);
-            target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.PageReloadRequested, this._redispatchEvent, this);
-            target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.WillReloadPage, this._redispatchEvent, this);
-        }
-        var copy = this._observersByType(target._type);
-        for (var i = 0; i < copy.length; ++i)
-            copy[i].targetAdded(target);
-
-        for (var eventType in this._modelListeners) {
-            var listeners = this._modelListeners[eventType];
-            for (var i = 0; i < listeners.length; ++i) {
-                var model = target._modelByConstructor.get(listeners[i].modelClass);
-                if (model)
-                    model.addEventListener(eventType, listeners[i].listener, listeners[i].thisObject);
-            }
-        }
-    },
-
-    /**
-     * @param {!WebInspector.Target} target
-     */
-    removeTarget: function(target)
-    {
-        this._targets.remove(target);
-        if (this._targets.length === 0) {
-            target.resourceTreeModel.removeEventListener(WebInspector.ResourceTreeModel.EventTypes.InspectedURLChanged, this._redispatchEvent, this);
-            target.resourceTreeModel.removeEventListener(WebInspector.ResourceTreeModel.EventTypes.MainFrameNavigated, this._redispatchEvent, this);
-            target.resourceTreeModel.removeEventListener(WebInspector.ResourceTreeModel.EventTypes.Load, this._redispatchEvent, this);
-            target.resourceTreeModel.removeEventListener(WebInspector.ResourceTreeModel.EventTypes.WillReloadPage, this._redispatchEvent, this);
-        }
-        var copy = this._observersByType(target._type);
-        for (var i = 0; i < copy.length; ++i)
-            copy[i].targetRemoved(target);
-
-        for (var eventType in this._modelListeners) {
-            var listeners = this._modelListeners[eventType];
-            for (var i = 0; i < listeners.length; ++i) {
-                var model = target._modelByConstructor.get(listeners[i].modelClass);
-                if (model)
-                    model.removeEventListener(eventType, listeners[i].listener, listeners[i].thisObject);
-            }
-        }
-    },
-
-    /**
-     * @param {number=} type
-     * @return {boolean}
-     */
-    hasTargets: function(type)
-    {
-        return !!this.targets(type).length;
-    },
-
-    /**
-     * @param {number=} type
-     * @return {!Array.<!WebInspector.Target>}
-     */
-    targets: function(type)
-    {
-        if (!type)
-            return this._targets.slice();
-
-        var result = [];
-        for (var target of this._targets) {
-            if (target._type & type)
-                result.push(target);
-        }
-        return result;
-    },
-
-    /**
-     * @return {!Array.<!WebInspector.Target>}
-     */
-    targetsWithJSContext: function()
-    {
-        var result = [];
-        for (var target of this._targets) {
-            if (target.hasJSContext())
-                result.push(target);
-        }
-        return result;
-    },
-
-    /**
-     *
-     * @param {number} id
-     * @return {?WebInspector.Target}
-     */
-    targetById: function(id)
-    {
-        for (var i = 0; i < this._targets.length; ++i) {
-            if (this._targets[i].id() === id)
-                return this._targets[i];
-        }
-        return null;
-    },
-
-    /**
-     * @return {?WebInspector.Target}
-     */
-    mainTarget: function()
-    {
-        return this._targets[0] || null;
-    },
-
-    __proto__: WebInspector.Object.prototype
-}
-
-/**
- * @interface
- */
-WebInspector.TargetManager.Observer = function()
-{
-}
-
-WebInspector.TargetManager.Observer.prototype = {
-    /**
-     * @param {!WebInspector.Target} target
-     */
-    targetAdded: function(target) { },
-
-    /**
-     * @param {!WebInspector.Target} target
-     */
-    targetRemoved: function(target) { },
-}
-
-/**
- * @type {!WebInspector.TargetManager}
- */
-WebInspector.targetManager = new WebInspector.TargetManager();
+/** @type {!Map<function(new:SDK.SDKModel, !SDK.Target), !{capabilities: number, autostart: boolean}>} */
+SDK.SDKModel._registeredModels;

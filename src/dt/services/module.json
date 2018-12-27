@@ -1,0 +1,9 @@
+{
+    "dependencies": [
+        "common",
+        "host"
+    ],
+    "scripts": [
+        "ServiceManager.js"
+    ]
+}

@@ -5,52 +5,45 @@
 /**
  * @interface
  */
-WebInspector.OutputStream = function()
-{
-}
+Common.OutputStream = function() {};
 
-WebInspector.OutputStream.prototype = {
-    /**
-     * @param {string} data
-     * @param {function(!WebInspector.OutputStream)=} callback
-     */
-    write: function(data, callback) { },
+Common.OutputStream.prototype = {
+  /**
+   * @param {string} data
+   * @return {!Promise}
+   */
+  write(data) {},
 
-    close: function() { }
-}
+  close() {}
+};
 
 /**
- * @constructor
- * @implements {WebInspector.OutputStream}
+ * @implements {Common.OutputStream}
  */
-WebInspector.StringOutputStream = function()
-{
-    this._data = "";
-}
+Common.StringOutputStream = class {
+  constructor() {
+    this._data = '';
+  }
 
-WebInspector.StringOutputStream.prototype = {
-    /**
-     * @override
-     * @param {string} chunk
-     * @param {function(!WebInspector.OutputStream)=} callback
-     */
-    write: function(chunk, callback)
-    {
-        this._data += chunk;
-    },
+  /**
+   * @override
+   * @param {string} chunk
+   * @return {!Promise}
+   */
+  async write(chunk) {
+    this._data += chunk;
+  }
 
-    /**
-     * @override
-     */
-    close: function()
-    {
-    },
+  /**
+   * @override
+   */
+  close() {
+  }
 
-    /**
-     * @return {string}
-     */
-    data: function()
-    {
-        return this._data;
-    }
-}
+  /**
+   * @return {string}
+   */
+  data() {
+    return this._data;
+  }
+};

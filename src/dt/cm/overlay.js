@@ -1,5 +1,5 @@
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
-// Distributed under an MIT license: http://codemirror.net/LICENSE
+// Distributed under an MIT license: https://codemirror.net/LICENSE
 
 // Utility function that allows modes to be combined. The mode given
 // as the base argument takes care of most of the normal mode
@@ -14,7 +14,7 @@
   if (typeof exports == "object" && typeof module == "object") // CommonJS
     mod(require("../../lib/codemirror"));
   else if (typeof define == "function" && define.amd) // AMD
-    define(["../../src/lib/codemirror"], mod);
+    define(["../../lib/codemirror"], mod);
   else // Plain browser env
     mod(CodeMirror);
 })(function(CodeMirror) {
@@ -28,7 +28,7 @@ CodeMirror.overlayMode = function(base, overlay, combine) {
         overlay: CodeMirror.startState(overlay),
         basePos: 0, baseCur: null,
         overlayPos: 0, overlayCur: null,
-        lineSeen: null
+        streamSeen: null
       };
     },
     copyState: function(state) {
@@ -41,9 +41,9 @@ CodeMirror.overlayMode = function(base, overlay, combine) {
     },
 
     token: function(stream, state) {
-      if (stream.sol() || stream.string != state.lineSeen ||
+      if (stream != state.streamSeen ||
           Math.min(state.basePos, state.overlayPos) < stream.start) {
-        state.lineSeen = stream.string;
+        state.streamSeen = stream;
         state.basePos = state.overlayPos = stream.start;
       }
 
@@ -76,8 +76,13 @@ CodeMirror.overlayMode = function(base, overlay, combine) {
     innerMode: function(state) { return {state: state.base, mode: base}; },
 
     blankLine: function(state) {
-      if (base.blankLine) base.blankLine(state.base);
-      if (overlay.blankLine) overlay.blankLine(state.overlay);
+      var baseToken, overlayToken;
+      if (base.blankLine) baseToken = base.blankLine(state.base);
+      if (overlay.blankLine) overlayToken = overlay.blankLine(state.overlay);
+
+      return overlayToken == null ?
+        baseToken :
+        (combine && baseToken != null ? baseToken + " " + overlayToken : overlayToken);
     }
   };
 };

@@ -27,261 +27,132 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-WebInspector.SettingsUI = {}
+UI.SettingsUI = {};
 
 /**
  * @param {string} name
- * @param {!WebInspector.Setting} setting
+ * @param {!Common.Setting} setting
  * @param {boolean=} omitParagraphElement
  * @param {string=} tooltip
  * @return {!Element}
  */
-WebInspector.SettingsUI.createSettingCheckbox = function(name, setting, omitParagraphElement, tooltip)
-{
-    var label = createCheckboxLabel(name);
-    if (tooltip)
-        label.title = tooltip;
+UI.SettingsUI.createSettingCheckbox = function(name, setting, omitParagraphElement, tooltip) {
+  const label = UI.CheckboxLabel.create(name);
+  if (tooltip)
+    label.title = tooltip;
 
-    var input = label.checkboxElement;
-    input.name = name;
-    WebInspector.SettingsUI.bindCheckbox(input, setting);
+  const input = label.checkboxElement;
+  input.name = name;
+  UI.SettingsUI.bindCheckbox(input, setting);
 
-    if (omitParagraphElement)
-        return label;
+  if (omitParagraphElement)
+    return label;
 
-    var p = createElement("p");
-    p.appendChild(label);
-    return p;
-}
+  const p = createElement('p');
+  p.appendChild(label);
+  return p;
+};
+
+/**
+ * @param {string} name
+ * @param {!Array<!{text: string, value: *, raw: (boolean|undefined)}>} options
+ * @param {!Common.Setting} setting
+ * @return {!Element}
+ */
+UI.SettingsUI.createSettingSelect = function(name, options, setting) {
+  const p = createElement('p');
+  p.createChild('label').textContent = name;
+  const select = p.createChild('select', 'chrome-select');
+
+  for (let i = 0; i < options.length; ++i) {
+    // The "raw" flag indicates text is non-i18n-izable.
+    const option = options[i];
+    const optionName = option.raw ? option.text : Common.UIString(option.text);
+    select.add(new Option(optionName, option.value));
+  }
+
+  setting.addChangeListener(settingChanged);
+  settingChanged();
+  select.addEventListener('change', selectChanged, false);
+  return p;
+
+  function settingChanged() {
+    const newValue = setting.get();
+    for (let i = 0; i < options.length; i++) {
+      if (options[i].value === newValue)
+        select.selectedIndex = i;
+    }
+  }
+
+  function selectChanged() {
+    // Don't use event.target.value to avoid conversion of the value to string.
+    setting.set(options[select.selectedIndex].value);
+  }
+};
 
 /**
  * @param {!Element} input
- * @param {!WebInspector.Setting} setting
+ * @param {!Common.Setting} setting
  */
-WebInspector.SettingsUI.bindCheckbox = function(input, setting)
-{
-    function settingChanged()
-    {
-        if (input.checked !== setting.get())
-            input.checked = setting.get();
-    }
-    setting.addChangeListener(settingChanged);
-    settingChanged();
+UI.SettingsUI.bindCheckbox = function(input, setting) {
+  function settingChanged() {
+    if (input.checked !== setting.get())
+      input.checked = setting.get();
+  }
+  setting.addChangeListener(settingChanged);
+  settingChanged();
 
-    function inputChanged()
-    {
-        if (setting.get() !== input.checked)
-            setting.set(input.checked);
-    }
-    input.addEventListener("change", inputChanged, false);
-}
-
-/**
- * @param {string} label
- * @param {!WebInspector.Setting} setting
- * @param {boolean} numeric
- * @param {number=} maxLength
- * @param {string=} width
- * @param {function(string):?string=} validatorCallback
- * @param {boolean=} instant
- * @param {boolean=} clearForZero
- * @param {string=} placeholder
- * @return {!Element}
- */
-WebInspector.SettingsUI.createSettingInputField = function(label, setting, numeric, maxLength, width, validatorCallback, instant, clearForZero, placeholder)
-{
-    var p = createElement("p");
-    var labelElement = p.createChild("label");
-    labelElement.textContent = label;
-    var inputElement = p.createChild("input");
-    inputElement.type = "text";
-    if (numeric)
-        inputElement.className = "numeric";
-    if (maxLength)
-        inputElement.maxLength = maxLength;
-    if (width)
-        inputElement.style.width = width;
-    inputElement.placeholder = placeholder || "";
-
-    if (validatorCallback || instant) {
-        inputElement.addEventListener("change", onInput, false);
-        inputElement.addEventListener("input", onInput, false);
-    }
-    inputElement.addEventListener("keydown", onKeyDown, false);
-
-    var errorMessageLabel;
-    if (validatorCallback)
-        errorMessageLabel = p.createChild("div", "field-error-message");
-
-    function onInput()
-    {
-        if (validatorCallback)
-            validate();
-        if (instant)
-            apply();
-    }
-
-    function onKeyDown(event)
-    {
-        if (isEnterKey(event))
-            apply();
-        incrementForArrows(event);
-    }
-
-    function incrementForArrows(event)
-    {
-        if (!numeric)
-            return;
-
-        var increment = event.keyIdentifier === "Up" ? 1 : event.keyIdentifier === "Down" ? -1 : 0;
-        if (!increment)
-            return;
-        if (event.shiftKey)
-            increment *= 10;
-
-        var value = inputElement.value;
-        if (validatorCallback && validatorCallback(value))
-            return;
-        value = Number(value);
-        if (clearForZero && !value)
-            return;
-        value += increment;
-        if (clearForZero && !value)
-            return;
-        value = String(value);
-        if (validatorCallback && validatorCallback(value))
-            return;
-
-        inputElement.value = value;
-        apply();
-        event.preventDefault();
-    }
-
-    function validate()
-    {
-        var error = validatorCallback(inputElement.value);
-        if (!error)
-            error = "";
-        inputElement.classList.toggle("error-input", !!error);
-        errorMessageLabel.textContent = error;
-    }
-
-    if (!instant)
-        inputElement.addEventListener("blur", apply, false);
-
-    function apply()
-    {
-        if (validatorCallback && validatorCallback(inputElement.value))
-            return;
-        setting.removeChangeListener(onSettingChange);
-        setting.set(numeric ? Number(inputElement.value) : inputElement.value);
-        setting.addChangeListener(onSettingChange);
-    }
-
-    setting.addChangeListener(onSettingChange);
-
-    function onSettingChange()
-    {
-        var value = setting.get();
-        if (clearForZero && !value)
-            value = "";
-        inputElement.value = value;
-    }
-    onSettingChange();
-
-    if (validatorCallback)
-      validate();
-
-    return p;
-}
+  function inputChanged() {
+    if (setting.get() !== input.checked)
+      setting.set(input.checked);
+  }
+  input.addEventListener('change', inputChanged, false);
+};
 
 /**
  * @param {string} name
  * @param {!Element} element
  * @return {!Element}
  */
-WebInspector.SettingsUI.createCustomSetting = function(name, element)
-{
-    var p = createElement("p");
-    var fieldsetElement = p.createChild("fieldset");
-    fieldsetElement.createChild("label").textContent = name;
-    fieldsetElement.appendChild(element);
-    return p;
-}
+UI.SettingsUI.createCustomSetting = function(name, element) {
+  const p = createElement('p');
+  const fieldsetElement = p.createChild('fieldset');
+  fieldsetElement.createChild('label').textContent = name;
+  fieldsetElement.appendChild(element);
+  return p;
+};
 
 /**
- * @param {!WebInspector.Setting} setting
- * @return {!Element}
+ * @param {!Common.Setting} setting
+ * @return {?Element}
  */
-WebInspector.SettingsUI.createSettingFieldset = function(setting)
-{
-    var fieldset = createElement("fieldset");
-    fieldset.disabled = !setting.get();
-    setting.addChangeListener(settingChanged);
-    return fieldset;
-
-    function settingChanged()
-    {
-        fieldset.disabled = !setting.get();
-    }
-}
-
-/**
- * @param {string} text
- * @return {?string}
- */
-WebInspector.SettingsUI.regexValidator = function(text)
-{
-    var regex;
-    try {
-        regex = new RegExp(text);
-    } catch (e) {
-    }
-    return regex ? null : WebInspector.UIString("Invalid pattern");
-}
-
-/**
- * Creates an input element under the parentElement with the given id and defaultText.
- * @param {!Element} parentElement
- * @param {string} id
- * @param {string} defaultText
- * @param {function(*)} eventListener
- * @param {boolean=} numeric
- * @param {string=} size
- * @return {!Element} element
- */
-WebInspector.SettingsUI.createInput = function(parentElement, id, defaultText, eventListener, numeric, size)
-{
-    var element = parentElement.createChild("input");
-    element.id = id;
-    element.type = "text";
-    element.maxLength = 12;
-    element.style.width = size || "80px";
-    element.value = defaultText;
-    element.align = "right";
-    if (numeric)
-        element.className = "numeric";
-    element.addEventListener("input", eventListener, false);
-    element.addEventListener("keydown", keyDownListener, false);
-    function keyDownListener(event)
-    {
-        if (isEnterKey(event))
-            eventListener(event);
-    }
-    return element;
-}
+UI.SettingsUI.createControlForSetting = function(setting) {
+  if (!setting.extension())
+    return null;
+  const descriptor = setting.extension().descriptor();
+  const uiTitle = Common.UIString(setting.title() || '');
+  switch (descriptor['settingType']) {
+    case 'boolean':
+      return UI.SettingsUI.createSettingCheckbox(uiTitle, setting);
+    case 'enum':
+      if (Array.isArray(descriptor['options']))
+        return UI.SettingsUI.createSettingSelect(uiTitle, descriptor['options'], setting);
+      console.error('Enum setting defined without options');
+      return null;
+    default:
+      console.error('Invalid setting type: ' + descriptor['settingType']);
+      return null;
+  }
+};
 
 /**
  * @interface
  */
-WebInspector.SettingUI = function()
-{
-}
+UI.SettingUI = function() {};
 
-WebInspector.SettingUI.prototype = {
-    /**
-     * @return {?Element}
-     */
-    settingElement: function() { }
-}
+UI.SettingUI.prototype = {
+  /**
+   * @return {?Element}
+   */
+  settingElement() {}
+};

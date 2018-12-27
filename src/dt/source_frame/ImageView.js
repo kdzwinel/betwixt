@@ -27,112 +27,165 @@
  */
 
 /**
- * @extends {WebInspector.VBox}
- * @constructor
- * @param {string} url
- * @param {string} mimeType
- * @param {!WebInspector.ContentProvider} contentProvider
+ * @unrestricted
  */
-WebInspector.ImageView = function(url, mimeType, contentProvider)
-{
-    WebInspector.VBox.call(this);
-    this.registerRequiredCSS("source_frame/imageView.css");
-    this.element.classList.add("image-view");
-    this._url = url;
-    this._parsedURL = new WebInspector.ParsedURL(url);
+SourceFrame.ImageView = class extends UI.SimpleView {
+  /**
+   * @param {string} mimeType
+   * @param {!Common.ContentProvider} contentProvider
+   */
+  constructor(mimeType, contentProvider) {
+    super(Common.UIString('Image'));
+    this.registerRequiredCSS('source_frame/imageView.css');
+    this.element.classList.add('image-view');
+    this._url = contentProvider.contentURL();
+    this._parsedURL = new Common.ParsedURL(this._url);
     this._mimeType = mimeType;
     this._contentProvider = contentProvider;
-}
+    this._uiSourceCode = contentProvider instanceof Workspace.UISourceCode ?
+        /** @type {!Workspace.UISourceCode} */ (contentProvider) :
+        null;
+    if (this._uiSourceCode) {
+      this._uiSourceCode.addEventListener(
+          Workspace.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this);
+      new UI.DropTarget(
+          this.element, [UI.DropTarget.Type.ImageFile, UI.DropTarget.Type.URI], Common.UIString('Drop image file here'),
+          this._handleDrop.bind(this));
+    }
+    this._sizeLabel = new UI.ToolbarText();
+    this._dimensionsLabel = new UI.ToolbarText();
+    this._mimeTypeLabel = new UI.ToolbarText(mimeType);
+    this._container = this.element.createChild('div', 'image');
+    this._imagePreviewElement = this._container.createChild('img', 'resource-image-view');
+    this._imagePreviewElement.addEventListener('contextmenu', this._contextMenu.bind(this), true);
+  }
 
-WebInspector.ImageView.prototype = {
-    wasShown: function()
-    {
-        this._createContentIfNeeded();
-    },
+  /**
+   * @override
+   * @return {!Array<!UI.ToolbarItem>}
+   */
+  syncToolbarItems() {
+    return [
+      this._sizeLabel, new UI.ToolbarSeparator(), this._dimensionsLabel, new UI.ToolbarSeparator(), this._mimeTypeLabel
+    ];
+  }
 
-    _createContentIfNeeded: function()
-    {
-        if (this._container)
-            return;
+  /**
+   * @override
+   */
+  wasShown() {
+    this._updateContentIfNeeded();
+  }
 
-        var imageContainer = this.element.createChild("div", "image");
-        var imagePreviewElement = imageContainer.createChild("img", "resource-image-view");
-        imagePreviewElement.addEventListener("contextmenu", this._contextMenu.bind(this), true);
+  /**
+   * @override
+   */
+  disposeView() {
+    if (this._uiSourceCode) {
+      this._uiSourceCode.removeEventListener(
+          Workspace.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this);
+    }
+  }
 
-        this._container = this.element.createChild("div", "info");
-        this._container.createChild("h1", "title").textContent = this._parsedURL.displayName;
+  _workingCopyCommitted() {
+    this._updateContentIfNeeded();
+  }
 
-        var infoListElement = createElementWithClass("dl", "infoList");
+  async _updateContentIfNeeded() {
+    const content = await this._contentProvider.requestContent();
+    if (this._cachedContent === content)
+      return;
 
-        WebInspector.Resource.populateImageSource(this._url, this._mimeType, this._contentProvider, imagePreviewElement);
-        this._contentProvider.requestContent(onContentAvailable.bind(this));
+    const contentEncoded = await this._contentProvider.contentEncoded();
+    this._cachedContent = content;
+    let imageSrc = Common.ContentProvider.contentAsDataURL(content, this._mimeType, contentEncoded);
+    if (content === null)
+      imageSrc = this._url;
+    const loadPromise = new Promise(x => this._imagePreviewElement.onload = x);
+    this._imagePreviewElement.src = imageSrc;
+    const size = content && !contentEncoded ? content.length : this._base64ToSize(content);
+    this._sizeLabel.setText(Number.bytesToString(size));
+    await loadPromise;
+    this._dimensionsLabel.setText(
+        Common.UIString('%d × %d', this._imagePreviewElement.naturalWidth, this._imagePreviewElement.naturalHeight));
+  }
 
-        /**
-         * @param {?string} content
-         * @this {WebInspector.ImageView}
-         */
-        function onContentAvailable(content)
-        {
-            var resourceSize = this._base64ToSize(content);
+  /**
+   * @param {?string} content
+   * @return {number}
+   */
+  _base64ToSize(content) {
+    if (!content)
+      return 0;
+    let size = content.length * 3 / 4;
+    if (content[content.length - 1] === '=')
+      size--;
+    if (content.length > 1 && content[content.length - 2] === '=')
+      size--;
+    return size;
+  }
 
-            var imageProperties = [
-                { name: WebInspector.UIString("Dimensions"), value: WebInspector.UIString("%d × %d", imagePreviewElement.naturalWidth, imagePreviewElement.naturalHeight) },
-                { name: WebInspector.UIString("File size"), value: Number.bytesToString(resourceSize) },
-                { name: WebInspector.UIString("MIME type"), value: this._mimeType }
-            ];
+  _contextMenu(event) {
+    const contextMenu = new UI.ContextMenu(event);
+    if (!this._parsedURL.isDataURL())
+      contextMenu.clipboardSection().appendItem(Common.UIString('Copy image URL'), this._copyImageURL.bind(this));
+    if (this._imagePreviewElement.src) {
+      contextMenu.clipboardSection().appendItem(
+          Common.UIString('Copy image as data URI'), this._copyImageAsDataURL.bind(this));
+    }
 
-            infoListElement.removeChildren();
-            for (var i = 0; i < imageProperties.length; ++i) {
-                infoListElement.createChild("dt").textContent = imageProperties[i].name;
-                infoListElement.createChild("dd").textContent = imageProperties[i].value;
-            }
-            infoListElement.createChild("dt").textContent = WebInspector.UIString("URL");
-            infoListElement.createChild("dd").appendChild(WebInspector.linkifyURLAsNode(this._url, undefined, undefined, true));
-            this._container.appendChild(infoListElement);
+    contextMenu.clipboardSection().appendItem(Common.UIString('Open image in new tab'), this._openInNewTab.bind(this));
+    contextMenu.clipboardSection().appendItem(Common.UIString('Save\u2026'), this._saveImage.bind(this));
+    contextMenu.show();
+  }
+
+  _copyImageAsDataURL() {
+    InspectorFrontendHost.copyText(this._imagePreviewElement.src);
+  }
+
+  _copyImageURL() {
+    InspectorFrontendHost.copyText(this._url);
+  }
+
+  _saveImage() {
+    const link = createElement('a');
+    link.download = this._parsedURL.displayName;
+    link.href = this._url;
+    link.click();
+  }
+
+  _openInNewTab() {
+    InspectorFrontendHost.openInNewTab(this._url);
+  }
+
+  /**
+   * @param {!DataTransfer} dataTransfer
+   */
+  async _handleDrop(dataTransfer) {
+    const items = dataTransfer.items;
+    if (!items.length || items[0].kind !== 'file')
+      return;
+
+    const entry = items[0].webkitGetAsEntry();
+    const encoded = !entry.name.endsWith('.svg');
+    entry.file(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        let result;
+        try {
+          result = /** @type {?string} */ (reader.result);
+        } catch (e) {
+          result = null;
+          console.error('Can\'t read file: ' + e);
         }
-        this._imagePreviewElement = imagePreviewElement;
-    },
-
-    /**
-     * @param {?string} content
-     * @return {number}
-     */
-    _base64ToSize: function(content)
-    {
-        if (!content || !content.length)
-            return 0;
-        var size = (content.length || 0) * 3 / 4;
-        if (content.length > 0 && content[content.length - 1] === "=")
-            size--;
-        if (content.length > 1 && content[content.length - 2] === "=")
-            size--;
-        return size;
-    },
-
-    _contextMenu: function(event)
-    {
-        var contextMenu = new WebInspector.ContextMenu(event);
-        contextMenu.appendItem(WebInspector.UIString.capitalize("Copy ^image URL"), this._copyImageURL.bind(this));
-        if (this._imagePreviewElement.src)
-            contextMenu.appendItem(WebInspector.UIString.capitalize("Copy ^image as Data URL"), this._copyImageAsDataURL.bind(this));
-        contextMenu.appendItem(WebInspector.UIString.capitalize("Open ^image in ^new ^tab"), this._openInNewTab.bind(this));
-        contextMenu.show();
-    },
-
-    _copyImageAsDataURL: function()
-    {
-        InspectorFrontendHost.copyText(this._imagePreviewElement.src);
-    },
-
-    _copyImageURL: function()
-    {
-        InspectorFrontendHost.copyText(this._url);
-    },
-
-    _openInNewTab: function()
-    {
-        InspectorFrontendHost.openInNewTab(this._url);
-    },
-
-    __proto__: WebInspector.VBox.prototype
-}
+        if (typeof result !== 'string')
+          return;
+        this._uiSourceCode.setContent(encoded ? btoa(result) : result, encoded);
+      };
+      if (encoded)
+        reader.readAsBinaryString(file);
+      else
+        reader.readAsText(file);
+    });
+  }
+};

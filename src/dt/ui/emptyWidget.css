@@ -5,11 +5,21 @@
  */
 
 .empty-view {
-    font-size: 24px;
-    color: rgb(75%, 75%, 75%);
-    font-weight: bold;
-    padding: 10px;
+    color: hsla(0, 0%, 65%, 1);
+    padding: 30px;
     display: flex;
     align-items: center;
+    flex-direction: column;
+    min-width: 70px;
+}
+
+.empty-view-scroller {
     justify-content: center;
+    overflow: auto;
+}
+
+.empty-view p {
+    white-space: initial;
+    line-height: 18px;
+    max-width: 300px;
 }

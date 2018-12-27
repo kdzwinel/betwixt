@@ -3,6 +3,17 @@
  * found in the LICENSE file.
  */
 
+.title-section {
+    padding: 16px 0 24px 0;
+    border-bottom: 1px solid rgb(230, 230, 230);
+}
+
+.title-section-header {
+    padding-left: 16px;
+    padding-bottom: 10px;
+    font-size: 14px;
+}
+
 .security-origin-view {
     overflow-x: hidden;
     overflow-y: scroll;
@@ -11,37 +22,50 @@
 }
 
 .security-origin-view .origin-view-section {
-    padding: 1.5em 1.5em 1.5em;
     border-bottom: 1px solid rgb(230, 230, 230);
+    padding: 12px 6px 12px  24px;
+    font-size:12px;
 }
 
-.security-origin-view .title-section {
-    padding-bottom: 1.5em;
+.origin-view-notes {
+    margin-top: 2px;
+    color: #8c8c8c;
+}
+
+.origin-view-section-notes {
+    margin-top: 6px;
+    color: #8c8c8c;
+}
+
+.security-origin-view .origin-display {
+    font-size: 12px;
+    padding-left: 38px;
+    display: flex;
+    align-items: center;
+}
+
+.title-section > .view-network-button {
+    padding: 6px 0 0 16px
 }
 
 .security-origin-view .origin-display .security-property {
-    margin: -1px 2px 0px 0px;
     display: inline-block;
     vertical-align: middle;
-}
-
-.security-origin-view .origin-view-title {
-    font-size: 1.25em;
-    margin-top: 0.5em;
-    margin-bottom: 0.25em;
+    position: absolute;
+    left: 16px;
 }
 
 .security-origin-view .origin-view-section-title {
+    margin-top: 4px;
+    margin-bottom: 4px;
     font-weight: bold;
-    font-size: 1em;
-    margin-bottom: 0.25em;
 }
 
 .security-origin-view .details-table-row {
     display: flex;
     white-space: nowrap;
     overflow: hidden;
-    margin-top: 6px;
+    line-height: 22px;
 }
 
 .security-origin-view .details-table-row > div {
@@ -50,7 +74,7 @@
 
 .security-origin-view .details-table-row > div:first-child {
     color: rgb(140, 140, 140);
-    width: 7em;
+    width: 110px;
     margin-right: 1em;
     flex: none;
     display: flex;
@@ -59,6 +83,21 @@
 .security-origin-view .details-table-row > div:nth-child(2) {
     flex: auto;
     white-space: normal;
+}
+
+.security-origin-view .sct-details .details-table .details-table-row:last-child div:last-child {
+    border-bottom: 1px solid rgb(230, 230, 230);
+    padding-bottom: 10px;
+}
+
+.security-origin-view .sct-details .details-table:last-child .details-table-row:last-child div:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.security-origin-view .sct-toggle {
+    padding-left: 143px;
+    padding-top: 5px;
 }
 
 .security-origin-view .details-table .empty-san {
@@ -73,6 +112,10 @@
     display: none;
 }
 
-.security-certificate-button {
+.origin-button {
     margin-top: 4px;
+}
+
+.origin-view-section:last-child  {
+    border-bottom:none;
 }

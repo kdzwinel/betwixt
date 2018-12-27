@@ -1,0 +1,14 @@
+{
+    "dependencies": [
+        "sdk"
+    ],
+    "scripts": [
+        "TimelineModelFilter.js",
+        "TracingLayerTree.js",
+        "TimelineModel.js",
+        "TimelineIRModel.js",
+        "TimelineJSProfile.js",
+        "TimelineFrameModel.js",
+        "TimelineProfileTree.js"
+    ]
+}

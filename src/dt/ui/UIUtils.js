@@ -28,364 +28,382 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-WebInspector.highlightedSearchResultClassName = "highlighted-search-result";
+UI.highlightedSearchResultClassName = 'highlighted-search-result';
+UI.highlightedCurrentSearchResultClassName = 'current-search-result';
 
 /**
  * @param {!Element} element
  * @param {?function(!MouseEvent): boolean} elementDragStart
  * @param {function(!MouseEvent)} elementDrag
  * @param {?function(!MouseEvent)} elementDragEnd
- * @param {string} cursor
+ * @param {?string} cursor
  * @param {?string=} hoverCursor
  * @param {number=} startDelay
  */
-WebInspector.installDragHandle = function(element, elementDragStart, elementDrag, elementDragEnd, cursor, hoverCursor, startDelay)
-{
-    /**
-     * @param {!Event} event
-     */
-    function onMouseDown(event)
-    {
-        var dragStart = WebInspector.elementDragStart.bind(WebInspector, element, elementDragStart, elementDrag, elementDragEnd, cursor, event);
-        if (!startDelay)
-            dragStart();
-        startTimer = setTimeout(dragStart, startDelay || 0);
-    }
-
-    function onMouseUp()
-    {
-        if (startTimer)
-            clearInterval(startTimer);
-        startTimer = null;
-    }
-
-    var startTimer;
-    element.addEventListener("mousedown", onMouseDown, false);
+UI.installDragHandle = function(
+    element, elementDragStart, elementDrag, elementDragEnd, cursor, hoverCursor, startDelay) {
+  /**
+   * @param {!Event} event
+   */
+  function onMouseDown(event) {
+    const dragHandler = new UI.DragHandler();
+    const dragStart = dragHandler.elementDragStart.bind(
+        dragHandler, element, elementDragStart, elementDrag, elementDragEnd, cursor, event);
     if (startDelay)
-        element.addEventListener("mouseup", onMouseUp, false);
-    if (hoverCursor !== null)
-        element.style.cursor = hoverCursor || cursor;
-}
+      startTimer = setTimeout(dragStart, startDelay);
+    else
+      dragStart();
+  }
+
+  function onMouseUp() {
+    if (startTimer)
+      clearTimeout(startTimer);
+    startTimer = null;
+  }
+
+  let startTimer;
+  element.addEventListener('mousedown', onMouseDown, false);
+  if (startDelay)
+    element.addEventListener('mouseup', onMouseUp, false);
+  if (hoverCursor !== null)
+    element.style.cursor = hoverCursor || cursor || '';
+};
 
 /**
  * @param {!Element} targetElement
  * @param {?function(!MouseEvent):boolean} elementDragStart
  * @param {function(!MouseEvent)} elementDrag
  * @param {?function(!MouseEvent)} elementDragEnd
- * @param {string} cursor
+ * @param {?string} cursor
  * @param {!Event} event
  */
-WebInspector.elementDragStart = function(targetElement, elementDragStart, elementDrag, elementDragEnd, cursor, event)
-{
-    // Only drag upon left button. Right will likely cause a context menu. So will ctrl-click on mac.
-    if (event.button || (WebInspector.isMac() && event.ctrlKey))
-        return;
+UI.elementDragStart = function(targetElement, elementDragStart, elementDrag, elementDragEnd, cursor, event) {
+  const dragHandler = new UI.DragHandler();
+  dragHandler.elementDragStart(targetElement, elementDragStart, elementDrag, elementDragEnd, cursor, event);
+};
 
-    if (WebInspector._elementDraggingEventListener)
-        return;
+/**
+ * @unrestricted
+ */
+UI.DragHandler = class {
+  constructor() {
+    this._elementDragMove = this._elementDragMove.bind(this);
+    this._elementDragEnd = this._elementDragEnd.bind(this);
+    this._mouseOutWhileDragging = this._mouseOutWhileDragging.bind(this);
+  }
+
+  _createGlassPane() {
+    this._glassPaneInUse = true;
+    if (!UI.DragHandler._glassPaneUsageCount++) {
+      UI.DragHandler._glassPane = new UI.GlassPane();
+      UI.DragHandler._glassPane.setPointerEventsBehavior(UI.GlassPane.PointerEventsBehavior.BlockedByGlassPane);
+      UI.DragHandler._glassPane.show(UI.DragHandler._documentForMouseOut);
+    }
+  }
+
+  _disposeGlassPane() {
+    if (!this._glassPaneInUse)
+      return;
+    this._glassPaneInUse = false;
+    if (--UI.DragHandler._glassPaneUsageCount)
+      return;
+    UI.DragHandler._glassPane.hide();
+    delete UI.DragHandler._glassPane;
+    delete UI.DragHandler._documentForMouseOut;
+  }
+
+  /**
+   * @param {!Element} targetElement
+   * @param {?function(!MouseEvent):boolean} elementDragStart
+   * @param {function(!MouseEvent)} elementDrag
+   * @param {?function(!MouseEvent)} elementDragEnd
+   * @param {?string} cursor
+   * @param {!Event} event
+   */
+  elementDragStart(targetElement, elementDragStart, elementDrag, elementDragEnd, cursor, event) {
+    // Only drag upon left button. Right will likely cause a context menu. So will ctrl-click on mac.
+    if (event.button || (Host.isMac() && event.ctrlKey))
+      return;
+
+    if (this._elementDraggingEventListener)
+      return;
 
     if (elementDragStart && !elementDragStart(/** @type {!MouseEvent} */ (event)))
-        return;
+      return;
 
-    if (WebInspector._elementDraggingGlassPane) {
-        WebInspector._elementDraggingGlassPane.dispose();
-        delete WebInspector._elementDraggingGlassPane;
+    const targetDocument = event.target.ownerDocument;
+    this._elementDraggingEventListener = elementDrag;
+    this._elementEndDraggingEventListener = elementDragEnd;
+    console.assert(
+        (UI.DragHandler._documentForMouseOut || targetDocument) === targetDocument, 'Dragging on multiple documents.');
+    UI.DragHandler._documentForMouseOut = targetDocument;
+    this._dragEventsTargetDocument = targetDocument;
+    try {
+      this._dragEventsTargetDocumentTop = targetDocument.defaultView.top.document;
+    } catch (e) {
+      this._dragEventsTargetDocumentTop = this._dragEventsTargetDocument;
     }
 
-    var targetDocument = event.target.ownerDocument;
+    targetDocument.addEventListener('mousemove', this._elementDragMove, true);
+    targetDocument.addEventListener('mouseup', this._elementDragEnd, true);
+    targetDocument.addEventListener('mouseout', this._mouseOutWhileDragging, true);
+    if (targetDocument !== this._dragEventsTargetDocumentTop)
+      this._dragEventsTargetDocumentTop.addEventListener('mouseup', this._elementDragEnd, true);
 
-    WebInspector._elementDraggingEventListener = elementDrag;
-    WebInspector._elementEndDraggingEventListener = elementDragEnd;
-    WebInspector._mouseOutWhileDraggingTargetDocument = targetDocument;
-    WebInspector._dragEventsTargetDocument = targetDocument;
-    WebInspector._dragEventsTargetDocumentTop = targetDocument.defaultView.top.document;
-
-    targetDocument.addEventListener("mousemove", WebInspector._elementDragMove, true);
-    targetDocument.addEventListener("mouseup", WebInspector._elementDragEnd, true);
-    targetDocument.addEventListener("mouseout", WebInspector._mouseOutWhileDragging, true);
-    if (targetDocument !== WebInspector._dragEventsTargetDocumentTop)
-        WebInspector._dragEventsTargetDocumentTop.addEventListener("mouseup", WebInspector._elementDragEnd, true);
-
-    if (typeof cursor === "string") {
-        WebInspector._restoreCursorAfterDrag = restoreCursor.bind(null, targetElement.style.cursor);
-        targetElement.style.cursor = cursor;
-        targetDocument.body.style.cursor = cursor;
+    if (typeof cursor === 'string') {
+      this._restoreCursorAfterDrag = restoreCursor.bind(this, targetElement.style.cursor);
+      targetElement.style.cursor = cursor;
+      targetDocument.body.style.cursor = cursor;
     }
-    function restoreCursor(oldCursor)
-    {
-        targetDocument.body.style.removeProperty("cursor");
-        targetElement.style.cursor = oldCursor;
-        WebInspector._restoreCursorAfterDrag = null;
+    /**
+     * @param {string} oldCursor
+     * @this {UI.DragHandler}
+     */
+    function restoreCursor(oldCursor) {
+      targetDocument.body.style.removeProperty('cursor');
+      targetElement.style.cursor = oldCursor;
+      this._restoreCursorAfterDrag = null;
     }
     event.preventDefault();
-}
+  }
 
-WebInspector._mouseOutWhileDragging = function()
-{
-    var document = WebInspector._mouseOutWhileDraggingTargetDocument;
-    WebInspector._unregisterMouseOutWhileDragging();
-    WebInspector._elementDraggingGlassPane = new WebInspector.GlassPane(document);
-}
+  _mouseOutWhileDragging() {
+    this._unregisterMouseOutWhileDragging();
+    this._createGlassPane();
+  }
 
-WebInspector._unregisterMouseOutWhileDragging = function()
-{
-    if (!WebInspector._mouseOutWhileDraggingTargetDocument)
-        return;
-    WebInspector._mouseOutWhileDraggingTargetDocument.removeEventListener("mouseout", WebInspector._mouseOutWhileDragging, true);
-    delete WebInspector._mouseOutWhileDraggingTargetDocument;
-}
+  _unregisterMouseOutWhileDragging() {
+    if (!UI.DragHandler._documentForMouseOut)
+      return;
+    UI.DragHandler._documentForMouseOut.removeEventListener('mouseout', this._mouseOutWhileDragging, true);
+  }
 
-WebInspector._unregisterDragEvents = function()
-{
-    if (!WebInspector._dragEventsTargetDocument)
-        return;
-    WebInspector._dragEventsTargetDocument.removeEventListener("mousemove", WebInspector._elementDragMove, true);
-    WebInspector._dragEventsTargetDocument.removeEventListener("mouseup", WebInspector._elementDragEnd, true);
-    if (WebInspector._dragEventsTargetDocument !== WebInspector._dragEventsTargetDocumentTop)
-        WebInspector._dragEventsTargetDocumentTop.removeEventListener("mouseup", WebInspector._elementDragEnd, true);
-    delete WebInspector._dragEventsTargetDocument;
-    delete WebInspector._dragEventsTargetDocumentTop;
-}
+  _unregisterDragEvents() {
+    if (!this._dragEventsTargetDocument)
+      return;
+    this._dragEventsTargetDocument.removeEventListener('mousemove', this._elementDragMove, true);
+    this._dragEventsTargetDocument.removeEventListener('mouseup', this._elementDragEnd, true);
+    if (this._dragEventsTargetDocument !== this._dragEventsTargetDocumentTop)
+      this._dragEventsTargetDocumentTop.removeEventListener('mouseup', this._elementDragEnd, true);
+    delete this._dragEventsTargetDocument;
+    delete this._dragEventsTargetDocumentTop;
+  }
 
-/**
- * @param {!Event} event
- */
-WebInspector._elementDragMove = function(event)
-{
+  /**
+   * @param {!Event} event
+   */
+  _elementDragMove(event) {
     if (event.buttons !== 1) {
-        WebInspector._elementDragEnd(event);
-        return;
+      this._elementDragEnd(event);
+      return;
     }
+    if (this._elementDraggingEventListener(/** @type {!MouseEvent} */ (event)))
+      this._cancelDragEvents(event);
+  }
 
-    if (WebInspector._elementDraggingEventListener(/** @type {!MouseEvent} */ (event)))
-        WebInspector._cancelDragEvents(event);
-}
+  /**
+   * @param {!Event} event
+   */
+  _cancelDragEvents(event) {
+    this._unregisterDragEvents();
+    this._unregisterMouseOutWhileDragging();
 
-/**
- * @param {!Event} event
- */
-WebInspector._cancelDragEvents = function(event)
-{
-    WebInspector._unregisterDragEvents();
-    WebInspector._unregisterMouseOutWhileDragging();
+    if (this._restoreCursorAfterDrag)
+      this._restoreCursorAfterDrag();
 
-    if (WebInspector._restoreCursorAfterDrag)
-        WebInspector._restoreCursorAfterDrag();
+    this._disposeGlassPane();
 
-    if (WebInspector._elementDraggingGlassPane)
-        WebInspector._elementDraggingGlassPane.dispose();
+    delete this._elementDraggingEventListener;
+    delete this._elementEndDraggingEventListener;
+  }
 
-    delete WebInspector._elementDraggingGlassPane;
-    delete WebInspector._elementDraggingEventListener;
-    delete WebInspector._elementEndDraggingEventListener;
-}
-
-/**
- * @param {!Event} event
- */
-WebInspector._elementDragEnd = function(event)
-{
-    var elementDragEnd = WebInspector._elementEndDraggingEventListener;
-
-    WebInspector._cancelDragEvents(/** @type {!MouseEvent} */ (event));
-
+  /**
+   * @param {!Event} event
+   */
+  _elementDragEnd(event) {
+    const elementDragEnd = this._elementEndDraggingEventListener;
+    this._cancelDragEvents(/** @type {!MouseEvent} */ (event));
     event.preventDefault();
     if (elementDragEnd)
-        elementDragEnd(/** @type {!MouseEvent} */ (event));
-}
+      elementDragEnd(/** @type {!MouseEvent} */ (event));
+  }
+};
 
-/**
- * @constructor
- * @param {!Document} document
- * @param {boolean=} dimmed
- */
-WebInspector.GlassPane = function(document, dimmed)
-{
-    this.element = createElement("div");
-    var background = dimmed ? "rgba(255, 255, 255, 0.5)" : "transparent";
-    this._zIndex = WebInspector._glassPane ? WebInspector._glassPane._zIndex + 1000 : 3000; // Deliberately starts with 3000 to hide other z-indexed elements below.
-    this.element.style.cssText = "position:absolute;top:0;bottom:0;left:0;right:0;background-color:" + background + ";z-index:" + this._zIndex + ";overflow:hidden;";
-    document.body.appendChild(this.element);
-    WebInspector._glassPane = this;
-}
-
-WebInspector.GlassPane.prototype = {
-    dispose: function()
-    {
-        delete WebInspector._glassPane;
-        if (WebInspector.GlassPane.DefaultFocusedViewStack.length)
-            WebInspector.GlassPane.DefaultFocusedViewStack.peekLast().focus();
-        this.element.remove();
-    }
-}
-
-/** @type {!WebInspector.GlassPane|undefined} */
-WebInspector._glassPane;
-
-/**
- * @type {!Array.<!WebInspector.Widget|!WebInspector.Dialog>}
- */
-WebInspector.GlassPane.DefaultFocusedViewStack = [];
+UI.DragHandler._glassPaneUsageCount = 0;
 
 /**
  * @param {?Node=} node
  * @return {boolean}
  */
-WebInspector.isBeingEdited = function(node)
-{
-    if (!node || node.nodeType !== Node.ELEMENT_NODE)
-        return false;
-    var element = /** {!Element} */ (node);
-    if (element.classList.contains("text-prompt") || element.nodeName === "INPUT" || element.nodeName === "TEXTAREA")
-        return true;
-
-    if (!WebInspector.__editingCount)
-        return false;
-
-    while (element) {
-        if (element.__editing)
-            return true;
-        element = element.parentElementOrShadowHost();
-    }
+UI.isBeingEdited = function(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE)
     return false;
-}
+  let element = /** {!Element} */ (node);
+  if (element.classList.contains('text-prompt') || element.nodeName === 'INPUT' || element.nodeName === 'TEXTAREA')
+    return true;
+
+  if (!UI.__editingCount)
+    return false;
+
+  while (element) {
+    if (element.__editing)
+      return true;
+    element = element.parentElementOrShadowHost();
+  }
+  return false;
+};
 
 /**
  * @return {boolean}
+ * @suppressGlobalPropertiesCheck
  */
-WebInspector.isEditing = function()
-{
-    if (WebInspector.__editingCount)
-        return true;
+UI.isEditing = function() {
+  if (UI.__editingCount)
+    return true;
 
-    var element = WebInspector.currentFocusElement();
-    if (!element)
-        return false;
-    return element.classList.contains("text-prompt") || element.nodeName === "INPUT" || element.nodeName === "TEXTAREA";
-}
+  const focused = document.deepActiveElement();
+  if (!focused)
+    return false;
+  return focused.classList.contains('text-prompt') || focused.nodeName === 'INPUT' || focused.nodeName === 'TEXTAREA';
+};
 
 /**
  * @param {!Element} element
  * @param {boolean} value
  * @return {boolean}
  */
-WebInspector.markBeingEdited = function(element, value)
-{
-    if (value) {
-        if (element.__editing)
-            return false;
-        element.classList.add("being-edited");
-        element.__editing = true;
-        WebInspector.__editingCount = (WebInspector.__editingCount || 0) + 1;
-    } else {
-        if (!element.__editing)
-            return false;
-        element.classList.remove("being-edited");
-        delete element.__editing;
-        --WebInspector.__editingCount;
-    }
-    return true;
-}
+UI.markBeingEdited = function(element, value) {
+  if (value) {
+    if (element.__editing)
+      return false;
+    element.classList.add('being-edited');
+    element.__editing = true;
+    UI.__editingCount = (UI.__editingCount || 0) + 1;
+  } else {
+    if (!element.__editing)
+      return false;
+    element.classList.remove('being-edited');
+    delete element.__editing;
+    --UI.__editingCount;
+  }
+  return true;
+};
 
-WebInspector.CSSNumberRegex = /^(-?(?:\d+(?:\.\d+)?|\.\d+))$/;
+// Avoids Infinity, NaN, and scientific notation (e.g. 1e20), see crbug.com/81165.
+UI._numberRegex = /^(-?(?:\d+(?:\.\d+)?|\.\d+))$/;
 
-WebInspector.StyleValueDelimiters = " \xA0\t\n\"':;,/()";
-
+UI.StyleValueDelimiters = ' \xA0\t\n"\':;,/()';
 
 /**
  * @param {!Event} event
  * @return {?string}
  */
-WebInspector._valueModificationDirection = function(event)
-{
-    var direction = null;
-    if (event.type === "mousewheel") {
-        if (event.wheelDeltaY > 0)
-            direction = "Up";
-        else if (event.wheelDeltaY < 0)
-            direction = "Down";
-    } else {
-        if (event.keyIdentifier === "Up" || event.keyIdentifier === "PageUp")
-            direction = "Up";
-        else if (event.keyIdentifier === "Down" || event.keyIdentifier === "PageDown")
-            direction = "Down";
-    }
-    return direction;
-}
+UI._valueModificationDirection = function(event) {
+  let direction = null;
+  if (event.type === 'mousewheel') {
+    // When shift is pressed while spinning mousewheel, delta comes as wheelDeltaX.
+    if (event.wheelDeltaY > 0 || event.wheelDeltaX > 0)
+      direction = 'Up';
+    else if (event.wheelDeltaY < 0 || event.wheelDeltaX < 0)
+      direction = 'Down';
+  } else {
+    if (event.key === 'ArrowUp' || event.key === 'PageUp')
+      direction = 'Up';
+    else if (event.key === 'ArrowDown' || event.key === 'PageDown')
+      direction = 'Down';
+  }
+  return direction;
+};
 
 /**
  * @param {string} hexString
  * @param {!Event} event
+ * @return {?string}
  */
-WebInspector._modifiedHexValue = function(hexString, event)
-{
-    var direction = WebInspector._valueModificationDirection(event);
-    if (!direction)
-        return hexString;
+UI._modifiedHexValue = function(hexString, event) {
+  const direction = UI._valueModificationDirection(event);
+  if (!direction)
+    return null;
 
-    var number = parseInt(hexString, 16);
-    if (isNaN(number) || !isFinite(number))
-        return hexString;
+  const mouseEvent = /** @type {!MouseEvent} */ (event);
+  const number = parseInt(hexString, 16);
+  if (isNaN(number) || !isFinite(number))
+    return null;
 
-    var maxValue = Math.pow(16, hexString.length) - 1;
-    var arrowKeyOrMouseWheelEvent = (event.keyIdentifier === "Up" || event.keyIdentifier === "Down" || event.type === "mousewheel");
-    var delta;
+  const hexStrLen = hexString.length;
+  const channelLen = hexStrLen / 3;
 
-    if (arrowKeyOrMouseWheelEvent)
-        delta = (direction === "Up") ? 1 : -1;
-    else
-        delta = (event.keyIdentifier === "PageUp") ? 16 : -16;
+  // Colors are either rgb or rrggbb.
+  if (channelLen !== 1 && channelLen !== 2)
+    return null;
 
-    if (event.shiftKey)
-        delta *= 16;
+  // Precision modifier keys work with both mousewheel and up/down keys.
+  // When ctrl is pressed, increase R by 1.
+  // When shift is pressed, increase G by 1.
+  // When alt is pressed, increase B by 1.
+  // If no shortcut keys are pressed then increase hex value by 1.
+  // Keys can be pressed together to increase RGB channels. e.g trying different shades.
+  let delta = 0;
+  if (UI.KeyboardShortcut.eventHasCtrlOrMeta(mouseEvent))
+    delta += Math.pow(16, channelLen * 2);
+  if (mouseEvent.shiftKey)
+    delta += Math.pow(16, channelLen);
+  if (mouseEvent.altKey)
+    delta += 1;
+  if (delta === 0)
+    delta = 1;
+  if (direction === 'Down')
+    delta *= -1;
 
-    var result = number + delta;
-    if (result < 0)
-        result = 0; // Color hex values are never negative, so clamp to 0.
-    else if (result > maxValue)
-        return hexString;
+  // Increase hex value by 1 and clamp from 0 ... maxValue.
+  const maxValue = Math.pow(16, hexStrLen) - 1;
+  const result = Number.constrain(number + delta, 0, maxValue);
 
-    // Ensure the result length is the same as the original hex value.
-    var resultString = result.toString(16).toUpperCase();
-    for (var i = 0, lengthDelta = hexString.length - resultString.length; i < lengthDelta; ++i)
-        resultString = "0" + resultString;
-    return resultString;
-}
+  // Ensure the result length is the same as the original hex value.
+  let resultString = result.toString(16).toUpperCase();
+  for (let i = 0, lengthDelta = hexStrLen - resultString.length; i < lengthDelta; ++i)
+    resultString = '0' + resultString;
+  return resultString;
+};
 
 /**
  * @param {number} number
  * @param {!Event} event
+ * @param {number=} modifierMultiplier
+ * @return {?number}
  */
-WebInspector._modifiedFloatNumber = function(number, event)
-{
-    var direction = WebInspector._valueModificationDirection(event);
-    if (!direction)
-        return number;
+UI._modifiedFloatNumber = function(number, event, modifierMultiplier) {
+  const direction = UI._valueModificationDirection(event);
+  if (!direction)
+    return null;
 
-    var arrowKeyOrMouseWheelEvent = (event.keyIdentifier === "Up" || event.keyIdentifier === "Down" || event.type === "mousewheel");
+  const mouseEvent = /** @type {!MouseEvent} */ (event);
 
-    // Jump by 10 when shift is down or jump by 0.1 when Alt/Option is down.
-    // Also jump by 10 for page up and down, or by 100 if shift is held with a page key.
-    var changeAmount = 1;
-    if (event.shiftKey && !arrowKeyOrMouseWheelEvent)
-        changeAmount = 100;
-    else if (event.shiftKey || !arrowKeyOrMouseWheelEvent)
-        changeAmount = 10;
-    else if (event.altKey)
-        changeAmount = 0.1;
+  // Precision modifier keys work with both mousewheel and up/down keys.
+  // When ctrl is pressed, increase by 100.
+  // When shift is pressed, increase by 10.
+  // When alt is pressed, increase by 0.1.
+  // Otherwise increase by 1.
+  let delta = 1;
+  if (UI.KeyboardShortcut.eventHasCtrlOrMeta(mouseEvent))
+    delta = 100;
+  else if (mouseEvent.shiftKey)
+    delta = 10;
+  else if (mouseEvent.altKey)
+    delta = 0.1;
 
-    if (direction === "Down")
-        changeAmount *= -1;
+  if (direction === 'Down')
+    delta *= -1;
+  if (modifierMultiplier)
+    delta *= modifierMultiplier;
 
-    // Make the new number and constrain it to a precision of 6, this matches numbers the engine returns.
-    // Use the Number constructor to forget the fixed precision, so 1.100000 will print as 1.1.
-    var result = Number((number + changeAmount).toFixed(6));
-    if (!String(result).match(WebInspector.CSSNumberRegex))
-        return null;
-
-    return result;
-}
+  // Make the new number and constrain it to a precision of 6, this matches numbers the engine returns.
+  // Use the Number constructor to forget the fixed precision, so 1.100000 will print as 1.1.
+  const result = Number((number + delta).toFixed(6));
+  if (!String(result).match(UI._numberRegex))
+    return null;
+  return result;
+};
 
 /**
  * @param {string} wordString
@@ -393,35 +411,32 @@ WebInspector._modifiedFloatNumber = function(number, event)
  * @param {function(string, number, string):string=} customNumberHandler
  * @return {?string}
  */
-WebInspector.createReplacementString = function(wordString, event, customNumberHandler)
-{
-    var replacementString;
-    var prefix, suffix, number;
-
-    var matches;
-    matches = /(.*#)([\da-fA-F]+)(.*)/.exec(wordString);
+UI.createReplacementString = function(wordString, event, customNumberHandler) {
+  let prefix;
+  let suffix;
+  let number;
+  let replacementString = null;
+  let matches = /(.*#)([\da-fA-F]+)(.*)/.exec(wordString);
+  if (matches && matches.length) {
+    prefix = matches[1];
+    suffix = matches[3];
+    number = UI._modifiedHexValue(matches[2], event);
+    if (number !== null)
+      replacementString = prefix + number + suffix;
+  } else {
+    matches = /(.*?)(-?(?:\d+(?:\.\d+)?|\.\d+))(.*)/.exec(wordString);
     if (matches && matches.length) {
-        prefix = matches[1];
-        suffix = matches[3];
-        number = WebInspector._modifiedHexValue(matches[2], event);
-
-        replacementString = customNumberHandler ? customNumberHandler(prefix, number, suffix) : prefix + number + suffix;
-    } else {
-        matches = /(.*?)(-?(?:\d+(?:\.\d+)?|\.\d+))(.*)/.exec(wordString);
-        if (matches && matches.length) {
-            prefix = matches[1];
-            suffix = matches[3];
-            number = WebInspector._modifiedFloatNumber(parseFloat(matches[2]), event);
-
-            // Need to check for null explicitly.
-            if (number === null)
-                return null;
-
-            replacementString = customNumberHandler ? customNumberHandler(prefix, number, suffix) : prefix + number + suffix;
-        }
+      prefix = matches[1];
+      suffix = matches[3];
+      number = UI._modifiedFloatNumber(parseFloat(matches[2]), event);
+      if (number !== null) {
+        replacementString =
+            customNumberHandler ? customNumberHandler(prefix, number, suffix) : prefix + number + suffix;
+      }
     }
-    return replacementString || null;
-}
+  }
+  return replacementString;
+};
 
 /**
  * @param {!Event} event
@@ -431,374 +446,344 @@ WebInspector.createReplacementString = function(wordString, event, customNumberH
  * @param {function(string, number, string):string=} customNumberHandler
  * @return {boolean}
  */
-WebInspector.handleElementValueModifications = function(event, element, finishHandler, suggestionHandler, customNumberHandler)
-{
-    /**
-     * @return {?Range}
-     * @suppressGlobalPropertiesCheck
-     */
-    function createRange()
-    {
-        return document.createRange();
-    }
+UI.handleElementValueModifications = function(event, element, finishHandler, suggestionHandler, customNumberHandler) {
+  /**
+   * @return {?Range}
+   * @suppressGlobalPropertiesCheck
+   */
+  function createRange() {
+    return document.createRange();
+  }
 
-    var arrowKeyOrMouseWheelEvent = (event.keyIdentifier === "Up" || event.keyIdentifier === "Down" || event.type === "mousewheel");
-    var pageKeyPressed = (event.keyIdentifier === "PageUp" || event.keyIdentifier === "PageDown");
-    if (!arrowKeyOrMouseWheelEvent && !pageKeyPressed)
-        return false;
-
-    var selection = element.getComponentSelection();
-    if (!selection.rangeCount)
-        return false;
-
-    var selectionRange = selection.getRangeAt(0);
-    if (!selectionRange.commonAncestorContainer.isSelfOrDescendant(element))
-        return false;
-
-    var originalValue = element.textContent;
-    var wordRange = selectionRange.startContainer.rangeOfWord(selectionRange.startOffset, WebInspector.StyleValueDelimiters, element);
-    var wordString = wordRange.toString();
-
-    if (suggestionHandler && suggestionHandler(wordString))
-        return false;
-
-    var replacementString = WebInspector.createReplacementString(wordString, event, customNumberHandler);
-
-    if (replacementString) {
-        var replacementTextNode = createTextNode(replacementString);
-
-        wordRange.deleteContents();
-        wordRange.insertNode(replacementTextNode);
-
-        var finalSelectionRange = createRange();
-        finalSelectionRange.setStart(replacementTextNode, 0);
-        finalSelectionRange.setEnd(replacementTextNode, replacementString.length);
-
-        selection.removeAllRanges();
-        selection.addRange(finalSelectionRange);
-
-        event.handled = true;
-        event.preventDefault();
-
-        if (finishHandler)
-            finishHandler(originalValue, replacementString);
-
-        return true;
-    }
+  const arrowKeyOrMouseWheelEvent =
+      (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.type === 'mousewheel');
+  const pageKeyPressed = (event.key === 'PageUp' || event.key === 'PageDown');
+  if (!arrowKeyOrMouseWheelEvent && !pageKeyPressed)
     return false;
-}
+
+  const selection = element.getComponentSelection();
+  if (!selection.rangeCount)
+    return false;
+
+  const selectionRange = selection.getRangeAt(0);
+  if (!selectionRange.commonAncestorContainer.isSelfOrDescendant(element))
+    return false;
+
+  const originalValue = element.textContent;
+  const wordRange =
+      selectionRange.startContainer.rangeOfWord(selectionRange.startOffset, UI.StyleValueDelimiters, element);
+  const wordString = wordRange.toString();
+
+  if (suggestionHandler && suggestionHandler(wordString))
+    return false;
+
+  const replacementString = UI.createReplacementString(wordString, event, customNumberHandler);
+
+  if (replacementString) {
+    const replacementTextNode = createTextNode(replacementString);
+
+    wordRange.deleteContents();
+    wordRange.insertNode(replacementTextNode);
+
+    const finalSelectionRange = createRange();
+    finalSelectionRange.setStart(replacementTextNode, 0);
+    finalSelectionRange.setEnd(replacementTextNode, replacementString.length);
+
+    selection.removeAllRanges();
+    selection.addRange(finalSelectionRange);
+
+    event.handled = true;
+    event.preventDefault();
+
+    if (finishHandler)
+      finishHandler(originalValue, replacementString);
+
+    return true;
+  }
+  return false;
+};
 
 /**
  * @param {number} ms
  * @param {number=} precision
  * @return {string}
  */
-Number.preciseMillisToString = function(ms, precision)
-{
-    precision = precision || 0;
-    var format = "%." + precision + "f\u2009ms";
-    return WebInspector.UIString(format, ms);
-}
+Number.preciseMillisToString = function(ms, precision) {
+  precision = precision || 0;
+  const format = '%.' + precision + 'f\xa0ms';
+  return Common.UIString(format, ms);
+};
 
-/** @type {!WebInspector.UIStringFormat} */
-WebInspector._subMillisFormat = new WebInspector.UIStringFormat("%.2f\u2009ms");
+/** @type {!Common.UIStringFormat} */
+UI._microsFormat = new Common.UIStringFormat('%.0f\xa0\u03bcs');
 
-/** @type {!WebInspector.UIStringFormat} */
-WebInspector._millisFormat = new WebInspector.UIStringFormat("%.0f\u2009ms");
+/** @type {!Common.UIStringFormat} */
+UI._subMillisFormat = new Common.UIStringFormat('%.2f\xa0ms');
 
-/** @type {!WebInspector.UIStringFormat} */
-WebInspector._secondsFormat = new WebInspector.UIStringFormat("%.2f\u2009s");
+/** @type {!Common.UIStringFormat} */
+UI._millisFormat = new Common.UIStringFormat('%.0f\xa0ms');
 
-/** @type {!WebInspector.UIStringFormat} */
-WebInspector._minutesFormat = new WebInspector.UIStringFormat("%.1f\u2009min");
+/** @type {!Common.UIStringFormat} */
+UI._secondsFormat = new Common.UIStringFormat('%.2f\xa0s');
 
-/** @type {!WebInspector.UIStringFormat} */
-WebInspector._hoursFormat = new WebInspector.UIStringFormat("%.1f\u2009hrs");
+/** @type {!Common.UIStringFormat} */
+UI._minutesFormat = new Common.UIStringFormat('%.1f\xa0min');
 
-/** @type {!WebInspector.UIStringFormat} */
-WebInspector._daysFormat = new WebInspector.UIStringFormat("%.1f\u2009days");
+/** @type {!Common.UIStringFormat} */
+UI._hoursFormat = new Common.UIStringFormat('%.1f\xa0hrs');
+
+/** @type {!Common.UIStringFormat} */
+UI._daysFormat = new Common.UIStringFormat('%.1f\xa0days');
 
 /**
  * @param {number} ms
  * @param {boolean=} higherResolution
  * @return {string}
  */
-Number.millisToString = function(ms, higherResolution)
-{
-    if (!isFinite(ms))
-        return "-";
+Number.millisToString = function(ms, higherResolution) {
+  if (!isFinite(ms))
+    return '-';
 
-    if (ms === 0)
-        return "0";
+  if (ms === 0)
+    return '0';
 
-    if (higherResolution && ms < 1000)
-        return WebInspector._subMillisFormat.format(ms);
-    else if (ms < 1000)
-        return WebInspector._millisFormat.format(ms);
+  if (higherResolution && ms < 0.1)
+    return UI._microsFormat.format(ms * 1000);
+  if (higherResolution && ms < 1000)
+    return UI._subMillisFormat.format(ms);
+  if (ms < 1000)
+    return UI._millisFormat.format(ms);
 
-    var seconds = ms / 1000;
-    if (seconds < 60)
-        return WebInspector._secondsFormat.format(seconds);
+  const seconds = ms / 1000;
+  if (seconds < 60)
+    return UI._secondsFormat.format(seconds);
 
-    var minutes = seconds / 60;
-    if (minutes < 60)
-        return WebInspector._minutesFormat.format(minutes);
+  const minutes = seconds / 60;
+  if (minutes < 60)
+    return UI._minutesFormat.format(minutes);
 
-    var hours = minutes / 60;
-    if (hours < 24)
-        return WebInspector._hoursFormat.format(hours);
+  const hours = minutes / 60;
+  if (hours < 24)
+    return UI._hoursFormat.format(hours);
 
-    var days = hours / 24;
-    return WebInspector._daysFormat.format(days);
-}
+  const days = hours / 24;
+  return UI._daysFormat.format(days);
+};
 
 /**
  * @param {number} seconds
  * @param {boolean=} higherResolution
  * @return {string}
  */
-Number.secondsToString = function(seconds, higherResolution)
-{
-    if (!isFinite(seconds))
-        return "-";
-    return Number.millisToString(seconds * 1000, higherResolution);
-}
+Number.secondsToString = function(seconds, higherResolution) {
+  if (!isFinite(seconds))
+    return '-';
+  return Number.millisToString(seconds * 1000, higherResolution);
+};
 
 /**
  * @param {number} bytes
  * @return {string}
  */
-Number.bytesToString = function(bytes)
-{
-    if (bytes < 1024)
-        return WebInspector.UIString("%.0f\u2009B", bytes);
+Number.bytesToString = function(bytes) {
+  if (bytes < 1024)
+    return Common.UIString('%.0f\xa0B', bytes);
 
-    var kilobytes = bytes / 1024;
-    if (kilobytes < 100)
-        return WebInspector.UIString("%.1f\u2009KB", kilobytes);
-    if (kilobytes < 1024)
-        return WebInspector.UIString("%.0f\u2009KB", kilobytes);
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 100)
+    return Common.UIString('%.1f\xa0KB', kilobytes);
+  if (kilobytes < 1024)
+    return Common.UIString('%.0f\xa0KB', kilobytes);
 
-    var megabytes = kilobytes / 1024;
-    if (megabytes < 100)
-        return WebInspector.UIString("%.1f\u2009MB", megabytes);
-    else
-        return WebInspector.UIString("%.0f\u2009MB", megabytes);
-}
+  const megabytes = kilobytes / 1024;
+  if (megabytes < 100)
+    return Common.UIString('%.1f\xa0MB', megabytes);
+  else
+    return Common.UIString('%.0f\xa0MB', megabytes);
+};
 
 /**
  * @param {number} num
  * @return {string}
  */
-Number.withThousandsSeparator = function(num)
-{
-    var str = num + "";
-    var re = /(\d+)(\d{3})/;
-    while (str.match(re))
-        str = str.replace(re, "$1\u2009$2"); // \u2009 is a thin space.
-    return str;
-}
+Number.withThousandsSeparator = function(num) {
+  let str = num + '';
+  const re = /(\d+)(\d{3})/;
+  while (str.match(re))
+    str = str.replace(re, '$1\xa0$2');  // \xa0 is a non-breaking space
+  return str;
+};
 
 /**
  * @param {string} format
  * @param {?ArrayLike} substitutions
- * @param {?string} initialValue
  * @return {!Element}
  */
-WebInspector.formatLocalized = function(format, substitutions, initialValue)
-{
-    var element = createElement("span");
-    var formatters = {
-        s: function(substitution)
-        {
-            return substitution;
-        }
-    };
-    function append(a, b)
-    {
-        if (typeof b === "string")
-            b = createTextNode(b);
-        else if (b.shadowRoot)
-            b = createTextNode(b.shadowRoot.lastChild.textContent);
-        element.appendChild(b);
-    }
-    String.format(WebInspector.UIString(format), substitutions, formatters, initialValue, append);
-    return element;
-}
+UI.formatLocalized = function(format, substitutions) {
+  const formatters = {s: substitution => substitution};
+  /**
+   * @param {!Element} a
+   * @param {string|!Element} b
+   * @return {!Element}
+   */
+  function append(a, b) {
+    a.appendChild(typeof b === 'string' ? createTextNode(b) : b);
+    return a;
+  }
+  return String.format(Common.UIString(format), substitutions, formatters, createElement('span'), append)
+      .formattedResult;
+};
 
 /**
  * @return {string}
  */
-WebInspector.openLinkExternallyLabel = function()
-{
-    return WebInspector.UIString.capitalize("Open ^link in ^new ^tab");
-}
+UI.openLinkExternallyLabel = function() {
+  return Common.UIString('Open in new tab');
+};
 
 /**
  * @return {string}
  */
-WebInspector.copyLinkAddressLabel = function()
-{
-    return WebInspector.UIString.capitalize("Copy ^link ^address");
-}
+UI.copyLinkAddressLabel = function() {
+  return Common.UIString('Copy link address');
+};
 
 /**
  * @return {string}
  */
-WebInspector.anotherProfilerActiveLabel = function()
-{
-    return WebInspector.UIString("Another profiler is already active");
-}
+UI.anotherProfilerActiveLabel = function() {
+  return Common.UIString('Another profiler is already active');
+};
 
 /**
  * @param {string|undefined} description
  * @return {string}
  */
-WebInspector.asyncStackTraceLabel = function(description)
-{
-    if (description)
-        return description + " " + WebInspector.UIString("(async)");
-    return WebInspector.UIString("Async Call");
-}
-
-/**
- * @return {string}
- */
-WebInspector.manageBlackboxingSettingsTabLabel = function()
-{
-    return WebInspector.UIString("Blackboxing");
-}
+UI.asyncStackTraceLabel = function(description) {
+  if (description) {
+    if (description === 'Promise.resolve')
+      description = Common.UIString('Promise resolved');
+    else if (description === 'Promise.reject')
+      description = Common.UIString('Promise rejected');
+    return description + ' ' + Common.UIString('(async)');
+  }
+  return Common.UIString('Async Call');
+};
 
 /**
  * @param {!Element} element
  */
-WebInspector.installComponentRootStyles = function(element)
-{
-    element.appendChild(WebInspector.Widget.createStyleElement("ui/inspectorCommon.css"));
-    element.appendChild(WebInspector.Widget.createStyleElement("ui/inspectorSyntaxHighlight.css"));
-    element.classList.add("platform-" + WebInspector.platform());
-    if (Runtime.experiments.isEnabled("materialDesign"))
-        element.classList.add("material");
-}
+UI.installComponentRootStyles = function(element) {
+  UI.appendStyle(element, 'ui/inspectorCommon.css');
+  UI.themeSupport.injectHighlightStyleSheets(element);
+  UI.themeSupport.injectCustomStyleSheets(element);
+  element.classList.add('platform-' + Host.platform());
+
+  // Detect overlay scrollbar enable by checking for nonzero scrollbar width.
+  if (!Host.isMac() && UI.measuredScrollbarWidth(element.ownerDocument) === 0)
+    element.classList.add('overlay-scrollbar-enabled');
+};
+
+/**
+ * @param {?Document} document
+ * @return {number}
+ */
+UI.measuredScrollbarWidth = function(document) {
+  if (typeof UI._measuredScrollbarWidth === 'number')
+    return UI._measuredScrollbarWidth;
+  if (!document)
+    return 16;
+  const scrollDiv = document.createElement('div');
+  scrollDiv.setAttribute('style', 'width: 100px; height: 100px; overflow: scroll;');
+  document.body.appendChild(scrollDiv);
+  UI._measuredScrollbarWidth = scrollDiv.offsetWidth - scrollDiv.clientWidth;
+  document.body.removeChild(scrollDiv);
+  return UI._measuredScrollbarWidth;
+};
 
 /**
  * @param {!Element} element
+ * @param {string=} cssFile
  * @return {!DocumentFragment}
  */
-WebInspector.createShadowRootWithCoreStyles = function(element)
-{
-    var shadowRoot = element.createShadowRoot();
-    shadowRoot.appendChild(WebInspector.Widget.createStyleElement("ui/inspectorCommon.css"));
-    shadowRoot.appendChild(WebInspector.Widget.createStyleElement("ui/inspectorSyntaxHighlight.css"));
-    shadowRoot.addEventListener("focus", WebInspector._focusChanged.bind(WebInspector), true);
-    return shadowRoot;
-}
+UI.createShadowRootWithCoreStyles = function(element, cssFile) {
+  const shadowRoot = element.createShadowRoot();
+  UI.appendStyle(shadowRoot, 'ui/inspectorCommon.css');
+  UI.themeSupport.injectHighlightStyleSheets(shadowRoot);
+  UI.themeSupport.injectCustomStyleSheets(shadowRoot);
+  if (cssFile)
+    UI.appendStyle(shadowRoot, cssFile);
+  shadowRoot.addEventListener('focus', UI._focusChanged.bind(UI), true);
+  return shadowRoot;
+};
 
 /**
  * @param {!Document} document
  * @param {!Event} event
  */
-WebInspector._windowFocused = function(document, event)
-{
-    if (event.target.document.nodeType === Node.DOCUMENT_NODE)
-        document.body.classList.remove("inactive");
-}
+UI._windowFocused = function(document, event) {
+  if (event.target.document.nodeType === Node.DOCUMENT_NODE)
+    document.body.classList.remove('inactive');
+  UI._keyboardFocus = true;
+  const listener = () => {
+    const activeElement = document.deepActiveElement();
+    if (activeElement)
+      activeElement.removeAttribute('data-keyboard-focus');
+    UI._keyboardFocus = false;
+  };
+  document.defaultView.requestAnimationFrame(() => {
+    UI._keyboardFocus = false;
+    document.removeEventListener('mousedown', listener, true);
+  });
+  document.addEventListener('mousedown', listener, true);
+
+};
 
 /**
  * @param {!Document} document
  * @param {!Event} event
  */
-WebInspector._windowBlurred = function(document, event)
-{
-    if (event.target.document.nodeType === Node.DOCUMENT_NODE)
-        document.body.classList.add("inactive");
-}
-
-/**
- * @return {!Element}
- */
-WebInspector.previousFocusElement = function()
-{
-    return WebInspector._previousFocusElement;
-}
-
-/**
- * @return {!Element}
- */
-WebInspector.currentFocusElement = function()
-{
-    return WebInspector._currentFocusElement;
-}
+UI._windowBlurred = function(document, event) {
+  if (event.target.document.nodeType === Node.DOCUMENT_NODE)
+    document.body.classList.add('inactive');
+};
 
 /**
  * @param {!Event} event
  */
-WebInspector._focusChanged = function(event)
-{
-    var node = event.deepActiveElement();
-    WebInspector.setCurrentFocusElement(node);
-}
+UI._focusChanged = function(event) {
+  const document = event.target && event.target.ownerDocument;
+  const element = document ? document.deepActiveElement() : null;
+  UI.Widget.focusWidgetForNode(element);
+  UI.XWidget.focusWidgetForNode(element);
+  if (!UI._keyboardFocus)
+    return;
+  element.setAttribute('data-keyboard-focus', 'true');
+  element.addEventListener('blur', () => element.removeAttribute('data-keyboard-focus'), {once: true, capture: true});
+};
 
 /**
- * @param {!Document} document
- * @param {!Event} event
+ * @unrestricted
  */
-WebInspector._documentBlurred = function(document, event)
-{
-    // We want to know when currentFocusElement loses focus to nowhere.
-    // This is the case when event.relatedTarget is null (no element is being focused)
-    // and document.activeElement is reset to default (this is not a window blur).
-    if (!event.relatedTarget && document.activeElement === document.body)
-      WebInspector.setCurrentFocusElement(null);
-}
+UI.ElementFocusRestorer = class {
+  /**
+   * @param {!Element} element
+   */
+  constructor(element) {
+    this._element = element;
+    this._previous = element.ownerDocument.deepActiveElement();
+    element.focus();
+  }
 
-WebInspector._textInputTypes = ["text", "search", "tel", "url", "email", "password"].keySet();
-WebInspector._isTextEditingElement = function(element)
-{
-    if (element instanceof HTMLInputElement)
-        return element.type in WebInspector._textInputTypes;
-
-    if (element instanceof HTMLTextAreaElement)
-        return true;
-
-    return false;
-}
-
-/**
- * @param {?Node} x
- */
-WebInspector.setCurrentFocusElement = function(x)
-{
-    if (WebInspector._glassPane && x && !WebInspector._glassPane.element.isAncestor(x))
-        return;
-    if (WebInspector._currentFocusElement !== x)
-        WebInspector._previousFocusElement = WebInspector._currentFocusElement;
-    WebInspector._currentFocusElement = x;
-
-    if (x) {
-        x.focus();
-
-        // Make a caret selection inside the new element if there isn't a range selection and there isn't already a caret selection inside.
-        // This is needed (at least) to remove caret from console when focus is moved to some element in the panel.
-        // The code below should not be applied to text fields and text areas, hence _isTextEditingElement check.
-        var selection = x.getComponentSelection();
-        if (!WebInspector._isTextEditingElement(x) && selection.isCollapsed && !x.isInsertionCaretInside()) {
-            var selectionRange = x.ownerDocument.createRange();
-            selectionRange.setStart(x, 0);
-            selectionRange.setEnd(x, 0);
-
-            selection.removeAllRanges();
-            selection.addRange(selectionRange);
-        }
-    } else if (WebInspector._previousFocusElement)
-        WebInspector._previousFocusElement.blur();
-}
-
-WebInspector.restoreFocusFromElement = function(element)
-{
-    if (element && element.isSelfOrAncestor(WebInspector.currentFocusElement()))
-        WebInspector.setCurrentFocusElement(WebInspector.previousFocusElement());
-}
+  restore() {
+    if (!this._element)
+      return;
+    if (this._element.hasFocus() && this._previous)
+      this._previous.focus();
+    this._previous = null;
+    this._element = null;
+  }
+};
 
 /**
  * @param {!Element} element
@@ -807,406 +792,376 @@ WebInspector.restoreFocusFromElement = function(element)
  * @param {!Array.<!Object>=} domChanges
  * @return {?Element}
  */
-WebInspector.highlightSearchResult = function(element, offset, length, domChanges)
-{
-    var result = WebInspector.highlightSearchResults(element, [new WebInspector.SourceRange(offset, length)], domChanges);
-    return result.length ? result[0] : null;
-}
+UI.highlightSearchResult = function(element, offset, length, domChanges) {
+  const result = UI.highlightSearchResults(element, [new TextUtils.SourceRange(offset, length)], domChanges);
+  return result.length ? result[0] : null;
+};
 
 /**
  * @param {!Element} element
- * @param {!Array.<!WebInspector.SourceRange>} resultRanges
+ * @param {!Array.<!TextUtils.SourceRange>} resultRanges
  * @param {!Array.<!Object>=} changes
  * @return {!Array.<!Element>}
  */
-WebInspector.highlightSearchResults = function(element, resultRanges, changes)
-{
-    return WebInspector.highlightRangesWithStyleClass(element, resultRanges, WebInspector.highlightedSearchResultClassName, changes);
-}
+UI.highlightSearchResults = function(element, resultRanges, changes) {
+  return UI.highlightRangesWithStyleClass(element, resultRanges, UI.highlightedSearchResultClassName, changes);
+};
 
 /**
  * @param {!Element} element
  * @param {string} className
  */
-WebInspector.runCSSAnimationOnce = function(element, className)
-{
-    function animationEndCallback()
-    {
-        element.classList.remove(className);
-        element.removeEventListener("webkitAnimationEnd", animationEndCallback, false);
-    }
+UI.runCSSAnimationOnce = function(element, className) {
+  function animationEndCallback() {
+    element.classList.remove(className);
+    element.removeEventListener('webkitAnimationEnd', animationEndCallback, false);
+  }
 
-    if (element.classList.contains(className))
-        element.classList.remove(className);
+  if (element.classList.contains(className))
+    element.classList.remove(className);
 
-    element.addEventListener("webkitAnimationEnd", animationEndCallback, false);
-    element.classList.add(className);
-}
+  element.addEventListener('webkitAnimationEnd', animationEndCallback, false);
+  element.classList.add(className);
+};
 
 /**
  * @param {!Element} element
- * @param {!Array.<!WebInspector.SourceRange>} resultRanges
+ * @param {!Array.<!TextUtils.SourceRange>} resultRanges
  * @param {string} styleClass
  * @param {!Array.<!Object>=} changes
  * @return {!Array.<!Element>}
  */
-WebInspector.highlightRangesWithStyleClass = function(element, resultRanges, styleClass, changes)
-{
-    changes = changes || [];
-    var highlightNodes = [];
-    var textNodes = element.childTextNodes();
-    var lineText = textNodes.map(function (node) { return node.textContent; }).join("");
-    var ownerDocument = element.ownerDocument;
+UI.highlightRangesWithStyleClass = function(element, resultRanges, styleClass, changes) {
+  changes = changes || [];
+  const highlightNodes = [];
+  const textNodes = element.childTextNodes();
+  const lineText = textNodes
+                       .map(function(node) {
+                         return node.textContent;
+                       })
+                       .join('');
+  const ownerDocument = element.ownerDocument;
 
-    if (textNodes.length === 0)
-        return highlightNodes;
-
-    var nodeRanges = [];
-    var rangeEndOffset = 0;
-    for (var i = 0; i < textNodes.length; ++i) {
-        var range = {};
-        range.offset = rangeEndOffset;
-        range.length = textNodes[i].textContent.length;
-        rangeEndOffset = range.offset + range.length;
-        nodeRanges.push(range);
-    }
-
-    var startIndex = 0;
-    for (var i = 0; i < resultRanges.length; ++i) {
-        var startOffset = resultRanges[i].offset;
-        var endOffset = startOffset + resultRanges[i].length;
-
-        while (startIndex < textNodes.length && nodeRanges[startIndex].offset + nodeRanges[startIndex].length <= startOffset)
-            startIndex++;
-        var endIndex = startIndex;
-        while (endIndex < textNodes.length && nodeRanges[endIndex].offset + nodeRanges[endIndex].length < endOffset)
-            endIndex++;
-        if (endIndex === textNodes.length)
-            break;
-
-        var highlightNode = ownerDocument.createElement("span");
-        highlightNode.className = styleClass;
-        highlightNode.textContent = lineText.substring(startOffset, endOffset);
-
-        var lastTextNode = textNodes[endIndex];
-        var lastText = lastTextNode.textContent;
-        lastTextNode.textContent = lastText.substring(endOffset - nodeRanges[endIndex].offset);
-        changes.push({ node: lastTextNode, type: "changed", oldText: lastText, newText: lastTextNode.textContent });
-
-        if (startIndex === endIndex) {
-            lastTextNode.parentElement.insertBefore(highlightNode, lastTextNode);
-            changes.push({ node: highlightNode, type: "added", nextSibling: lastTextNode, parent: lastTextNode.parentElement });
-            highlightNodes.push(highlightNode);
-
-            var prefixNode = ownerDocument.createTextNode(lastText.substring(0, startOffset - nodeRanges[startIndex].offset));
-            lastTextNode.parentElement.insertBefore(prefixNode, highlightNode);
-            changes.push({ node: prefixNode, type: "added", nextSibling: highlightNode, parent: lastTextNode.parentElement });
-        } else {
-            var firstTextNode = textNodes[startIndex];
-            var firstText = firstTextNode.textContent;
-            var anchorElement = firstTextNode.nextSibling;
-
-            firstTextNode.parentElement.insertBefore(highlightNode, anchorElement);
-            changes.push({ node: highlightNode, type: "added", nextSibling: anchorElement, parent: firstTextNode.parentElement });
-            highlightNodes.push(highlightNode);
-
-            firstTextNode.textContent = firstText.substring(0, startOffset - nodeRanges[startIndex].offset);
-            changes.push({ node: firstTextNode, type: "changed", oldText: firstText, newText: firstTextNode.textContent });
-
-            for (var j = startIndex + 1; j < endIndex; j++) {
-                var textNode = textNodes[j];
-                var text = textNode.textContent;
-                textNode.textContent = "";
-                changes.push({ node: textNode, type: "changed", oldText: text, newText: textNode.textContent });
-            }
-        }
-        startIndex = endIndex;
-        nodeRanges[startIndex].offset = endOffset;
-        nodeRanges[startIndex].length = lastTextNode.textContent.length;
-
-    }
+  if (textNodes.length === 0)
     return highlightNodes;
-}
 
-WebInspector.applyDomChanges = function(domChanges)
-{
-    for (var i = 0, size = domChanges.length; i < size; ++i) {
-        var entry = domChanges[i];
-        switch (entry.type) {
-        case "added":
-            entry.parent.insertBefore(entry.node, entry.nextSibling);
-            break;
-        case "changed":
-            entry.node.textContent = entry.newText;
-            break;
-        }
-    }
-}
+  const nodeRanges = [];
+  let rangeEndOffset = 0;
+  for (let i = 0; i < textNodes.length; ++i) {
+    const range = {};
+    range.offset = rangeEndOffset;
+    range.length = textNodes[i].textContent.length;
+    rangeEndOffset = range.offset + range.length;
+    nodeRanges.push(range);
+  }
 
-WebInspector.revertDomChanges = function(domChanges)
-{
-    for (var i = domChanges.length - 1; i >= 0; --i) {
-        var entry = domChanges[i];
-        switch (entry.type) {
-        case "added":
-            entry.node.remove();
-            break;
-        case "changed":
-            entry.node.textContent = entry.oldText;
-            break;
-        }
+  let startIndex = 0;
+  for (let i = 0; i < resultRanges.length; ++i) {
+    const startOffset = resultRanges[i].offset;
+    const endOffset = startOffset + resultRanges[i].length;
+
+    while (startIndex < textNodes.length &&
+           nodeRanges[startIndex].offset + nodeRanges[startIndex].length <= startOffset)
+      startIndex++;
+    let endIndex = startIndex;
+    while (endIndex < textNodes.length && nodeRanges[endIndex].offset + nodeRanges[endIndex].length < endOffset)
+      endIndex++;
+    if (endIndex === textNodes.length)
+      break;
+
+    const highlightNode = ownerDocument.createElement('span');
+    highlightNode.className = styleClass;
+    highlightNode.textContent = lineText.substring(startOffset, endOffset);
+
+    const lastTextNode = textNodes[endIndex];
+    const lastText = lastTextNode.textContent;
+    lastTextNode.textContent = lastText.substring(endOffset - nodeRanges[endIndex].offset);
+    changes.push({node: lastTextNode, type: 'changed', oldText: lastText, newText: lastTextNode.textContent});
+
+    if (startIndex === endIndex) {
+      lastTextNode.parentElement.insertBefore(highlightNode, lastTextNode);
+      changes.push({node: highlightNode, type: 'added', nextSibling: lastTextNode, parent: lastTextNode.parentElement});
+      highlightNodes.push(highlightNode);
+
+      const prefixNode =
+          ownerDocument.createTextNode(lastText.substring(0, startOffset - nodeRanges[startIndex].offset));
+      lastTextNode.parentElement.insertBefore(prefixNode, highlightNode);
+      changes.push({node: prefixNode, type: 'added', nextSibling: highlightNode, parent: lastTextNode.parentElement});
+    } else {
+      const firstTextNode = textNodes[startIndex];
+      const firstText = firstTextNode.textContent;
+      const anchorElement = firstTextNode.nextSibling;
+
+      firstTextNode.parentElement.insertBefore(highlightNode, anchorElement);
+      changes.push(
+          {node: highlightNode, type: 'added', nextSibling: anchorElement, parent: firstTextNode.parentElement});
+      highlightNodes.push(highlightNode);
+
+      firstTextNode.textContent = firstText.substring(0, startOffset - nodeRanges[startIndex].offset);
+      changes.push({node: firstTextNode, type: 'changed', oldText: firstText, newText: firstTextNode.textContent});
+
+      for (let j = startIndex + 1; j < endIndex; j++) {
+        const textNode = textNodes[j];
+        const text = textNode.textContent;
+        textNode.textContent = '';
+        changes.push({node: textNode, type: 'changed', oldText: text, newText: textNode.textContent});
+      }
     }
-}
+    startIndex = endIndex;
+    nodeRanges[startIndex].offset = endOffset;
+    nodeRanges[startIndex].length = lastTextNode.textContent.length;
+  }
+  return highlightNodes;
+};
+
+UI.applyDomChanges = function(domChanges) {
+  for (let i = 0, size = domChanges.length; i < size; ++i) {
+    const entry = domChanges[i];
+    switch (entry.type) {
+      case 'added':
+        entry.parent.insertBefore(entry.node, entry.nextSibling);
+        break;
+      case 'changed':
+        entry.node.textContent = entry.newText;
+        break;
+    }
+  }
+};
+
+UI.revertDomChanges = function(domChanges) {
+  for (let i = domChanges.length - 1; i >= 0; --i) {
+    const entry = domChanges[i];
+    switch (entry.type) {
+      case 'added':
+        entry.node.remove();
+        break;
+      case 'changed':
+        entry.node.textContent = entry.oldText;
+        break;
+    }
+  }
+};
 
 /**
  * @param {!Element} element
  * @param {?Element=} containerElement
- * @return {!Size}
+ * @return {!UI.Size}
  */
-WebInspector.measurePreferredSize = function(element, containerElement)
-{
-    containerElement = containerElement || element.ownerDocument.body;
-    containerElement.appendChild(element);
-    element.positionAt(0, 0);
-    var result = new Size(element.offsetWidth, element.offsetHeight);
-    element.positionAt(undefined, undefined);
+UI.measurePreferredSize = function(element, containerElement) {
+  const oldParent = element.parentElement;
+  const oldNextSibling = element.nextSibling;
+  containerElement = containerElement || element.ownerDocument.body;
+  containerElement.appendChild(element);
+  element.positionAt(0, 0);
+  const result = element.getBoundingClientRect();
+
+  element.positionAt(undefined, undefined);
+  if (oldParent)
+    oldParent.insertBefore(element, oldNextSibling);
+  else
     element.remove();
-    return result;
-}
+  return new UI.Size(result.width, result.height);
+};
 
 /**
- * @constructor
- * @param {boolean} autoInvoke
+ * @unrestricted
  */
-WebInspector.InvokeOnceHandlers = function(autoInvoke)
-{
+UI.InvokeOnceHandlers = class {
+  /**
+   * @param {boolean} autoInvoke
+   */
+  constructor(autoInvoke) {
     this._handlers = null;
     this._autoInvoke = autoInvoke;
-}
+  }
 
-WebInspector.InvokeOnceHandlers.prototype = {
-    /**
-     * @param {!Object} object
-     * @param {function()} method
-     */
-    add: function(object, method)
-    {
-        if (!this._handlers) {
-            this._handlers = new Map();
-            if (this._autoInvoke)
-                this.scheduleInvoke();
-        }
-        var methods = this._handlers.get(object);
-        if (!methods) {
-            methods = new Set();
-            this._handlers.set(object, methods);
-        }
-        methods.add(method);
-    },
-
-    /**
-     * @suppressGlobalPropertiesCheck
-     */
-    scheduleInvoke: function()
-    {
-        if (this._handlers)
-            requestAnimationFrame(this._invoke.bind(this));
-    },
-
-    _invoke: function()
-    {
-        var handlers = this._handlers;
-        this._handlers = null;
-        var keys = handlers.keysArray();
-        for (var i = 0; i < keys.length; ++i) {
-            var object = keys[i];
-            var methods = handlers.get(object).valuesArray();
-            for (var j = 0; j < methods.length; ++j)
-                methods[j].call(object);
-        }
+  /**
+   * @param {!Object} object
+   * @param {function()} method
+   */
+  add(object, method) {
+    if (!this._handlers) {
+      this._handlers = new Map();
+      if (this._autoInvoke)
+        this.scheduleInvoke();
     }
-}
+    let methods = this._handlers.get(object);
+    if (!methods) {
+      methods = new Set();
+      this._handlers.set(object, methods);
+    }
+    methods.add(method);
+  }
 
-WebInspector._coalescingLevel = 0;
-WebInspector._postUpdateHandlers = null;
+  /**
+   * @suppressGlobalPropertiesCheck
+   */
+  scheduleInvoke() {
+    if (this._handlers)
+      requestAnimationFrame(this._invoke.bind(this));
+  }
 
-WebInspector.startBatchUpdate = function()
-{
-    if (!WebInspector._coalescingLevel++)
-        WebInspector._postUpdateHandlers = new WebInspector.InvokeOnceHandlers(false);
-}
+  _invoke() {
+    const handlers = this._handlers;
+    this._handlers = null;
+    const keys = handlers.keysArray();
+    for (let i = 0; i < keys.length; ++i) {
+      const object = keys[i];
+      const methods = handlers.get(object).valuesArray();
+      for (let j = 0; j < methods.length; ++j)
+        methods[j].call(object);
+    }
+  }
+};
 
-WebInspector.endBatchUpdate = function()
-{
-    if (--WebInspector._coalescingLevel)
-        return;
-    WebInspector._postUpdateHandlers.scheduleInvoke();
-    WebInspector._postUpdateHandlers = null;
-}
+UI._coalescingLevel = 0;
+UI._postUpdateHandlers = null;
+
+UI.startBatchUpdate = function() {
+  if (!UI._coalescingLevel++)
+    UI._postUpdateHandlers = new UI.InvokeOnceHandlers(false);
+};
+
+UI.endBatchUpdate = function() {
+  if (--UI._coalescingLevel)
+    return;
+  UI._postUpdateHandlers.scheduleInvoke();
+  UI._postUpdateHandlers = null;
+};
 
 /**
  * @param {!Object} object
  * @param {function()} method
  */
-WebInspector.invokeOnceAfterBatchUpdate = function(object, method)
-{
-    if (!WebInspector._postUpdateHandlers)
-        WebInspector._postUpdateHandlers = new WebInspector.InvokeOnceHandlers(true);
-    WebInspector._postUpdateHandlers.add(object, method);
-}
+UI.invokeOnceAfterBatchUpdate = function(object, method) {
+  if (!UI._postUpdateHandlers)
+    UI._postUpdateHandlers = new UI.InvokeOnceHandlers(true);
+  UI._postUpdateHandlers.add(object, method);
+};
 
 /**
  * @param {!Window} window
  * @param {!Function} func
  * @param {!Array.<{from:number, to:number}>} params
- * @param {number} frames
+ * @param {number} duration
  * @param {function()=} animationComplete
  * @return {function()}
  */
-WebInspector.animateFunction = function(window, func, params, frames, animationComplete)
-{
-    var values = new Array(params.length);
-    var deltas = new Array(params.length);
-    for (var i = 0; i < params.length; ++i) {
-        values[i] = params[i].from;
-        deltas[i] = (params[i].to - params[i].from) / frames;
-    }
+UI.animateFunction = function(window, func, params, duration, animationComplete) {
+  const start = window.performance.now();
+  let raf = window.requestAnimationFrame(animationStep);
 
-    var raf = window.requestAnimationFrame(animationStep);
+  function animationStep(timestamp) {
+    const progress = Number.constrain((timestamp - start) / duration, 0, 1);
+    func(...params.map(p => p.from + (p.to - p.from) * progress));
+    if (progress < 1)
+      raf = window.requestAnimationFrame(animationStep);
+    else if (animationComplete)
+      animationComplete();
+  }
 
-    var framesLeft = frames;
-
-    function animationStep()
-    {
-        if (--framesLeft < 0) {
-            if (animationComplete)
-                animationComplete();
-            return;
-        }
-        for (var i = 0; i < params.length; ++i) {
-            if (params[i].to > params[i].from)
-                values[i] = Number.constrain(values[i] + deltas[i], params[i].from, params[i].to);
-            else
-                values[i] = Number.constrain(values[i] + deltas[i], params[i].to, params[i].from);
-        }
-        func.apply(null, values);
-        raf = window.requestAnimationFrame(animationStep);
-    }
-
-    function cancelAnimation()
-    {
-        window.cancelAnimationFrame(raf);
-    }
-
-    return cancelAnimation;
-}
-
-/**
- * @constructor
- * @extends {WebInspector.Object}
- * @param {!Element} element
- */
-WebInspector.LongClickController = function(element)
-{
-    this._element = element;
-}
-
-/**
- * @enum {string}
- */
-WebInspector.LongClickController.Events = {
-    LongClick: "LongClick"
+  return () => window.cancelAnimationFrame(raf);
 };
 
-WebInspector.LongClickController.prototype = {
-    reset: function()
-    {
-        if (this._longClickInterval) {
-            clearInterval(this._longClickInterval);
-            delete this._longClickInterval;
-        }
-    },
+/**
+ * @unrestricted
+ */
+UI.LongClickController = class extends Common.Object {
+  /**
+   * @param {!Element} element
+   * @param {function(!Event)} callback
+   */
+  constructor(element, callback) {
+    super();
+    this._element = element;
+    this._callback = callback;
+    this._enable();
+  }
 
-    enable: function()
-    {
-        if (this._longClickData)
-            return;
-        var boundMouseDown = mouseDown.bind(this);
-        var boundMouseUp = mouseUp.bind(this);
-        var boundReset = this.reset.bind(this);
+  reset() {
+    if (this._longClickInterval) {
+      clearInterval(this._longClickInterval);
+      delete this._longClickInterval;
+    }
+  }
 
-        this._element.addEventListener("mousedown", boundMouseDown, false);
-        this._element.addEventListener("mouseout", boundReset, false);
-        this._element.addEventListener("mouseup", boundMouseUp, false);
-        this._element.addEventListener("click", boundReset, true);
+  _enable() {
+    if (this._longClickData)
+      return;
+    const boundMouseDown = mouseDown.bind(this);
+    const boundMouseUp = mouseUp.bind(this);
+    const boundReset = this.reset.bind(this);
 
-        this._longClickData = { mouseUp: boundMouseUp, mouseDown: boundMouseDown, reset: boundReset };
+    this._element.addEventListener('mousedown', boundMouseDown, false);
+    this._element.addEventListener('mouseout', boundReset, false);
+    this._element.addEventListener('mouseup', boundMouseUp, false);
+    this._element.addEventListener('click', boundReset, true);
 
-        /**
-         * @param {!Event} e
-         * @this {WebInspector.LongClickController}
-         */
-        function mouseDown(e)
-        {
-            if (e.which !== 1)
-                return;
-            this._longClickInterval = setTimeout(longClicked.bind(this, e), 200);
-        }
+    this._longClickData = {mouseUp: boundMouseUp, mouseDown: boundMouseDown, reset: boundReset};
 
-        /**
-         * @param {!Event} e
-         * @this {WebInspector.LongClickController}
-         */
-        function mouseUp(e)
-        {
-            if (e.which !== 1)
-                return;
-            this.reset();
-        }
+    /**
+     * @param {!Event} e
+     * @this {UI.LongClickController}
+     */
+    function mouseDown(e) {
+      if (e.which !== 1)
+        return;
+      const callback = this._callback;
+      this._longClickInterval = setTimeout(callback.bind(null, e), 200);
+    }
 
-        /**
-         * @param {!Event} e
-         * @this {WebInspector.LongClickController}
-         */
-        function longClicked(e)
-        {
-            this.dispatchEventToListeners(WebInspector.LongClickController.Events.LongClick, e);
-        }
-    },
+    /**
+     * @param {!Event} e
+     * @this {UI.LongClickController}
+     */
+    function mouseUp(e) {
+      if (e.which !== 1)
+        return;
+      this.reset();
+    }
+  }
 
-    disable: function()
-    {
-        if (!this._longClickData)
-            return;
-        this._element.removeEventListener("mousedown", this._longClickData.mouseDown, false);
-        this._element.removeEventListener("mouseout", this._longClickData.reset, false);
-        this._element.removeEventListener("mouseup", this._longClickData.mouseUp, false);
-        this._element.addEventListener("click", this._longClickData.reset, true);
-        delete this._longClickData;
-    },
-
-    __proto__: WebInspector.Object.prototype
-}
+  dispose() {
+    if (!this._longClickData)
+      return;
+    this._element.removeEventListener('mousedown', this._longClickData.mouseDown, false);
+    this._element.removeEventListener('mouseout', this._longClickData.reset, false);
+    this._element.removeEventListener('mouseup', this._longClickData.mouseUp, false);
+    this._element.addEventListener('click', this._longClickData.reset, true);
+    delete this._longClickData;
+  }
+};
 
 /**
- * @param {!Window} window
+ * @param {!Document} document
+ * @param {!Common.Setting} themeSetting
  */
-WebInspector.initializeUIUtils = function(window)
-{
-    window.addEventListener("focus", WebInspector._windowFocused.bind(WebInspector, window.document), false);
-    window.addEventListener("blur", WebInspector._windowBlurred.bind(WebInspector, window.document), false);
-    window.document.addEventListener("focus", WebInspector._focusChanged.bind(WebInspector), true);
-    window.document.addEventListener("blur", WebInspector._documentBlurred.bind(WebInspector, window.document), true);
-}
+UI.initializeUIUtils = function(document, themeSetting) {
+  document.body.classList.toggle('inactive', !document.hasFocus());
+  document.defaultView.addEventListener('focus', UI._windowFocused.bind(UI, document), false);
+  document.defaultView.addEventListener('blur', UI._windowBlurred.bind(UI, document), false);
+  document.addEventListener('focus', UI._focusChanged.bind(UI), true);
+  document.addEventListener('keydown', event => {
+    UI._keyboardFocus = true;
+    document.defaultView.requestAnimationFrame(() => void(UI._keyboardFocus = false));
+  }, true);
+
+  if (!UI.themeSupport)
+    UI.themeSupport = new UI.ThemeSupport(themeSetting);
+  UI.themeSupport.applyTheme(document);
+
+  const body = /** @type {!Element} */ (document.body);
+  UI.appendStyle(body, 'ui/inspectorStyle.css');
+  UI.GlassPane.setContainer(/** @type {!Element} */ (document.body));
+};
 
 /**
  * @param {string} name
  * @return {string}
  */
-WebInspector.beautifyFunctionName = function(name)
-{
-    return name || WebInspector.UIString("(anonymous function)");
-}
+UI.beautifyFunctionName = function(name) {
+  return name || Common.UIString('(anonymous)');
+};
 
 /**
  * @param {string} localName
@@ -1216,31 +1171,40 @@ WebInspector.beautifyFunctionName = function(name)
  * @suppressGlobalPropertiesCheck
  * @template T
  */
-function registerCustomElement(localName, typeExtension, prototype)
-{
-    return document.registerElement(typeExtension, {
-        prototype: Object.create(prototype),
-        extends: localName
-    });
-}
+UI.registerCustomElement = function(localName, typeExtension, prototype) {
+  return document.registerElement(typeExtension, {prototype: Object.create(prototype), extends: localName});
+};
 
 /**
  * @param {string} text
  * @param {function(!Event)=} clickHandler
  * @param {string=} className
- * @param {string=} title
+ * @param {boolean=} primary
  * @return {!Element}
  */
-function createTextButton(text, clickHandler, className, title)
-{
-    var element = createElementWithClass("button", className || "", "text-button");
-    element.textContent = text;
-    if (clickHandler)
-        element.addEventListener("click", clickHandler, false);
-    if (title)
-        element.title = title;
-    return element;
-}
+UI.createTextButton = function(text, clickHandler, className, primary) {
+  const element = createElementWithClass('button', className || '', 'text-button');
+  element.textContent = text;
+  if (primary)
+    element.classList.add('primary-button');
+  if (clickHandler)
+    element.addEventListener('click', clickHandler, false);
+  return element;
+};
+
+/**
+ * @param {string=} className
+ * @param {string=} type
+ * @return {!Element}
+ */
+UI.createInput = function(className, type) {
+  const element = createElementWithClass('input', className || '');
+  element.spellcheck = false;
+  element.classList.add('harmony-input');
+  if (type)
+    element.type = type;
+  return element;
+};
 
 /**
  * @param {string} name
@@ -1248,239 +1212,865 @@ function createTextButton(text, clickHandler, className, title)
  * @param {boolean=} checked
  * @return {!Element}
  */
-function createRadioLabel(name, title, checked)
-{
-    var element = createElement("label", "dt-radio");
-    element.radioElement.name = name;
-    element.radioElement.checked = !!checked;
-    element.createTextChild(title);
-    return element;
-}
+UI.createRadioLabel = function(name, title, checked) {
+  const element = createElement('label', 'dt-radio');
+  element.radioElement.name = name;
+  element.radioElement.checked = !!checked;
+  element.createTextChild(title);
+  return element;
+};
 
 /**
- * @param {string=} title
- * @param {boolean=} checked
+ * @param {string} title
+ * @param {string} iconClass
  * @return {!Element}
  */
-function createCheckboxLabel(title, checked)
-{
-    var element = createElement("label", "dt-checkbox");
+UI.createLabel = function(title, iconClass) {
+  const element = createElement('label', 'dt-icon-label');
+  element.createChild('span').textContent = title;
+  element.type = iconClass;
+  return element;
+};
+
+/**
+ * @return {!Element}
+ * @param {number} min
+ * @param {number} max
+ * @param {number} tabIndex
+ */
+UI.createSliderLabel = function(min, max, tabIndex) {
+  const element = createElement('label', 'dt-slider');
+  element.sliderElement.min = min;
+  element.sliderElement.max = max;
+  element.sliderElement.step = 1;
+  element.sliderElement.tabIndex = tabIndex;
+  return element;
+};
+
+/**
+ * @param {!Node} node
+ * @param {string} cssFile
+ * @suppressGlobalPropertiesCheck
+ */
+UI.appendStyle = function(node, cssFile) {
+  const content = Runtime.cachedResources[cssFile] || '';
+  if (!content)
+    console.error(cssFile + ' not preloaded. Check module.json');
+  let styleElement = createElement('style');
+  styleElement.type = 'text/css';
+  styleElement.textContent = content;
+  node.appendChild(styleElement);
+
+  const themeStyleSheet = UI.themeSupport.themeStyleSheet(cssFile, content);
+  if (themeStyleSheet) {
+    styleElement = createElement('style');
+    styleElement.type = 'text/css';
+    styleElement.textContent = themeStyleSheet + '\n' + Runtime.resolveSourceURL(cssFile + '.theme');
+    node.appendChild(styleElement);
+  }
+};
+
+/**
+ * @extends {HTMLLabelElement}
+ */
+UI.CheckboxLabel = class extends HTMLLabelElement {
+  constructor() {
+    super();
+    /** @type {!DocumentFragment} */
+    this._shadowRoot;
+    /** @type {!HTMLInputElement} */
+    this.checkboxElement;
+    /** @type {!Element} */
+    this.textElement;
+    throw new Error('Checkbox must be created via factory method.');
+  }
+
+  /**
+   * @override
+   */
+  createdCallback() {
+    UI.CheckboxLabel._lastId = (UI.CheckboxLabel._lastId || 0) + 1;
+    const id = 'ui-checkbox-label' + UI.CheckboxLabel._lastId;
+    this._shadowRoot = UI.createShadowRootWithCoreStyles(this, 'ui/checkboxTextLabel.css');
+    this.checkboxElement = /** @type {!HTMLInputElement} */ (this._shadowRoot.createChild('input'));
+    this.checkboxElement.type = 'checkbox';
+    this.checkboxElement.setAttribute('id', id);
+    this.textElement = this._shadowRoot.createChild('label', 'dt-checkbox-text');
+    this.textElement.setAttribute('for', id);
+    this._shadowRoot.createChild('content');
+  }
+
+  /**
+   * @param {string=} title
+   * @param {boolean=} checked
+   * @param {string=} subtitle
+   * @return {!UI.CheckboxLabel}
+   */
+  static create(title, checked, subtitle) {
+    if (!UI.CheckboxLabel._constructor)
+      UI.CheckboxLabel._constructor = UI.registerCustomElement('label', 'dt-checkbox', UI.CheckboxLabel.prototype);
+    const element = /** @type {!UI.CheckboxLabel} */ (new UI.CheckboxLabel._constructor());
     element.checkboxElement.checked = !!checked;
     if (title !== undefined) {
-        element.textElement = element.createChild("div", "dt-checkbox-text");
-        element.textElement.textContent = title;
+      element.textElement.textContent = title;
+      if (subtitle !== undefined)
+        element.textElement.createChild('div', 'dt-checkbox-subtitle').textContent = subtitle;
     }
     return element;
-}
+  }
 
-;(function() {
-    registerCustomElement("button", "text-button", {
-        /**
-         * @this {Element}
-         */
-        createdCallback: function()
-        {
-            this.type = "button";
-            var root = WebInspector.createShadowRootWithCoreStyles(this);
-            root.appendChild(WebInspector.Widget.createStyleElement("ui/textButton.css"));
-            root.createChild("content");
-        },
+  /**
+   * @param {string} color
+   * @this {Element}
+   */
+  set backgroundColor(color) {
+    this.checkboxElement.classList.add('dt-checkbox-themed');
+    this.checkboxElement.style.backgroundColor = color;
+  }
 
-        __proto__: HTMLButtonElement.prototype
-    });
+  /**
+   * @param {string} color
+   * @this {Element}
+   */
+  set checkColor(color) {
+    this.checkboxElement.classList.add('dt-checkbox-themed');
+    const stylesheet = createElement('style');
+    stylesheet.textContent = 'input.dt-checkbox-themed:checked:after { background-color: ' + color + '}';
+    this._shadowRoot.appendChild(stylesheet);
+  }
 
-    registerCustomElement("label", "dt-radio", {
-        /**
-         * @this {Element}
-         */
-        createdCallback: function()
-        {
-            this.radioElement = this.createChild("input", "dt-radio-button");
-            this.radioElement.type = "radio";
-            var root = WebInspector.createShadowRootWithCoreStyles(this);
-            root.appendChild(WebInspector.Widget.createStyleElement("ui/radioButton.css"));
-            root.createChild("content").select = ".dt-radio-button";
-            root.createChild("content");
-            this.addEventListener("click", radioClickHandler, false);
-        },
+  /**
+   * @param {string} color
+   * @this {Element}
+   */
+  set borderColor(color) {
+    this.checkboxElement.classList.add('dt-checkbox-themed');
+    this.checkboxElement.style.borderColor = color;
+  }
+};
 
-        __proto__: HTMLLabelElement.prototype
-    });
-
+(function() {
+  UI.registerCustomElement('button', 'text-button', {
     /**
-     * @param {!Event} event
-     * @suppressReceiverCheck
      * @this {Element}
      */
-    function radioClickHandler(event)
-    {
-        if (this.radioElement.checked || this.radioElement.disabled)
-            return;
-        this.radioElement.checked = true;
-        this.radioElement.dispatchEvent(new Event("change"));
-    }
+    createdCallback: function() {
+      this.type = 'button';
+      const root = UI.createShadowRootWithCoreStyles(this, 'ui/textButton.css');
+      root.createChild('content');
+    },
 
-    registerCustomElement("label", "dt-checkbox", {
-        /**
-         * @this {Element}
-         */
-        createdCallback: function()
-        {
-            this._root = WebInspector.createShadowRootWithCoreStyles(this);
-            this._root.appendChild(WebInspector.Widget.createStyleElement("ui/checkboxTextLabel.css"));
-            var checkboxElement = createElementWithClass("input", "dt-checkbox-button");
-            checkboxElement.type = "checkbox";
-            this._root.appendChild(checkboxElement);
-            this.checkboxElement = checkboxElement;
+    __proto__: HTMLButtonElement.prototype
+  });
 
-            this.addEventListener("click", toggleCheckbox.bind(this));
+  UI.registerCustomElement('label', 'dt-radio', {
+    /**
+     * @this {Element}
+     */
+    createdCallback: function() {
+      this.radioElement = this.createChild('input', 'dt-radio-button');
+      this.radioElement.type = 'radio';
+      const root = UI.createShadowRootWithCoreStyles(this, 'ui/radioButton.css');
+      root.createChild('content').select = '.dt-radio-button';
+      root.createChild('content');
+      this.addEventListener('click', radioClickHandler, false);
+    },
 
-            /**
-             * @param {!Event} event
-             * @this {Node}
-             */
-            function toggleCheckbox(event)
-            {
-                if (event.target !== checkboxElement && event.target !== this)
-                    checkboxElement.click();
-            }
+    __proto__: HTMLLabelElement.prototype
+  });
 
-            this._root.createChild("content");
-        },
+  /**
+   * @param {!Event} event
+   * @suppressReceiverCheck
+   * @this {Element}
+   */
+  function radioClickHandler(event) {
+    if (this.radioElement.checked || this.radioElement.disabled)
+      return;
+    this.radioElement.checked = true;
+    this.radioElement.dispatchEvent(new Event('change'));
+  }
 
-        /**
-         * @param {string} color
-         * @this {Element}
-         */
-        set backgroundColor(color)
-        {
-            this.checkboxElement.classList.add("dt-checkbox-themed");
-            this.checkboxElement.style.backgroundColor = color;
-        },
+  UI.registerCustomElement('label', 'dt-icon-label', {
+    /**
+     * @this {Element}
+     */
+    createdCallback: function() {
+      const root = UI.createShadowRootWithCoreStyles(this);
+      this._iconElement = UI.Icon.create();
+      this._iconElement.style.setProperty('margin-right', '4px');
+      root.appendChild(this._iconElement);
+      root.createChild('content');
+    },
 
-        /**
-         * @param {string} color
-         * @this {Element}
-         */
-        set checkColor(color)
-        {
-            this.checkboxElement.classList.add("dt-checkbox-themed");
-            var stylesheet = createElement("style");
-            stylesheet.textContent = "input.dt-checkbox-themed:checked:after { background-color: " + color + "}";
-            this._root.appendChild(stylesheet);
-        },
+    /**
+     * @param {string} type
+     * @this {Element}
+     */
+    set type(type) {
+      this._iconElement.setIconType(type);
+    },
 
-        /**
-         * @param {string} color
-         * @this {Element}
-         */
-        set borderColor(color)
-        {
-            this.checkboxElement.classList.add("dt-checkbox-themed");
-            this.checkboxElement.style.borderColor = color;
-        },
+    __proto__: HTMLLabelElement.prototype
+  });
 
-        __proto__: HTMLLabelElement.prototype
-    });
+  UI.registerCustomElement('label', 'dt-slider', {
+    /**
+     * @this {Element}
+     */
+    createdCallback: function() {
+      const root = UI.createShadowRootWithCoreStyles(this, 'ui/slider.css');
+      this.sliderElement = createElementWithClass('input', 'dt-range-input');
+      this.sliderElement.type = 'range';
+      root.appendChild(this.sliderElement);
+    },
 
-    registerCustomElement("label", "dt-icon-label", {
-        /**
-         * @this {Element}
-         */
-        createdCallback: function()
-        {
-            var root = WebInspector.createShadowRootWithCoreStyles(this);
-            root.appendChild(WebInspector.Widget.createStyleElement("ui/smallIcon.css"));
-            this._iconElement = root.createChild("div");
-            root.createChild("content");
-        },
+    /**
+     * @param {number} amount
+     * @this {Element}
+     */
+    set value(amount) {
+      this.sliderElement.value = amount;
+    },
 
-        /**
-         * @param {string} type
-         * @this {Element}
-         */
-        set type(type)
-        {
-            this._iconElement.className = type;
-        },
+    /**
+     * @this {Element}
+     */
+    get value() {
+      return this.sliderElement.value;
+    },
 
-        __proto__: HTMLLabelElement.prototype
-    });
+    __proto__: HTMLLabelElement.prototype
+  });
 
-    registerCustomElement("div", "dt-close-button", {
-        /**
-         * @this {Element}
-         */
-        createdCallback: function()
-        {
-            var root = WebInspector.createShadowRootWithCoreStyles(this);
-            root.appendChild(WebInspector.Widget.createStyleElement("ui/closeButton.css"));
-            this._buttonElement = root.createChild("div", "close-button");
-        },
+  UI.registerCustomElement('label', 'dt-small-bubble', {
+    /**
+     * @this {Element}
+     */
+    createdCallback: function() {
+      const root = UI.createShadowRootWithCoreStyles(this, 'ui/smallBubble.css');
+      this._textElement = root.createChild('div');
+      this._textElement.className = 'info';
+      this._textElement.createChild('content');
+    },
 
-        /**
-         * @param {boolean} gray
-         * @this {Element}
-         */
-        set gray(gray)
-        {
-            this._buttonElement.className = gray ? "close-button-gray" : "close-button";
-        },
+    /**
+     * @param {string} type
+     * @this {Element}
+     */
+    set type(type) {
+      this._textElement.className = type;
+    },
 
-        __proto__: HTMLDivElement.prototype
-    });
+    __proto__: HTMLLabelElement.prototype
+  });
+
+  UI.registerCustomElement('div', 'dt-close-button', {
+    /**
+     * @this {Element}
+     */
+    createdCallback: function() {
+      const root = UI.createShadowRootWithCoreStyles(this, 'ui/closeButton.css');
+      this._buttonElement = root.createChild('div', 'close-button');
+      const regularIcon = UI.Icon.create('smallicon-cross', 'default-icon');
+      this._hoverIcon = UI.Icon.create('mediumicon-red-cross-hover', 'hover-icon');
+      this._activeIcon = UI.Icon.create('mediumicon-red-cross-active', 'active-icon');
+      this._buttonElement.appendChild(regularIcon);
+      this._buttonElement.appendChild(this._hoverIcon);
+      this._buttonElement.appendChild(this._activeIcon);
+    },
+
+    /**
+     * @param {boolean} gray
+     * @this {Element}
+     */
+    set gray(gray) {
+      if (gray) {
+        this._hoverIcon.setIconType('mediumicon-gray-cross-hover');
+        this._activeIcon.setIconType('mediumicon-gray-cross-active');
+      } else {
+        this._hoverIcon.setIconType('mediumicon-red-cross-hover');
+        this._activeIcon.setIconType('mediumicon-red-cross-active');
+      }
+    },
+
+    __proto__: HTMLDivElement.prototype
+  });
 })();
 
 /**
- * @constructor
+ * @param {!Element} input
+ * @param {function(string)} apply
+ * @param {function(string):boolean} validate
+ * @param {boolean} numeric
+ * @param {number=} modifierMultiplier
+ * @return {function(string)}
  */
-WebInspector.StringFormatter = function()
-{
-    this._processors = [];
-    this._regexes = [];
-}
+UI.bindInput = function(input, apply, validate, numeric, modifierMultiplier) {
+  input.addEventListener('change', onChange, false);
+  input.addEventListener('input', onInput, false);
+  input.addEventListener('keydown', onKeyDown, false);
+  input.addEventListener('focus', input.select.bind(input), false);
 
-WebInspector.StringFormatter.prototype = {
-    /**
-     * @param {!RegExp} regex
-     * @param {function(string):!Node} handler
-     */
-    addProcessor: function(regex, handler)
-    {
-        this._regexes.push(regex);
-        this._processors.push(handler);
-    },
+  function onInput() {
+    input.classList.toggle('error-input', !validate(input.value));
+  }
 
-    /**
-     * @param {string} text
-     * @return {!Node}
-     */
-    formatText: function(text)
-    {
-        return this._runProcessor(0, text);
-    },
+  function onChange() {
+    const valid = validate(input.value);
+    input.classList.toggle('error-input', !valid);
+    if (valid)
+      apply(input.value);
+  }
 
-    /**
-     * @param {number} processorIndex
-     * @param {string} text
-     * @return {!Node}
-     */
-    _runProcessor: function(processorIndex, text)
-    {
-        if (processorIndex >= this._processors.length)
-            return createTextNode(text);
-
-        var container = createDocumentFragment();
-        var regex = this._regexes[processorIndex];
-        var processor = this._processors[processorIndex];
-
-        // Due to the nature of regex, |items| array has matched elements on its even indexes.
-        var items = text.replace(regex, "\0$1\0").split("\0");
-        for (var i = 0; i < items.length; ++i) {
-            var processedNode = i % 2 ? processor(items[i]) : this._runProcessor(processorIndex + 1, items[i]);
-            container.appendChild(processedNode);
-        }
-
-        return container;
+  /**
+   * @param {!Event} event
+   */
+  function onKeyDown(event) {
+    if (isEnterKey(event)) {
+      if (validate(input.value))
+        apply(input.value);
+      event.preventDefault();
+      return;
     }
-}
+
+    if (!numeric)
+      return;
+
+    const value = UI._modifiedFloatNumber(parseFloat(input.value), event, modifierMultiplier);
+    const stringValue = value ? String(value) : '';
+    if (!validate(stringValue) || !value)
+      return;
+
+    input.value = stringValue;
+    apply(input.value);
+    event.preventDefault();
+  }
+
+  /**
+   * @param {string} value
+   */
+  function setValue(value) {
+    if (value === input.value)
+      return;
+    const valid = validate(value);
+    input.classList.toggle('error-input', !valid);
+    input.value = value;
+  }
+
+  return setValue;
+};
+
+/**
+ * @param {!CanvasRenderingContext2D} context
+ * @param {string} text
+ * @param {number} maxWidth
+ * @param {function(string, number):string} trimFunction
+ * @return {string}
+ */
+UI.trimText = function(context, text, maxWidth, trimFunction) {
+  const maxLength = 200;
+  if (maxWidth <= 10)
+    return '';
+  if (text.length > maxLength)
+    text = trimFunction(text, maxLength);
+  const textWidth = UI.measureTextWidth(context, text);
+  if (textWidth <= maxWidth)
+    return text;
+
+  let l = 0;
+  let r = text.length;
+  let lv = 0;
+  let rv = textWidth;
+  while (l < r && lv !== rv && lv !== maxWidth) {
+    const m = Math.ceil(l + (r - l) * (maxWidth - lv) / (rv - lv));
+    const mv = UI.measureTextWidth(context, trimFunction(text, m));
+    if (mv <= maxWidth) {
+      l = m;
+      lv = mv;
+    } else {
+      r = m - 1;
+      rv = mv;
+    }
+  }
+  text = trimFunction(text, l);
+  return text !== '\u2026' ? text : '';
+};
+
+/**
+ * @param {!CanvasRenderingContext2D} context
+ * @param {string} text
+ * @param {number} maxWidth
+ * @return {string}
+ */
+UI.trimTextMiddle = function(context, text, maxWidth) {
+  return UI.trimText(context, text, maxWidth, (text, width) => text.trimMiddle(width));
+};
+
+/**
+ * @param {!CanvasRenderingContext2D} context
+ * @param {string} text
+ * @param {number} maxWidth
+ * @return {string}
+ */
+UI.trimTextEnd = function(context, text, maxWidth) {
+  return UI.trimText(context, text, maxWidth, (text, width) => text.trimEnd(width));
+};
+
+/**
+ * @param {!CanvasRenderingContext2D} context
+ * @param {string} text
+ * @return {number}
+ */
+UI.measureTextWidth = function(context, text) {
+  const maxCacheableLength = 200;
+  if (text.length > maxCacheableLength)
+    return context.measureText(text).width;
+
+  let widthCache = UI.measureTextWidth._textWidthCache;
+  if (!widthCache) {
+    widthCache = new Map();
+    UI.measureTextWidth._textWidthCache = widthCache;
+  }
+  const font = context.font;
+  let textWidths = widthCache.get(font);
+  if (!textWidths) {
+    textWidths = new Map();
+    widthCache.set(font, textWidths);
+  }
+  let width = textWidths.get(text);
+  if (!width) {
+    width = context.measureText(text).width;
+    textWidths.set(text, width);
+  }
+  return width;
+};
+
+/**
+ * @unrestricted
+ */
+UI.ThemeSupport = class {
+  /**
+   * @param {!Common.Setting} setting
+   */
+  constructor(setting) {
+    this._themeName = setting.get() || 'default';
+    this._themableProperties = new Set([
+      'color', 'box-shadow', 'text-shadow', 'outline-color', 'background-image', 'background-color',
+      'border-left-color', 'border-right-color', 'border-top-color', 'border-bottom-color', '-webkit-border-image',
+      'fill', 'stroke'
+    ]);
+    /** @type {!Map<string, string>} */
+    this._cachedThemePatches = new Map();
+    this._setting = setting;
+    this._customSheets = new Set();
+  }
+
+  /**
+   * @return {boolean}
+   */
+  hasTheme() {
+    return this._themeName !== 'default';
+  }
+
+  /**
+   * @return {string}
+   */
+  themeName() {
+    return this._themeName;
+  }
+
+  /**
+   * @param {!Element} element
+   */
+  injectHighlightStyleSheets(element) {
+    this._injectingStyleSheet = true;
+    UI.appendStyle(element, 'ui/inspectorSyntaxHighlight.css');
+    if (this._themeName === 'dark')
+      UI.appendStyle(element, 'ui/inspectorSyntaxHighlightDark.css');
+    this._injectingStyleSheet = false;
+  }
+
+   /**
+   * @param {!Element|!ShadowRoot} element
+   */
+  injectCustomStyleSheets(element) {
+    for (const sheet of this._customSheets){
+      const styleElement = createElement('style');
+      styleElement.type = 'text/css';
+      styleElement.textContent = sheet;
+      element.appendChild(styleElement);
+    }
+  }
+
+  /**
+   * @param {string} sheetText
+   */
+  addCustomStylesheet(sheetText) {
+    this._customSheets.add(sheetText);
+  }
+
+  /**
+   * @param {!Document} document
+   */
+  applyTheme(document) {
+    if (!this.hasTheme())
+      return;
+
+    if (this._themeName === 'dark')
+      document.documentElement.classList.add('-theme-with-dark-background');
+
+    const styleSheets = document.styleSheets;
+    const result = [];
+    for (let i = 0; i < styleSheets.length; ++i)
+      result.push(this._patchForTheme(styleSheets[i].href, styleSheets[i]));
+    result.push('/*# sourceURL=inspector.css.theme */');
+
+    const styleElement = createElement('style');
+    styleElement.type = 'text/css';
+    styleElement.textContent = result.join('\n');
+    document.head.appendChild(styleElement);
+  }
+
+  /**
+   * @param {string} id
+   * @param {string} text
+   * @return {string}
+   * @suppressGlobalPropertiesCheck
+   */
+  themeStyleSheet(id, text) {
+    if (!this.hasTheme() || this._injectingStyleSheet)
+      return '';
+
+    let patch = this._cachedThemePatches.get(id);
+    if (!patch) {
+      const styleElement = createElement('style');
+      styleElement.type = 'text/css';
+      styleElement.textContent = text;
+      document.body.appendChild(styleElement);
+      patch = this._patchForTheme(id, styleElement.sheet);
+      document.body.removeChild(styleElement);
+    }
+    return patch;
+  }
+
+  /**
+   * @param {string} id
+   * @param {!StyleSheet} styleSheet
+   * @return {string}
+   */
+  _patchForTheme(id, styleSheet) {
+    const cached = this._cachedThemePatches.get(id);
+    if (cached)
+      return cached;
+
+    try {
+      const rules = styleSheet.cssRules;
+      const result = [];
+      for (let j = 0; j < rules.length; ++j) {
+        if (rules[j] instanceof CSSImportRule) {
+          result.push(this._patchForTheme(rules[j].styleSheet.href, rules[j].styleSheet));
+          continue;
+        }
+        const output = [];
+        const style = rules[j].style;
+        const selectorText = rules[j].selectorText;
+        for (let i = 0; style && i < style.length; ++i)
+          this._patchProperty(selectorText, style, style[i], output);
+        if (output.length)
+          result.push(rules[j].selectorText + '{' + output.join('') + '}');
+      }
+
+      const fullText = result.join('\n');
+      this._cachedThemePatches.set(id, fullText);
+      return fullText;
+    } catch (e) {
+      this._setting.set('default');
+      return '';
+    }
+  }
+
+  /**
+   * @param {string} selectorText
+   * @param {!CSSStyleDeclaration} style
+   * @param {string} name
+   * @param {!Array<string>} output
+   *
+   * Theming API is primarily targeted at making dark theme look good.
+   * - If rule has ".-theme-preserve" in selector, it won't be affected.
+   * - One can create specializations for dark themes via body.-theme-with-dark-background selector in host context.
+   */
+  _patchProperty(selectorText, style, name, output) {
+    if (!this._themableProperties.has(name))
+      return;
+
+    const value = style.getPropertyValue(name);
+    if (!value || value === 'none' || value === 'inherit' || value === 'initial' || value === 'transparent')
+      return;
+    if (name === 'background-image' && value.indexOf('gradient') === -1)
+      return;
+
+    if (selectorText.indexOf('-theme-') !== -1)
+      return;
+
+    let colorUsage = UI.ThemeSupport.ColorUsage.Unknown;
+    if (name.indexOf('background') === 0 || name.indexOf('border') === 0)
+      colorUsage |= UI.ThemeSupport.ColorUsage.Background;
+    if (name.indexOf('background') === -1)
+      colorUsage |= UI.ThemeSupport.ColorUsage.Foreground;
+
+    output.push(name);
+    output.push(':');
+    const items = value.replace(Common.Color.Regex, '\0$1\0').split('\0');
+    for (let i = 0; i < items.length; ++i)
+      output.push(this.patchColorText(items[i], colorUsage));
+    if (style.getPropertyPriority(name))
+      output.push(' !important');
+    output.push(';');
+  }
+
+  /**
+   * @param {string} text
+   * @param {!UI.ThemeSupport.ColorUsage} colorUsage
+   * @return {string}
+   */
+  patchColorText(text, colorUsage) {
+    const color = Common.Color.parse(text);
+    if (!color)
+      return text;
+    const outColor = this.patchColor(color, colorUsage);
+    let outText = outColor.asString(null);
+    if (!outText)
+      outText = outColor.asString(outColor.hasAlpha() ? Common.Color.Format.RGBA : Common.Color.Format.RGB);
+    return outText || text;
+  }
+
+  /**
+   * @param {!Common.Color} color
+   * @param {!UI.ThemeSupport.ColorUsage} colorUsage
+   * @return {!Common.Color}
+   */
+  patchColor(color, colorUsage) {
+    const hsla = color.hsla();
+    this._patchHSLA(hsla, colorUsage);
+    const rgba = [];
+    Common.Color.hsl2rgb(hsla, rgba);
+    return new Common.Color(rgba, color.format());
+  }
+
+  /**
+   * @param {!Array<number>} hsla
+   * @param {!UI.ThemeSupport.ColorUsage} colorUsage
+   */
+  _patchHSLA(hsla, colorUsage) {
+    const hue = hsla[0];
+    const sat = hsla[1];
+    let lit = hsla[2];
+    const alpha = hsla[3];
+
+    switch (this._themeName) {
+      case 'dark':
+        const minCap = colorUsage & UI.ThemeSupport.ColorUsage.Background ? 0.14 : 0;
+        const maxCap = colorUsage & UI.ThemeSupport.ColorUsage.Foreground ? 0.9 : 1;
+        lit = 1 - lit;
+        if (lit < minCap * 2)
+          lit = minCap + lit / 2;
+        else if (lit > 2 * maxCap - 1)
+          lit = maxCap - 1 / 2 + lit / 2;
+
+        break;
+    }
+    hsla[0] = Number.constrain(hue, 0, 1);
+    hsla[1] = Number.constrain(sat, 0, 1);
+    hsla[2] = Number.constrain(lit, 0, 1);
+    hsla[3] = Number.constrain(alpha, 0, 1);
+  }
+};
+
+/**
+ * @enum {number}
+ */
+UI.ThemeSupport.ColorUsage = {
+  Unknown: 0,
+  Foreground: 1 << 0,
+  Background: 1 << 1,
+};
+
+/**
+ * @param {string} article
+ * @param {string} title
+ * @return {!Element}
+ */
+UI.createDocumentationLink = function(article, title) {
+  return UI.XLink.create('https://developers.google.com/web/tools/chrome-devtools/' + article, title);
+};
+
+/**
+ * @param {string} url
+ * @return {!Promise<?Image>}
+ */
+UI.loadImage = function(url) {
+  return new Promise(fulfill => {
+    const image = new Image();
+    image.addEventListener('load', () => fulfill(image));
+    image.addEventListener('error', () => fulfill(null));
+    image.src = url;
+  });
+};
+
+/**
+ * @param {?string} data
+ * @return {!Promise<?Image>}
+ */
+UI.loadImageFromData = function(data) {
+  return data ? UI.loadImage('data:image/jpg;base64,' + data) : Promise.resolve(null);
+};
+
+/** @type {!UI.ThemeSupport} */
+UI.themeSupport;
+
+/**
+ * @param {function(!File)} callback
+ * @return {!Node}
+ */
+UI.createFileSelectorElement = function(callback) {
+  const fileSelectorElement = createElement('input');
+  fileSelectorElement.type = 'file';
+  fileSelectorElement.style.display = 'none';
+  fileSelectorElement.setAttribute('tabindex', -1);
+  fileSelectorElement.onchange = onChange;
+  function onChange(event) {
+    callback(fileSelectorElement.files[0]);
+  }
+  return fileSelectorElement;
+};
+
+/**
+ * @const
+ * @type {number}
+ */
+UI.MaxLengthForDisplayedURLs = 150;
+
+UI.MessageDialog = class {
+  /**
+   * @param {string} message
+   * @param {!Document|!Element=} where
+   * @return {!Promise}
+   */
+  static async show(message, where) {
+    const dialog = new UI.Dialog();
+    dialog.setSizeBehavior(UI.GlassPane.SizeBehavior.MeasureContent);
+    dialog.setDimmed(true);
+    const shadowRoot = UI.createShadowRootWithCoreStyles(dialog.contentElement, 'ui/confirmDialog.css');
+    const content = shadowRoot.createChild('div', 'widget');
+    await new Promise(resolve => {
+      const okButton = UI.createTextButton(Common.UIString('OK'), resolve, '', true);
+      content.createChild('div', 'message').createChild('span').textContent = message;
+      content.createChild('div', 'button').appendChild(okButton);
+      dialog.setOutsideClickCallback(event => {
+        event.consume();
+        resolve();
+      });
+      dialog.show(where);
+      okButton.focus();
+    });
+    dialog.hide();
+  }
+};
+
+UI.ConfirmDialog = class {
+  /**
+   * @param {string} message
+   * @param {!Document|!Element=} where
+   * @return {!Promise<boolean>}
+   */
+  static async show(message, where) {
+    const dialog = new UI.Dialog();
+    dialog.setSizeBehavior(UI.GlassPane.SizeBehavior.MeasureContent);
+    dialog.setDimmed(true);
+    const shadowRoot = UI.createShadowRootWithCoreStyles(dialog.contentElement, 'ui/confirmDialog.css');
+    const content = shadowRoot.createChild('div', 'widget');
+    content.createChild('div', 'message').createChild('span').textContent = message;
+    const buttonsBar = content.createChild('div', 'button');
+    const result = await new Promise(resolve => {
+      buttonsBar.appendChild(UI.createTextButton(Common.UIString('OK'), () => resolve(true), '', true));
+      buttonsBar.appendChild(UI.createTextButton(Common.UIString('Cancel'), () => resolve(false)));
+      dialog.setOutsideClickCallback(event => {
+        event.consume();
+        resolve(false);
+      });
+      dialog.show(where);
+    });
+    dialog.hide();
+    return result;
+  }
+};
+
+/**
+ * @param {!UI.ToolbarToggle} toolbarButton
+ * @return {!Element}
+ */
+UI.createInlineButton = function(toolbarButton) {
+  const element = createElement('span');
+  const shadowRoot = UI.createShadowRootWithCoreStyles(element, 'ui/inlineButton.css');
+  element.classList.add('inline-button');
+  const toolbar = new UI.Toolbar('');
+  toolbar.appendToolbarItem(toolbarButton);
+  shadowRoot.appendChild(toolbar.element);
+  return element;
+};
+
+/**
+ * @param {string} text
+ * @param {number} maxLength
+ * @return {!DocumentFragment}
+ */
+UI.createExpandableText = function(text, maxLength) {
+  const fragment = createDocumentFragment();
+  fragment.textContent = text.slice(0, maxLength);
+  const hiddenText = text.slice(maxLength);
+
+  const expandButton = fragment.createChild('span', 'expandable-inline-button');
+  expandButton.setAttribute('data-text', ls`Show ${Number.withThousandsSeparator(hiddenText.length)} more`);
+  expandButton.addEventListener('click', () => {
+    if (expandButton.parentElement)
+      expandButton.parentElement.insertBefore(createTextNode(hiddenText), expandButton);
+    expandButton.remove();
+  });
+
+  const copyButton = fragment.createChild('span', 'expandable-inline-button');
+  copyButton.setAttribute('data-text', ls`Copy`);
+  copyButton.addEventListener('click', () => {
+    InspectorFrontendHost.copyText(text);
+  });
+  return fragment;
+};
+
+/**
+ * @interface
+ */
+UI.Renderer = function() {};
+
+UI.Renderer.prototype = {
+  /**
+   * @param {!Object} object
+   * @param {!UI.Renderer.Options=} options
+   * @return {!Promise<?{node: !Node, tree: ?UI.TreeOutline}>}
+   */
+  render(object, options) {}
+};
+
+/**
+ * @param {?Object} object
+ * @param {!UI.Renderer.Options=} options
+ * @return {!Promise<?{node: !Node, tree: ?UI.TreeOutline}>}
+ */
+UI.Renderer.render = async function(object, options) {
+  if (!object)
+    throw new Error('Can\'t render ' + object);
+  const renderer = await self.runtime.extension(UI.Renderer, object).instance();
+  return renderer ? renderer.render(object, options || {}) : null;
+};
+
+/** @typedef {!{title: (string|!Element|undefined), editable: (boolean|undefined) }} */
+UI.Renderer.Options;

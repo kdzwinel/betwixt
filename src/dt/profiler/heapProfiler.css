@@ -29,14 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-.heap-snapshot-sidebar-tree-item .icon {
-    content: url(Images/profileIcon.png);
-}
-
-.heap-snapshot-sidebar-tree-item.small .icon {
-    content: url(Images/profileSmallIcon.png);
-}
-
 .heap-snapshot-view {
     overflow: hidden;
 }
@@ -51,7 +43,7 @@
 }
 
 .heap-snapshot-view .data-grid span.percent-column {
-    width: 32px;
+    width: 35px !important;
 }
 
 .heap-snapshot-view .object-value-object,
@@ -60,12 +52,14 @@
     position: static;
 }
 
-.detached-dom-tree-node {
-    background-color: #FF9999;
-}
-
 .heap-snapshot-view .object-value-string {
     white-space: nowrap;
+}
+
+.heap-snapshot-view td.object-column .objects-count {
+    margin-left: 10px;
+    font-size: 11px;
+    color: grey;
 }
 
 .heap-snapshot-view tr:not(.selected) .object-value-id {
@@ -76,7 +70,7 @@
     flex: auto;
 }
 
-.heap-snapshot-view .heap-tracking-overview {
+.profile-view .heap-tracking-overview {
     flex: 0 0 80px;
     height: 80px;
 }
@@ -106,12 +100,41 @@
     pointer-events: none;
 }
 
-.heap-snapshot-view .heap-object-details-header {
-    background-color: #eee;
+.heap-snapshot-view tr:not(.selected) td.object-column span.highlight {
+    background-color: inherit;
 }
 
-.heap-snapshot-view tr:not(.selected) td.object-column span.highlight {
-    background-color: rgb(255, 255, 200);
+.heap-snapshot-view td.object-column > div > span {
+    margin-right: 6px;
+}
+
+.heap-snapshot-view td.object-column span.heap-object-source-link {
+    float: right;
+}
+
+.heap-snapshot-view td.object-column span.heap-object-source-link:empty {
+    animation: fadeInOut 2s infinite;
+}
+
+.heap-snapshot-view td.object-column span.heap-object-source-link:empty:before {
+    content: "\b7\b7";
+    font-weight: bold;
+}
+
+@keyframes fadeInOut {
+    0% {
+        transform: rotate(0);
+    }
+    50% {
+        transform: rotate(0.5turn);
+    }
+    100% {
+        transform: rotate(1turn);
+    }
+}
+
+.heap-snapshot-view tr:not(.selected) td.object-column span.heap-object-tag {
+    color: #888;
 }
 
 .heap-snapshot-view td.object-column span.grayed {
@@ -122,7 +145,7 @@
     opacity: 0.6;
 }
 
-#heap-recording-view .heap-snapshot-view {
+#heap-recording-view .profile-view {
     top: 80px;
 }
 
@@ -150,12 +173,18 @@
     bottom: 0;
 }
 
+.heap-snapshot-statistics-view {
+    overflow: auto;
+}
+
 .heap-snapshot-stats-pie-chart {
     margin: 12px 30px;
+    flex-shrink: 0;
 }
 
 .heap-snapshot-stats-legend {
     margin-left: 24px;
+    flex-shrink: 0;
 }
 
 .heap-snapshot-stats-legend > div {
@@ -192,7 +221,7 @@
     padding: 2px;
 }
 
-.heap-allocation-stack .stack-frame a {
+.heap-allocation-stack .stack-frame .devtools-link {
     color: rgb(33%, 33%, 33%);
 }
 

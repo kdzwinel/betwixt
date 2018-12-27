@@ -1,40 +1,61 @@
 {
     "extensions": [
         {
-            "type": "@WebInspector.PanelFactory",
-            "name": "resources",
-            "title": "Resources",
+            "type": "view",
+            "location": "panel",
+            "id": "resources",
+            "title": "Application",
             "order": 70,
-            "className": "WebInspector.ResourcesPanelFactory"
+            "className": "Resources.ResourcesPanel",
+            "tags": "pwa"
         },
         {
-            "type": "@WebInspector.Revealer",
-            "contextTypes": ["WebInspector.Resource"],
-            "className": "WebInspector.ResourcesPanel.ResourceRevealer"
+            "type": "@Common.Revealer",
+            "contextTypes": [
+                "SDK.Resource"
+            ],
+            "destination": "Application panel",
+            "className": "Resources.ResourcesPanel.ResourceRevealer"
         }
     ],
-    "dependencies": ["source_frame", "ui_lazy", "components_lazy"],
+    "dependencies": [
+        "source_frame",
+        "cookie_table",
+        "inline_editor",
+        "data_grid",
+        "components",
+        "object_ui",
+        "perf_ui",
+        "mobile_throttling",
+        "network",
+        "sources"
+    ],
     "scripts": [
+        "ApplicationCacheModel.js",
+        "AppManifestView.js",
         "ApplicationCacheItemsView.js",
+        "ClearStorageView.js",
+        "StorageItemsView.js",
         "CookieItemsView.js",
         "DatabaseModel.js",
         "DOMStorageModel.js",
         "DOMStorageItemsView.js",
         "DatabaseQueryView.js",
         "DatabaseTableView.js",
-        "DirectoryContentView.js",
         "IndexedDBModel.js",
         "IndexedDBViews.js",
-        "FileContentView.js",
-        "FileSystemModel.js",
-        "FileSystemView.js",
         "ResourcesPanel.js",
+        "ApplicationPanelSidebar.js",
+        "ResourcesSection.js",
         "ServiceWorkerCacheViews.js",
         "ServiceWorkersView.js"
     ],
     "resources": [
+        "appManifestView.css",
+        "clearStorageView.css",
         "indexedDBViews.css",
         "resourcesPanel.css",
+        "resourcesSidebar.css",
         "serviceWorkerCacheViews.css",
         "serviceWorkersView.css"
     ]

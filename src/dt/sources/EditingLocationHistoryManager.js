@@ -29,172 +29,157 @@
  */
 
 /**
- * @constructor
- * @param {!WebInspector.SourcesView} sourcesView
- * @param {function():?WebInspector.SourceFrame} currentSourceFrameCallback
+ * @unrestricted
  */
-WebInspector.EditingLocationHistoryManager = function(sourcesView, currentSourceFrameCallback)
-{
+Sources.EditingLocationHistoryManager = class {
+  /**
+   * @param {!Sources.SourcesView} sourcesView
+   * @param {function():?Sources.UISourceCodeFrame} currentSourceFrameCallback
+   */
+  constructor(sourcesView, currentSourceFrameCallback) {
     this._sourcesView = sourcesView;
-    this._historyManager = new WebInspector.SimpleHistoryManager(WebInspector.EditingLocationHistoryManager.HistoryDepth);
+    this._historyManager = new Sources.SimpleHistoryManager(Sources.EditingLocationHistoryManager.HistoryDepth);
     this._currentSourceFrameCallback = currentSourceFrameCallback;
-}
+  }
 
-WebInspector.EditingLocationHistoryManager.HistoryDepth = 20;
+  /**
+   * @param {!Sources.UISourceCodeFrame} sourceFrame
+   */
+  trackSourceFrameCursorJumps(sourceFrame) {
+    sourceFrame.textEditor.addEventListener(
+        SourceFrame.SourcesTextEditor.Events.JumpHappened, this._onJumpHappened.bind(this));
+  }
 
-WebInspector.EditingLocationHistoryManager.prototype = {
-    /**
-     * @param {!WebInspector.UISourceCodeFrame} sourceFrame
-     */
-    trackSourceFrameCursorJumps: function(sourceFrame)
-    {
-        sourceFrame.addEventListener(WebInspector.SourceFrame.Events.JumpHappened, this._onJumpHappened.bind(this));
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _onJumpHappened(event) {
+    if (event.data.from)
+      this._updateActiveState(event.data.from);
+    if (event.data.to)
+      this._pushActiveState(event.data.to);
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _onJumpHappened: function(event)
-    {
-        if (event.data.from)
-            this._updateActiveState(event.data.from);
-        if (event.data.to)
-            this._pushActiveState(event.data.to);
-    },
+  rollback() {
+    this._historyManager.rollback();
+  }
 
-    rollback: function()
-    {
-        this._historyManager.rollback();
-    },
+  rollover() {
+    this._historyManager.rollover();
+  }
 
-    rollover: function()
-    {
-        this._historyManager.rollover();
-    },
+  updateCurrentState() {
+    const sourceFrame = this._currentSourceFrameCallback();
+    if (!sourceFrame)
+      return;
+    this._updateActiveState(sourceFrame.textEditor.selection());
+  }
 
-    updateCurrentState: function()
-    {
-        var sourceFrame = this._currentSourceFrameCallback();
-        if (!sourceFrame)
-            return;
-        this._updateActiveState(sourceFrame.textEditor.selection());
-    },
+  pushNewState() {
+    const sourceFrame = this._currentSourceFrameCallback();
+    if (!sourceFrame)
+      return;
+    this._pushActiveState(sourceFrame.textEditor.selection());
+  }
 
-    pushNewState: function()
-    {
-        var sourceFrame = this._currentSourceFrameCallback();
-        if (!sourceFrame)
-            return;
-        this._pushActiveState(sourceFrame.textEditor.selection());
-    },
+  /**
+   * @param {!TextUtils.TextRange} selection
+   */
+  _updateActiveState(selection) {
+    const active = this._historyManager.active();
+    if (!active)
+      return;
+    const sourceFrame = this._currentSourceFrameCallback();
+    if (!sourceFrame)
+      return;
+    const entry = new Sources.EditingLocationHistoryEntry(this._sourcesView, this, sourceFrame, selection);
+    active.merge(entry);
+  }
 
-    /**
-     * @param {!WebInspector.TextRange} selection
-     */
-    _updateActiveState: function(selection)
-    {
-        var active = this._historyManager.active();
-        if (!active)
-            return;
-        var sourceFrame = this._currentSourceFrameCallback();
-        if (!sourceFrame)
-            return;
-        var entry = new WebInspector.EditingLocationHistoryEntry(this._sourcesView, this, sourceFrame, selection);
-        active.merge(entry);
-    },
+  /**
+   * @param {!TextUtils.TextRange} selection
+   */
+  _pushActiveState(selection) {
+    const sourceFrame = this._currentSourceFrameCallback();
+    if (!sourceFrame)
+      return;
+    const entry = new Sources.EditingLocationHistoryEntry(this._sourcesView, this, sourceFrame, selection);
+    this._historyManager.push(entry);
+  }
 
-    /**
-     * @param {!WebInspector.TextRange} selection
-     */
-    _pushActiveState: function(selection)
-    {
-        var sourceFrame = this._currentSourceFrameCallback();
-        if (!sourceFrame)
-            return;
-        var entry = new WebInspector.EditingLocationHistoryEntry(this._sourcesView, this, sourceFrame, selection);
-        this._historyManager.push(entry);
-    },
+  /**
+   * @param {!Workspace.UISourceCode} uiSourceCode
+   */
+  removeHistoryForSourceCode(uiSourceCode) {
+    function filterOut(entry) {
+      return entry._projectId === uiSourceCode.project().id() && entry._url === uiSourceCode.url();
+    }
 
-    /**
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     */
-    removeHistoryForSourceCode: function(uiSourceCode)
-    {
-        function filterOut(entry)
-        {
-            return entry._projectId === uiSourceCode.project().id() && entry._path === uiSourceCode.path();
-        }
+    this._historyManager.filterOut(filterOut);
+  }
+};
 
-        this._historyManager.filterOut(filterOut);
-    },
-}
-
+Sources.EditingLocationHistoryManager.HistoryDepth = 20;
 
 /**
- * @constructor
- * @implements {WebInspector.HistoryEntry}
- * @param {!WebInspector.SourcesView} sourcesView
- * @param {!WebInspector.EditingLocationHistoryManager} editingLocationManager
- * @param {!WebInspector.SourceFrame} sourceFrame
- * @param {!WebInspector.TextRange} selection
+ * @implements {Sources.HistoryEntry}
+ * @unrestricted
  */
-WebInspector.EditingLocationHistoryEntry = function(sourcesView, editingLocationManager, sourceFrame, selection)
-{
+Sources.EditingLocationHistoryEntry = class {
+  /**
+   * @param {!Sources.SourcesView} sourcesView
+   * @param {!Sources.EditingLocationHistoryManager} editingLocationManager
+   * @param {!Sources.UISourceCodeFrame} sourceFrame
+   * @param {!TextUtils.TextRange} selection
+   */
+  constructor(sourcesView, editingLocationManager, sourceFrame, selection) {
     this._sourcesView = sourcesView;
     this._editingLocationManager = editingLocationManager;
-    var uiSourceCode = sourceFrame.uiSourceCode();
+    const uiSourceCode = sourceFrame.uiSourceCode();
     this._projectId = uiSourceCode.project().id();
-    this._path = uiSourceCode.path();
+    this._url = uiSourceCode.url();
 
-    var position = this._positionFromSelection(selection);
+    const position = this._positionFromSelection(selection);
     this._positionHandle = sourceFrame.textEditor.textEditorPositionHandle(position.lineNumber, position.columnNumber);
-}
+  }
 
-WebInspector.EditingLocationHistoryEntry.prototype = {
-    /**
-     * @param {!WebInspector.HistoryEntry} entry
-     */
-    merge: function(entry)
-    {
-        if (this._projectId !== entry._projectId || this._path !== entry._path)
-            return;
-        this._positionHandle = entry._positionHandle;
-    },
+  /**
+   * @param {!Sources.HistoryEntry} entry
+   */
+  merge(entry) {
+    if (this._projectId !== entry._projectId || this._url !== entry._url)
+      return;
+    this._positionHandle = entry._positionHandle;
+  }
 
-    /**
-     * @param {!WebInspector.TextRange} selection
-     * @return {!{lineNumber: number, columnNumber: number}}
-     */
-    _positionFromSelection: function(selection)
-    {
-        return {
-            lineNumber: selection.endLine,
-            columnNumber: selection.endColumn
-        };
-    },
+  /**
+   * @param {!TextUtils.TextRange} selection
+   * @return {!{lineNumber: number, columnNumber: number}}
+   */
+  _positionFromSelection(selection) {
+    return {lineNumber: selection.endLine, columnNumber: selection.endColumn};
+  }
 
-    /**
-     * @override
-     * @return {boolean}
-     */
-    valid: function()
-    {
-        var position = this._positionHandle.resolve();
-        var uiSourceCode = WebInspector.workspace.project(this._projectId).uiSourceCode(this._path);
-        return !!(position && uiSourceCode);
-    },
+  /**
+   * @override
+   * @return {boolean}
+   */
+  valid() {
+    const position = this._positionHandle.resolve();
+    const uiSourceCode = Workspace.workspace.uiSourceCode(this._projectId, this._url);
+    return !!(position && uiSourceCode);
+  }
 
-    /**
-     * @override
-     */
-    reveal: function()
-    {
-        var position = this._positionHandle.resolve();
-        var uiSourceCode = WebInspector.workspace.project(this._projectId).uiSourceCode(this._path);
-        if (!position || !uiSourceCode)
-            return;
+  /**
+   * @override
+   */
+  reveal() {
+    const position = this._positionHandle.resolve();
+    const uiSourceCode = Workspace.workspace.uiSourceCode(this._projectId, this._url);
+    if (!position || !uiSourceCode)
+      return;
 
-        this._editingLocationManager.updateCurrentState();
-        this._sourcesView.showSourceLocation(uiSourceCode, position.lineNumber, position.columnNumber);
-    }
-}
+    this._editingLocationManager.updateCurrentState();
+    this._sourcesView.showSourceLocation(uiSourceCode, position.lineNumber, position.columnNumber);
+  }
+};

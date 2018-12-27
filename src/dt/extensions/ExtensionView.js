@@ -29,78 +29,86 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.Widget}
- * @param {!WebInspector.ExtensionServer} server
- * @param {string} id
- * @param {string} src
- * @param {string} className
+ * @unrestricted
  */
-WebInspector.ExtensionView = function(server, id, src, className)
-{
-    WebInspector.Widget.call(this);
+Extensions.ExtensionView = class extends UI.Widget {
+  /**
+   * @param {!Extensions.ExtensionServer} server
+   * @param {string} id
+   * @param {string} src
+   * @param {string} className
+   */
+  constructor(server, id, src, className) {
+    super();
     this.setHideOnDetach();
-    this.element.className = "vbox flex-auto"; // Override
+    this.element.className = 'vbox flex-auto';  // Override
+
+    // TODO(crbug.com/872438): remove once we can use this._iframe instead
+    this.element.tabIndex = -1;
 
     this._server = server;
     this._id = id;
-    this._iframe = createElement("iframe");
-    this._iframe.addEventListener("load", this._onLoad.bind(this), false);
+    this._iframe = createElement('iframe');
+    this._iframe.addEventListener('load', this._onLoad.bind(this), false);
     this._iframe.src = src;
     this._iframe.className = className;
-    this.setDefaultFocusedElement(this._iframe);
+
+    // TODO(crbug.com/872438): make this._iframe the default focused element
+    this.setDefaultFocusedElement(this.element);
 
     this.element.appendChild(this._iframe);
-}
+  }
 
-WebInspector.ExtensionView.prototype = {
-    wasShown: function()
-    {
-        if (typeof this._frameIndex === "number")
-            this._server.notifyViewShown(this._id, this._frameIndex);
-    },
+  /**
+   * @override
+   */
+  wasShown() {
+    if (typeof this._frameIndex === 'number')
+      this._server.notifyViewShown(this._id, this._frameIndex);
+  }
 
-    willHide: function()
-    {
-        if (typeof this._frameIndex === "number")
-            this._server.notifyViewHidden(this._id);
-    },
+  /**
+   * @override
+   */
+  willHide() {
+    if (typeof this._frameIndex === 'number')
+      this._server.notifyViewHidden(this._id);
+  }
 
-    _onLoad: function()
-    {
-        var frames = /** @type {!Array.<!Window>} */ (window.frames);
-        this._frameIndex = Array.prototype.indexOf.call(frames, this._iframe.contentWindow);
-        if (this.isShowing())
-            this._server.notifyViewShown(this._id, this._frameIndex);
-    },
-
-    __proto__: WebInspector.Widget.prototype
-}
+  _onLoad() {
+    const frames = /** @type {!Array.<!Window>} */ (window.frames);
+    this._frameIndex = Array.prototype.indexOf.call(frames, this._iframe.contentWindow);
+    if (this.isShowing())
+      this._server.notifyViewShown(this._id, this._frameIndex);
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.VBox}
- * @param {!WebInspector.ExtensionServer} server
- * @param {string} id
+ * @unrestricted
  */
-WebInspector.ExtensionNotifierView = function(server, id)
-{
-    WebInspector.VBox.call(this);
+Extensions.ExtensionNotifierView = class extends UI.VBox {
+  /**
+   * @param {!Extensions.ExtensionServer} server
+   * @param {string} id
+   */
+  constructor(server, id) {
+    super();
 
     this._server = server;
     this._id = id;
-}
+  }
 
-WebInspector.ExtensionNotifierView.prototype = {
-    wasShown: function()
-    {
-        this._server.notifyViewShown(this._id);
-    },
+  /**
+   * @override
+   */
+  wasShown() {
+    this._server.notifyViewShown(this._id);
+  }
 
-    willHide: function()
-    {
-        this._server.notifyViewHidden(this._id);
-    },
-
-    __proto__: WebInspector.VBox.prototype
-}
+  /**
+   * @override
+   */
+  willHide() {
+    this._server.notifyViewHidden(this._id);
+  }
+};

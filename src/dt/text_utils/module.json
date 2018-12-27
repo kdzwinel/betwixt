@@ -1,0 +1,10 @@
+{
+    "dependencies": [
+        "platform"
+    ],
+    "scripts": [
+        "Text.js",
+        "TextUtils.js",
+        "TextRange.js"
+    ]
+}

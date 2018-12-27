@@ -1,0 +1,12 @@
+{
+    "dependencies": [
+        "profiler",
+        "test_runner"
+    ],
+    "scripts": [
+        "ProfilerTestRunner.js"
+    ],
+    "skip_compilation": [
+        "ProfilerTestRunner.js"
+    ]
+}

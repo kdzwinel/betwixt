@@ -1,0 +1,12 @@
+{
+    "dependencies": [
+        "sdk",
+        "workspace",
+        "ui",
+        "host",
+        "main"
+    ],
+    "scripts": [
+        "TestRunner.js"
+    ]
+}

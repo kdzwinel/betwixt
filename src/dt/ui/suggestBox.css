@@ -29,76 +29,72 @@
  */
 
 :host {
-    position: absolute;
-    background-color: transparent;
-    z-index: 1000;
-    pointer-events: none;
-    overflow: hidden;
     display: flex;
-    flex-direction: row;
-}
-
-.suggest-box-left-spacer {
-    flex: 0 1 auto;
-}
-
-.suggest-box-horizontal {
-    display: flex;
-    flex-direction: column;
-    flex: 0 0 auto;
-    max-width: 300px;
-}
-
-.suggest-box-top-spacer {
     flex: auto;
 }
 
-:host(.under-anchor) .suggest-box-top-spacer,
-:host(:not(.under-anchor)) .suggest-box-bottom-spacer {
-    flex: 0 0 auto;
-}
-
 .suggest-box {
+    flex: auto;
     background-color: #FFFFFF;
-    border: 1px solid rgb(66%, 66%, 66%);
     pointer-events: auto;
     margin-left: -3px;
+    box-shadow: var(--drop-shadow);
     overflow-x: hidden;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    flex: 0 0 auto;
-    border-radius: 5px 5px 5px 0;
 }
 
-:host(.under-anchor) .suggest-box {
-    border-radius: 0 5px 5px 5px;
-}
-
-.suggest-box .suggest-box-content-item {
-    padding: 1px;
+.suggest-box-content-item {
+    padding: 1px 0 1px 1px;
     margin: 0;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    display: flex;
+}
+
+.suggest-box-content-item.secondary {
+    background-color: #f9f9f9;
+}
+
+.suggestion-title {
     overflow: hidden;
     text-overflow: ellipsis;
-    border: 1px solid transparent;
-    flex: 0 0 auto;
-    padding-right: 0;
-    white-space: nowrap;
 }
 
-.suggest-box .suggest-box-content-item .prefix {
+.suggestion-title span {
+    white-space: pre;
+}
+
+.suggestion-subtitle {
+    flex: auto;
+    text-align: right;
+    color: #999;
+    margin-right: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.suggestion-icon {
+    user-select: none;
+    align-self: center;
+    flex-shrink: 0;
+}
+
+.suggest-box-content-item .query {
     font-weight: bold;
 }
 
-.suggest-box .suggest-box-content-item .spacer {
+.suggest-box-content-item .spacer {
     display: inline-block;
     width: 20px;
 }
 
-.suggest-box .suggest-box-content-item.selected {
-    background-color: rgba(56, 121, 217, 0.1);
+.suggest-box-content-item.selected {
+    background-color: var(--selection-bg-color);
 }
 
-.suggest-box .suggest-box-content-item:hover:not(.selected) {
-    border: 1px solid rgb(204, 204, 204);
+.suggest-box-content-item.selected > span {
+    color: var(--selection-fg-color);
+}
+
+.suggest-box-content-item:hover:not(.selected) {
+    background-color: rgba(56, 121, 217, 0.1);
 }

@@ -29,72 +29,67 @@
  */
 
 /**
- * @constructor
+ * @unrestricted
  */
-WebInspector.TextDictionary = function()
-{
-    this._words = {};
-}
+Common.TextDictionary = class {
+  constructor() {
+    /** @type {!Map<string, number>} */
+    this._words = new Map();
+    this._index = new Common.Trie();
+  }
 
-WebInspector.TextDictionary.prototype = {
-    /**
-     * @param {string} word
-     */
-    addWord: function(word)
-    {
-        if (!this._words[word])
-            this._words[word] = 1;
-        else
-            ++this._words[word];
-    },
+  /**
+   * @param {string} word
+   */
+  addWord(word) {
+    let count = this._words.get(word) || 0;
+    ++count;
+    this._words.set(word, count);
+    this._index.add(word);
+  }
 
-    /**
-     * @param {string} word
-     */
-    removeWord: function(word)
-    {
-        if (!this._words[word])
-            return;
-        if (this._words[word] === 1)
-            delete this._words[word];
-        else
-            --this._words[word];
-    },
-
-    /**
-     * @param {string} prefix
-     * @return {!Array.<string>}
-     */
-    wordsWithPrefix: function(prefix)
-    {
-        var words = [];
-        for(var i in this._words) {
-            if (i.startsWith(prefix))
-                words.push(i);
-        }
-        return words;
-    },
-
-    /**
-     * @param {string} word
-     * @return {boolean}
-     */
-    hasWord: function(word)
-    {
-        return !!this._words[word];
-    },
-
-    /**
-     * @param {string} word
-     * @return {number}
-     */
-    wordCount: function(word)
-    {
-        return this._words[word] ? this._words[word] : 0;
-    },
-
-    reset: function()
-    {
-        this._words = {};
+  /**
+   * @param {string} word
+   */
+  removeWord(word) {
+    let count = this._words.get(word) || 0;
+    if (!count)
+      return;
+    if (count === 1) {
+      this._words.delete(word);
+      this._index.remove(word);
+      return;
     }
-}
+    --count;
+    this._words.set(word, count);
+  }
+
+  /**
+   * @param {string} prefix
+   * @return {!Array.<string>}
+   */
+  wordsWithPrefix(prefix) {
+    return this._index.words(prefix);
+  }
+
+  /**
+   * @param {string} word
+   * @return {boolean}
+   */
+  hasWord(word) {
+    return this._words.has(word);
+  }
+
+  /**
+   * @param {string} word
+   * @return {number}
+   */
+  wordCount(word) {
+    return this._words.get(word) || 0;
+  }
+
+  reset() {
+    this._words.clear();
+    this._index.clear();
+  }
+};

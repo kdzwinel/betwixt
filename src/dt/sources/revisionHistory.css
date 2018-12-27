@@ -26,32 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-.outline-disclosure.revision-history-drawer {
-    -webkit-padding-start: 0;
-    overflow: auto;
-}
-
-.outline-disclosure.revision-history-drawer ol {
-    margin-top: 2px;
-    -webkit-padding-start: 0;
-    padding-left: 0 !important;
-}
-
-.outline-disclosure.revision-history-drawer > ol {
-    padding-left: 0;
-}
-
-.outline-disclosure.revision-history-drawer li {
-    padding-left: 6px;
-    margin-top: 0;
-    margin-bottom: 0;
-    height: 13px;
-}
-
-.outline-disclosure.revision-history-drawer li.parent {
-    margin-left: 4px;
-}
-
 .revision-history-link {
     text-decoration: underline;
     cursor: pointer;
@@ -63,17 +37,17 @@
     padding-left: 16px;
 }
 
-.outline-disclosure.revision-history-drawer .revision-history-line {
-    padding-left: 0;
+li.revision-history-line {
+    padding-left: 6px;
     -webkit-user-select: text;
 }
 
-.revision-history-drawer .webkit-line-number {
+.webkit-line-number {
     border-right: 1px solid #BBB;
     background-color: #F0F0F0;
 }
 
-.revision-history-drawer li.revision-history-revision {
+li.revision-history-revision {
     padding-left: 16px;
 }
 

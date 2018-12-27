@@ -4,26 +4,34 @@
  * found in the LICENSE file.
  */
 
+:host {
+    overflow:hidden;
+}
+
 .header {
     padding: 0 0 6px;
     border-bottom: 1px solid #EEEEEE;
     font-size: 18px;
     font-weight: normal;
+    flex: none;
 }
 
 .blackbox-content-scripts {
     margin-top: 10px;
+    flex: none;
 }
 
 .add-button {
-    margin: 10px 0;
+    margin: 10px 2px;
     align-self: flex-start;
+    flex: none;
 }
 
 .blackbox-list {
     margin-top: 10px;
     max-width: 500px;
     flex: 0 1 auto;
+    min-height: 30px;
 }
 
 .blackbox-list-empty {
@@ -43,13 +51,17 @@
     flex: auto 1 1;
 }
 
-.blackbox-pattern {
+ .blackbox-list-item .blackbox-pattern {
     white-space: nowrap;
     text-overflow: ellipsis;
     -webkit-user-select: none;
     color: #222;
-    flex: auto;
     overflow: hidden;
+}
+
+.blackbox-pattern {
+    flex: auto;
+    min-width: 100px;
 }
 
 .blackbox-list-item.blackbox-disabled .blackbox-pattern {

@@ -17,6 +17,8 @@
     margin-left: -2px;
     word-wrap: break-word;
     position: relative;
+    min-height: 15px;
+    line-height: 15px;
 }
 
 .elements-disclosure li.parent {
@@ -24,41 +26,50 @@
     margin-left: -13px;
 }
 
+.elements-disclosure li .selected-hint:before {
+    font-style: italic;
+    content: " == $0";
+    opacity: 0;
+    position: absolute;
+    white-space: pre;
+}
+
+.elements-disclosure .elements-tree-outline:not(.hide-selection-when-blurred) li.selected .selected-hint:before {
+    opacity: 0.6;
+}
+
 .elements-disclosure li.parent::before {
-    float: left;
-    width: 10px;
     box-sizing: border-box;
 }
 
 .elements-disclosure li.parent::before {
     -webkit-user-select: none;
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs.png);
-    -webkit-mask-size: 352px 168px;
-    content: "a";
+    -webkit-mask-image: url(Images/treeoutlineTriangles.png);
+    -webkit-mask-size: 32px 24px;
+    content: '\00a0\00a0';
     color: transparent;
     text-shadow: none;
-    margin-right: 1px;
+    margin-right: -3px;
 }
 
 .elements-disclosure li.always-parent::before {
     visibility: hidden;
 }
 
-@media (-webkit-min-device-pixel-ratio: 1.5) {
+@media (-webkit-min-device-pixel-ratio: 1.1) {
 .elements-disclosure li.parent::before {
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs_2x.png);
+    -webkit-mask-image: url(Images/treeoutlineTriangles_2x.png);
 }
 } /* media */
 
 .elements-disclosure li.parent::before {
-    -webkit-mask-position: -4px -96px;
-    background-color: rgb(110, 110, 110);
+    -webkit-mask-position: 0 0;
+    background-color: #727272;
 }
 
 .elements-disclosure li .selection {
     display: none;
     z-index: -1;
-    margin-left: -10000px;
 }
 
 .elements-disclosure li.hovered:not(.selected) .selection {
@@ -70,18 +81,27 @@
 }
 
 .elements-disclosure li.parent.expanded::before {
-    -webkit-mask-position: -20px -96px;
+    -webkit-mask-position: -16px 0;
 }
 
 .elements-disclosure li.selected .selection {
     display: block;
-    background-color: #dadada;
+}
+
+.elements-disclosure .elements-tree-outline:not(.hide-selection-when-blurred) .selection {
+    background-color: var(--editor-selection-inactive-bg-color);
+}
+
+.elements-disclosure .elements-tree-outline.hide-selection-when-blurred .selected:focus[data-keyboard-focus="true"] .highlight > * {
+    background: var(--focus-bg-color);
+    border-radius: 2px;
+    box-shadow: 0px 0px 0px 2px var(--focus-bg-color);
 }
 
 .elements-disclosure ol {
     list-style-type: none;
     /** Keep it in sync with ElementsTreeElements.updateDecorators **/
-    -webkit-padding-start: 12px;
+    padding-inline-start: 12px;
     margin: 0;
 }
 
@@ -103,30 +123,11 @@
     cursor: default;
     min-width: 100%;
     min-height: 100%;
-    -webkit-transform: translateZ(0);
     padding-left: 2px;
 }
 
-.elements-disclosure ol:focus li.selected {
-    color: white;
-}
-
-.elements-disclosure ol:focus li.parent.selected::before {
-    background-color: white;
-}
-
-.elements-disclosure ol:focus li.selected * {
-    color: inherit;
-}
-
-.elements-disclosure ol:focus li.selected .selection {
-    background-color: rgb(56, 121, 217);
-}
-
-.elements-tree-outline ol.shadow-root {
-    margin-left: 5px;
-    padding-left: 5px;
-    border-left: 1px solid rgb(190, 190, 190);
+.elements-disclosure .elements-tree-outline:not(.hide-selection-when-blurred) li.selected:focus .selection {
+    background-color: var(--editor-selection-bg-color);
 }
 
 .elements-tree-outline ol.shadow-root-depth-4 {
@@ -150,14 +151,14 @@
 }
 
 .elements-tree-editor {
-    -webkit-user-select: text;
-    -webkit-user-modify: read-write-plaintext-only;
+    box-shadow: var(--drop-shadow);
+    margin-right: 4px;
 }
 
 .elements-disclosure li.elements-drag-over .selection {
     display: block;
     margin-top: -2px;
-    border-top: 2px solid rgb(56, 121, 217);
+    border-top: 2px solid var(--selection-bg-color);
 }
 
 .elements-disclosure li.in-clipboard .highlight {
@@ -165,10 +166,8 @@
 }
 
 .CodeMirror {
-    /* Consistent with the .editing class in inspector.css */
-    box-shadow: rgba(0, 0, 0, .5) 3px 3px 4px;
-    outline: 1px solid rgb(66%, 66%, 66%) !important;
     background-color: white;
+    height: 300px !important;
 }
 
 .CodeMirror-lines {
@@ -185,11 +184,8 @@ button, input, select {
 }
 
 .editing {
-    -webkit-user-select: text;
-    box-shadow: rgba(0, 0, 0, .5) 3px 3px 4px;
-    outline: 1px solid rgb(66%, 66%, 66%) !important;
+    box-shadow: var(--drop-shadow);
     background-color: white;
-    -webkit-user-modify: read-write-plaintext-only;
     text-overflow: clip !important;
     padding-left: 2px;
     margin-left: -2px;
@@ -232,36 +228,6 @@ button, input, select {
     white-space: nowrap;
 }
 
-.elements-tree-element-pick-node-1 {
-    border-radius: 3px;
-    padding: 1px 0 1px 0;
-    -webkit-animation: elements-tree-element-pick-node-animation-1 0.5s 1;
-}
-
-.elements-tree-element-pick-node-2 {
-    border-radius: 3px;
-    padding: 1px 0 1px 0;
-    -webkit-animation: elements-tree-element-pick-node-animation-2 0.5s 1;
-}
-
-@-webkit-keyframes elements-tree-element-pick-node-animation-1 {
-    from { background-color: rgb(255, 210, 126); }
-    to { background-color: inherit; }
-}
-
-@-webkit-keyframes elements-tree-element-pick-node-animation-2 {
-    from { background-color: rgb(255, 210, 126); }
-    to { background-color: inherit; }
-}
-
-.pick-node-mode {
-    cursor: pointer;
-}
-
-.webkit-html-attribute-value a {
-    cursor: default !important;
-}
-
 .elements-tree-nowrap, .elements-tree-nowrap .li {
     white-space: pre !important;
 }
@@ -285,9 +251,27 @@ button, input, select {
     }
 }
 
+@-webkit-keyframes dom-update-highlight-animation-dark {
+    from {
+        background-color: rgb(158, 54, 153);
+        color: white;
+    }
+    80% {
+        background-color: #333;
+        color: inherit;
+    }
+    to {
+        background-color: inherit;
+    }
+}
+
 .dom-update-highlight {
     -webkit-animation: dom-update-highlight-animation 1.4s 1 cubic-bezier(0, 0, 0.2, 1);
     border-radius: 2px;
+}
+
+:host-context(.-theme-with-dark-background) .dom-update-highlight {
+    -webkit-animation: dom-update-highlight-animation-dark 1.4s 1 cubic-bezier(0, 0, 0.2, 1);
 }
 
 .elements-disclosure.single-node li {
@@ -307,41 +291,52 @@ ol:hover > li > .elements-tree-shortcut-link {
     display: none;
 }
 
-ol:focus li.selected .webkit-html-tag {
-    color: #a5a5a5;
-}
-
-ol:focus li.selected .webkit-html-tag-name,
-ol:focus li.selected .webkit-html-close-tag-name,
-ol:focus li.selected .webkit-html-attribute-value,
-ol:focus li.selected .webkit-html-external-link,
-ol:focus li.selected .webkit-html-resource-link {
-    color: white;
-}
-
-ol:focus li.selected .webkit-html-attribute-name {
-    color: #ccc;
-}
-
 .elements-disclosure .gutter-container {
     position: absolute;
-}
-
-.elements-disclosure li.selected .gutter-container:not(.has-decorations) {
-    left: 0px;
-    width: 16.25px;
-    height: 18px;
-    transform: rotate(-90deg) translateX(-13px) scale(0.8);
-    transform-origin: 0% 0%;
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs.png);
-    -webkit-mask-position: -201px -27px;
-    -webkit-mask-size: 352px 168px;
-    background-color: white;
+    top: 0;
+    left: 0;
     cursor: pointer;
+    width: 15px;
+    height: 15px;
 }
 
-@media (-webkit-min-device-pixel-ratio: 1.5) {
-.elements-disclosure li.selected .gutter-container:not(.has-decorations) {
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs_2x.png);
+.elements-hide-gutter .gutter-container {
+    display: none;
 }
-} /* media */
+
+.gutter-menu-icon {
+    display: none;
+    transform: rotate(-90deg) scale(0.8);
+    background-color: white;
+    position: relative;
+    left: -7px;
+    top: -3px;
+}
+
+.elements-disclosure li.selected .gutter-container:not(.has-decorations) .gutter-menu-icon {
+    display: block;
+}
+
+/** Guide line */
+li.selected {
+    z-index: 0;
+}
+
+li.hovered:not(.always-parent) + ol.children, .elements-tree-outline ol.shadow-root, li.selected:not(.always-parent) + ol.children {
+    margin-left: 5px;
+    padding-inline-start: 6px;
+    border-width: 1px;
+    border-left-style: solid;
+}
+
+li.hovered:not(.always-parent) + ol.children:not(.shadow-root) {
+    border-color: hsla(0,0%,0%,0.1);
+}
+
+.elements-tree-outline ol.shadow-root {
+    border-color: hsla(0,0%,80%,1);
+}
+
+li.selected:not(.always-parent) + ol.children {
+    border-color: hsla(216,68%,80%,1) !important;
+}

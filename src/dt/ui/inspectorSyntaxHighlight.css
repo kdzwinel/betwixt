@@ -25,11 +25,16 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-.cm-js-keyword {color: rgb(170, 13, 145);}
-.cm-js-number {color: rgb(28, 0, 207);}
-.cm-js-comment {color: rgb(0, 116, 0);}
-.cm-js-string {color: rgb(196, 26, 22);}
-.cm-js-string-2 {color: rgb(196, 26, 22);}
+.cm-js-keyword {color: hsl(310, 86%, 36%);}
+.cm-js-number {color: hsl(248, 100%, 41%);}
+.cm-js-comment {color: hsl(120, 100%, 23%); font-style: italic;}
+.cm-js-string {color: hsl(1, 80%, 43%);}
+.cm-js-string-2 {color: hsl(1, 99%, 39%);}
+.cm-js-atom {color: hsl(310, 86%, 36%);}
+.cm-js-def {color: hsl(240, 73%, 38%);}
+.cm-js-operator {color: hsl(27, 100%, 30%);}
+.cm-js-meta {color: hsl(27, 100%, 30%);}
+.cm-js-variable-2 {color: hsl(240, 73%, 38%);}
 
 .cm-css-keyword { color: rgb(7, 144, 154);}
 .cm-css-number {color: rgb(50, 0, 255);}
@@ -47,9 +52,14 @@
 .cm-xml-meta {color: rgb(192, 192, 192);}
 .cm-xml-comment {color: rgb(35, 110, 37);}
 .cm-xml-string {color: rgb(26, 26, 166);}
-.cm-xml-tag {color: rgb(136, 18, 128);}
+.cm-xml-tag {color: var(--dom-tag-name-color);}
 .cm-xml-attribute {color: rgb(153, 69, 0);}
 .cm-xml-link {color: #00e;}
+
+:root {
+    --dom-tag-name-color: rgb(136, 18, 128);
+    --dom-attribute-name-color: rgb(153, 69, 0);
+}
 
 .webkit-html-comment {
     /* Keep this in sync with view-source.css (.webkit-html-comment) */
@@ -62,7 +72,7 @@
 
 .webkit-html-tag-name, .webkit-html-close-tag-name {
     /* Keep this in sync with view-source.css (.webkit-html-tag) */
-    color: rgb(136, 18, 128);
+    color: var(--dom-tag-name-color);
 }
 
 .webkit-html-pseudo-element {
@@ -72,7 +82,7 @@
 
 .webkit-html-js-node,
 .webkit-html-css-node {
-    white-space: pre;
+    white-space: pre-wrap;
 }
 
 .webkit-html-text-node {
@@ -92,7 +102,7 @@
 
 .webkit-html-attribute-name {
     /* Keep this in sync with view-source.css (.webkit-html-attribute-name) */
-    color: rgb(153, 69, 0);
+    color: var(--dom-attribute-name-color);
     unicode-bidi: -webkit-isolate;
 }
 
@@ -102,26 +112,26 @@
     unicode-bidi: -webkit-isolate;
 }
 
-.webkit-html-external-link,
-.webkit-html-resource-link {
-    /* Keep this in sync with view-source.css (.webkit-html-external-link, .webkit-html-resource-link) */
-    color: #00e;
+.devtools-link {
+    color: rgb(17, 85, 204);
+    text-decoration: underline;
 }
 
-.webkit-html-resource-link {
-    /* Required for consistency with view-source.css, since anchors may not have href attributes */
-    text-decoration: underline;
+.devtools-link [is=ui-icon] {
+    vertical-align: middle;
+}
+
+.devtools-link[data-keyboard-focus="true"]:focus {
+    outline-width: unset;
+}
+
+.devtools-link:not(.devtools-link-prevent-click) {
     cursor: pointer;
 }
 
-.webkit-html-external-link {
-    /* Keep this in sync with view-source.css (.webkit-html-external-link) */
-    text-decoration: none;
-}
-
-.webkit-html-external-link:hover {
-    /* Keep this in sync with view-source.css (.webkit-html-external-link:hover) */
-    text-decoration: underline;
+.-theme-with-dark-background .devtools-link,
+:host-context(.-theme-with-dark-background) .devtools-link {
+    color: hsl(0, 0%, 67%);
 }
 
 .webkit-html-end-of-file {
@@ -129,3 +139,36 @@
     color: rgb(255, 0, 0);
     font-weight: bold;
 }
+
+/* Default CodeMirror Theme */
+.cm-negative {color: #d44;}
+.cm-positive {color: #292;}
+.cm-header, .cm-strong {font-weight: bold;}
+.cm-em {font-style: italic;}
+.cm-link {text-decoration: underline;}
+.cm-strikethrough {text-decoration: line-through;}
+
+.cm-invalidchar {color: #f00;}
+
+.cm-header {color: blue;}
+.cm-quote {color: #090;}
+
+.cm-keyword {color: #708;}
+.cm-atom {color: #219;}
+.cm-number {color: #164;}
+.cm-def {color: #00f;}
+.cm-variable-2 {color: #05a;}
+.cm-variable-3, .cm-type {color: #085;}
+.cm-comment {color: #a50;}
+.cm-string {color: #a11;}
+.cm-string-2 {color: #f50;}
+.cm-meta {color: #555;}
+.cm-qualifier {color: #555;}
+.cm-builtin {color: #30a;}
+.cm-bracket {color: #997;}
+.cm-tag {color: #170;}
+.cm-attribute {color: #00c;}
+.cm-hr {color: #999;}
+.cm-link {color: #00c;}
+
+.cm-error {color: #f00;}

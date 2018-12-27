@@ -1,0 +1,12 @@
+{
+  "dependencies": [
+    "test_runner",
+    "data_grid"
+  ],
+  "scripts": [
+    "DataGridTestRunner.js"
+  ],
+  "skip_compilation": [
+    "DataGridTestRunner.js"
+  ]
+}

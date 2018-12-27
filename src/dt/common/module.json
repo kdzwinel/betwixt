@@ -1,15 +1,13 @@
 {
     "dependencies": [
+        "text_utils",
         "platform"
     ],
     "scripts": [
-        "WorkerRuntime.js",
-        "WebInspector.js",
+        "Worker.js",
         "TextDictionary.js",
         "Object.js",
-        "NotificationService.js",
         "Color.js",
-        "Geometry.js",
         "Console.js",
         "ContentProvider.js",
         "ParsedURL.js",
@@ -18,14 +16,11 @@
         "Settings.js",
         "StaticContentProvider.js",
         "OutputStream.js",
-        "TestBase.js",
-        "TextRange.js",
-        "TextUtils.js",
+        "SegmentedRange.js",
         "Throttler.js",
+        "Trie.js",
         "UIString.js",
-        "ModuleExtensionInterfaces.js"
-    ],
-    "skip_compilation": [
-        "TestBase.js"
+        "ModuleExtensionInterfaces.js",
+        "CharacterIdMap.js"
     ]
 }

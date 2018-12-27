@@ -30,643 +30,565 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.VBox}
- * @param {!WebInspector.Searchable} searchable
- * @param {string=} settingName
+ * @unrestricted
  */
-WebInspector.SearchableView = function(searchable, settingName)
-{
-    WebInspector.VBox.call(this, true);
-    this.registerRequiredCSS("ui/searchableView.css");
-    this.element[WebInspector.SearchableView._symbol] = this;
+UI.SearchableView = class extends UI.VBox {
+  /**
+   * @param {!UI.Searchable} searchable
+   * @param {string=} settingName
+   */
+  constructor(searchable, settingName) {
+    super(true);
+    this.registerRequiredCSS('ui/searchableView.css');
+    this.element[UI.SearchableView._symbol] = this;
 
     this._searchProvider = searchable;
-    this._setting = settingName ? WebInspector.settings.createSetting(settingName, {}) : null;
+    this._setting = settingName ? Common.settings.createSetting(settingName, {}) : null;
+    this._replaceable = false;
 
-    this.contentElement.createChild("content");
-    this._footerElementContainer = this.contentElement.createChild("div", "search-bar hidden");
+    this.contentElement.createChild('content');
+    this._footerElementContainer = this.contentElement.createChild('div', 'search-bar hidden');
     this._footerElementContainer.style.order = 100;
+    this._footerElement = this._footerElementContainer.createChild('div', 'toolbar-search');
 
-    var toolbar = new WebInspector.Toolbar(this._footerElementContainer);
+    const replaceToggleToolbar = new UI.Toolbar('replace-toggle-toolbar', this._footerElement);
+    this._replaceToggleButton = new UI.ToolbarToggle(Common.UIString('Replace'), 'mediumicon-replace');
+    this._replaceToggleButton.addEventListener(UI.ToolbarButton.Events.Click, this._toggleReplace, this);
+    replaceToggleToolbar.appendToolbarItem(this._replaceToggleButton);
+
+    const searchInputElements = this._footerElement.createChild('div', 'toolbar-search-inputs');
+    const searchControlElement = searchInputElements.createChild('div', 'toolbar-search-control');
+
+    this._searchInputElement = UI.HistoryInput.create();
+    this._searchInputElement.classList.add('search-replace');
+    this._searchInputElement.id = 'search-input-field';
+    this._searchInputElement.placeholder = Common.UIString('Find');
+    searchControlElement.appendChild(this._searchInputElement);
+
+    this._matchesElement = searchControlElement.createChild('label', 'search-results-matches');
+    this._matchesElement.setAttribute('for', 'search-input-field');
+
+    const searchNavigationElement = searchControlElement.createChild('div', 'toolbar-search-navigation-controls');
+
+    this._searchNavigationPrevElement =
+        searchNavigationElement.createChild('div', 'toolbar-search-navigation toolbar-search-navigation-prev');
+    this._searchNavigationPrevElement.addEventListener('click', this._onPrevButtonSearch.bind(this), false);
+    this._searchNavigationPrevElement.title = Common.UIString('Search previous');
+
+    this._searchNavigationNextElement =
+        searchNavigationElement.createChild('div', 'toolbar-search-navigation toolbar-search-navigation-next');
+    this._searchNavigationNextElement.addEventListener('click', this._onNextButtonSearch.bind(this), false);
+    this._searchNavigationNextElement.title = Common.UIString('Search next');
+
+    this._searchInputElement.addEventListener('keydown', this._onSearchKeyDown.bind(this), true);
+    this._searchInputElement.addEventListener('input', this._onInput.bind(this), false);
+
+    this._replaceInputElement =
+        searchInputElements.createChild('input', 'search-replace toolbar-replace-control hidden');
+    this._replaceInputElement.addEventListener('keydown', this._onReplaceKeyDown.bind(this), true);
+    this._replaceInputElement.placeholder = Common.UIString('Replace');
+
+    this._buttonsContainer = this._footerElement.createChild('div', 'toolbar-search-buttons');
+    const firstRowButtons = this._buttonsContainer.createChild('div', 'first-row-buttons');
+
+    const toolbar = new UI.Toolbar('toolbar-search-options', firstRowButtons);
 
     if (this._searchProvider.supportsCaseSensitiveSearch()) {
-        this._caseSensitiveButton = new WebInspector.ToolbarTextButton(WebInspector.UIString("Case sensitive"), "case-sensitive-search-toolbar-item", "Aa", 2);
-        this._caseSensitiveButton.addEventListener("click", this._toggleCaseSensitiveSearch, this);
-        toolbar.appendToolbarItem(this._caseSensitiveButton);
+      this._caseSensitiveButton = new UI.ToolbarToggle(Common.UIString('Match Case'));
+      this._caseSensitiveButton.setText('Aa');
+      this._caseSensitiveButton.addEventListener(UI.ToolbarButton.Events.Click, this._toggleCaseSensitiveSearch, this);
+      toolbar.appendToolbarItem(this._caseSensitiveButton);
     }
 
     if (this._searchProvider.supportsRegexSearch()) {
-        this._regexButton = new WebInspector.ToolbarTextButton(WebInspector.UIString("Regex"), "regex-search-toolbar-item", ".*", 2);
-        this._regexButton.addEventListener("click", this._toggleRegexSearch, this);
-        toolbar.appendToolbarItem(this._regexButton);
+      this._regexButton = new UI.ToolbarToggle(Common.UIString('Use Regular Expression'));
+      this._regexButton.setText('.*');
+      this._regexButton.addEventListener(UI.ToolbarButton.Events.Click, this._toggleRegexSearch, this);
+      toolbar.appendToolbarItem(this._regexButton);
     }
 
-    this._footerElement = this._footerElementContainer.createChild("table", "toolbar-search");
-    this._footerElement.cellSpacing = 0;
+    const cancelButtonElement =
+        UI.createTextButton(Common.UIString('Cancel'), this.closeSearch.bind(this), 'search-action-button');
+    firstRowButtons.appendChild(cancelButtonElement);
 
-    this._firstRowElement = this._footerElement.createChild("tr");
-    this._secondRowElement = this._footerElement.createChild("tr", "hidden");
+    this._secondRowButtons = this._buttonsContainer.createChild('div', 'second-row-buttons hidden');
 
-    // Column 1
-    var searchControlElementColumn = this._firstRowElement.createChild("td");
-    this._searchControlElement = searchControlElementColumn.createChild("span", "toolbar-search-control");
-
-    this._searchInputElement = WebInspector.HistoryInput.create();
-    this._searchInputElement.classList.add("search-replace");
-    this._searchControlElement.appendChild(this._searchInputElement);
-
-    this._searchInputElement.id = "search-input-field";
-    this._searchInputElement.placeholder = WebInspector.UIString("Find");
-
-    this._matchesElement = this._searchControlElement.createChild("label", "search-results-matches");
-    this._matchesElement.setAttribute("for", "search-input-field");
-
-    this._searchNavigationElement = this._searchControlElement.createChild("div", "toolbar-search-navigation-controls");
-
-    this._searchNavigationPrevElement = this._searchNavigationElement.createChild("div", "toolbar-search-navigation toolbar-search-navigation-prev");
-    this._searchNavigationPrevElement.addEventListener("click", this._onPrevButtonSearch.bind(this), false);
-    this._searchNavigationPrevElement.title = WebInspector.UIString("Search Previous");
-
-    this._searchNavigationNextElement = this._searchNavigationElement.createChild("div", "toolbar-search-navigation toolbar-search-navigation-next");
-    this._searchNavigationNextElement.addEventListener("click", this._onNextButtonSearch.bind(this), false);
-    this._searchNavigationNextElement.title = WebInspector.UIString("Search Next");
-
-    this._searchInputElement.addEventListener("mousedown", this._onSearchFieldManualFocus.bind(this), false); // when the search field is manually selected
-    this._searchInputElement.addEventListener("keydown", this._onSearchKeyDown.bind(this), true);
-    this._searchInputElement.addEventListener("input", this._onInput.bind(this), false);
-
-    this._replaceInputElement = this._secondRowElement.createChild("td").createChild("input", "search-replace toolbar-replace-control");
-    this._replaceInputElement.addEventListener("keydown", this._onReplaceKeyDown.bind(this), true);
-    this._replaceInputElement.placeholder = WebInspector.UIString("Replace");
-
-    // Column 2
-    this._findButtonElement = this._firstRowElement.createChild("td").createChild("button", "search-action-button hidden");
-    this._findButtonElement.textContent = WebInspector.UIString("Find");
-    this._findButtonElement.tabIndex = -1;
-    this._findButtonElement.addEventListener("click", this._onFindClick.bind(this), false);
-
-    this._replaceButtonElement = this._secondRowElement.createChild("td").createChild("button", "search-action-button");
-    this._replaceButtonElement.textContent = WebInspector.UIString("Replace");
+    this._replaceButtonElement =
+        UI.createTextButton(Common.UIString('Replace'), this._replace.bind(this), 'search-action-button');
     this._replaceButtonElement.disabled = true;
-    this._replaceButtonElement.tabIndex = -1;
-    this._replaceButtonElement.addEventListener("click", this._replace.bind(this), false);
+    this._secondRowButtons.appendChild(this._replaceButtonElement);
 
-    // Column 3
-    this._prevButtonElement = this._firstRowElement.createChild("td").createChild("button", "search-action-button hidden");
-    this._prevButtonElement.textContent = WebInspector.UIString("Previous");
-    this._prevButtonElement.tabIndex = -1;
-    this._prevButtonElement.addEventListener("click", this._onPreviousClick.bind(this), false);
+    this._replaceAllButtonElement =
+        UI.createTextButton(Common.UIString('Replace all'), this._replaceAll.bind(this), 'search-action-button');
+    this._secondRowButtons.appendChild(this._replaceAllButtonElement);
+    this._replaceAllButtonElement.disabled = true;
 
-    this._replaceAllButtonElement = this._secondRowElement.createChild("td").createChild("button", "search-action-button");
-    this._replaceAllButtonElement.textContent = WebInspector.UIString("Replace All");
-    this._replaceAllButtonElement.addEventListener("click", this._replaceAll.bind(this), false);
-
-    // Column 4
-    this._replaceElement = this._firstRowElement.createChild("td").createChild("span");
-
-    this._replaceLabelElement = createCheckboxLabel(WebInspector.UIString("Replace"));
-    this._replaceCheckboxElement = this._replaceLabelElement.checkboxElement;
-    this._uniqueId = ++WebInspector.SearchableView._lastUniqueId;
-    var replaceCheckboxId = "search-replace-trigger" + this._uniqueId;
-    this._replaceCheckboxElement.id = replaceCheckboxId;
-    this._replaceCheckboxElement.addEventListener("change", this._updateSecondRowVisibility.bind(this), false);
-
-    this._replaceElement.appendChild(this._replaceLabelElement);
-
-    // Column 5
-    var cancelButtonElement = this._firstRowElement.createChild("td").createChild("button", "search-action-button");
-    cancelButtonElement.textContent = WebInspector.UIString("Cancel");
-    cancelButtonElement.tabIndex = -1;
-    cancelButtonElement.addEventListener("click", this.closeSearch.bind(this), false);
     this._minimalSearchQuerySize = 3;
-
     this._loadSetting();
-}
+  }
 
-WebInspector.SearchableView._lastUniqueId = 0;
-
-WebInspector.SearchableView._symbol = Symbol("searchableView");
-
-/**
- * @param {?Element} element
- * @return {?WebInspector.SearchableView}
- */
-WebInspector.SearchableView.fromElement = function(element)
-{
-    var view = null;
+  /**
+   * @param {?Element} element
+   * @return {?UI.SearchableView}
+   */
+  static fromElement(element) {
+    let view = null;
     while (element && !view) {
-        view = element[WebInspector.SearchableView._symbol];
-        element = element.parentElementOrShadowHost();
+      view = element[UI.SearchableView._symbol];
+      element = element.parentElementOrShadowHost();
     }
     return view;
-}
+  }
 
-WebInspector.SearchableView.prototype = {
-    _toggleCaseSensitiveSearch: function()
-    {
-        this._caseSensitiveButton.setToggled(!this._caseSensitiveButton.toggled());
-        this._saveSetting();
-        this._performSearch(false, true);
-    },
+  _toggleCaseSensitiveSearch() {
+    this._caseSensitiveButton.setToggled(!this._caseSensitiveButton.toggled());
+    this._saveSetting();
+    this._performSearch(false, true);
+  }
 
-    _toggleRegexSearch: function()
-    {
-        this._regexButton.setToggled(!this._regexButton.toggled());
-        this._saveSetting();
-        this._performSearch(false, true);
-    },
+  _toggleRegexSearch() {
+    this._regexButton.setToggled(!this._regexButton.toggled());
+    this._saveSetting();
+    this._performSearch(false, true);
+  }
 
-    _saveSetting: function()
-    {
-        if (!this._setting)
-            return;
-        var settingValue = this._setting.get() || {};
-        settingValue.caseSensitive = this._caseSensitiveButton.toggled();
-        settingValue.isRegex = this._regexButton.toggled();
-        this._setting.set(settingValue);
-    },
+  _toggleReplace() {
+    this._replaceToggleButton.setToggled(!this._replaceToggleButton.toggled());
+    this._updateSecondRowVisibility();
+  }
 
-    _loadSetting: function()
-    {
-        var settingValue = this._setting ? (this._setting.get() || {}) : {};
-        if (this._searchProvider.supportsCaseSensitiveSearch())
-            this._caseSensitiveButton.setToggled(!!settingValue.caseSensitive);
-        if (this._searchProvider.supportsRegexSearch())
-            this._regexButton.setToggled(!!settingValue.isRegex);
-    },
+  _saveSetting() {
+    if (!this._setting)
+      return;
+    const settingValue = this._setting.get() || {};
+    settingValue.caseSensitive = this._caseSensitiveButton.toggled();
+    settingValue.isRegex = this._regexButton.toggled();
+    this._setting.set(settingValue);
+  }
 
-    /**
-     * @override
-     * @return {!Element}
-     */
-    defaultFocusedElement: function()
-    {
-        var children = this.children();
-        for (var i = 0; i < children.length; ++i) {
-            var element = children[i].defaultFocusedElement();
-            if (element)
-                return element;
-        }
-        return WebInspector.Widget.prototype.defaultFocusedElement.call(this);
-    },
+  _loadSetting() {
+    const settingValue = this._setting ? (this._setting.get() || {}) : {};
+    if (this._searchProvider.supportsCaseSensitiveSearch())
+      this._caseSensitiveButton.setToggled(!!settingValue.caseSensitive);
+    if (this._searchProvider.supportsRegexSearch())
+      this._regexButton.setToggled(!!settingValue.isRegex);
+  }
 
-    /**
-     * @param {number} minimalSearchQuerySize
-     */
-    setMinimalSearchQuerySize: function(minimalSearchQuerySize)
-    {
-        this._minimalSearchQuerySize = minimalSearchQuerySize;
-    },
+  /**
+   * @param {number} minimalSearchQuerySize
+   */
+  setMinimalSearchQuerySize(minimalSearchQuerySize) {
+    this._minimalSearchQuerySize = minimalSearchQuerySize;
+  }
 
-    /**
-     * @param {string} placeholder
-     */
-    setPlaceholder: function(placeholder)
-    {
-        this._searchInputElement.placeholder = placeholder;
-    },
+  /**
+   * @param {string} placeholder
+   */
+  setPlaceholder(placeholder) {
+    this._searchInputElement.placeholder = placeholder;
+  }
 
-    /**
-     * @param {boolean} replaceable
-     */
-    setReplaceable: function(replaceable)
-    {
-        this._replaceable = replaceable;
-    },
+  /**
+   * @param {boolean} replaceable
+   */
+  setReplaceable(replaceable) {
+    this._replaceable = replaceable;
+  }
 
-    /**
-     * @param {number} matches
-     */
-    updateSearchMatchesCount: function(matches)
-    {
-        this._searchProvider.currentSearchMatches = matches;
-        this._updateSearchMatchesCountAndCurrentMatchIndex(this._searchProvider.currentQuery ? matches : 0, -1);
-    },
+  /**
+   * @param {number} matches
+   */
+  updateSearchMatchesCount(matches) {
+    if (this._searchProvider.currentSearchMatches === matches)
+      return;
+    this._searchProvider.currentSearchMatches = matches;
+    this._updateSearchMatchesCountAndCurrentMatchIndex(this._searchProvider.currentQuery ? matches : 0, -1);
+  }
 
-    /**
-     * @param {number} currentMatchIndex
-     */
-    updateCurrentMatchIndex: function(currentMatchIndex)
-    {
-        this._updateSearchMatchesCountAndCurrentMatchIndex(this._searchProvider.currentSearchMatches, currentMatchIndex);
-    },
+  /**
+   * @param {number} currentMatchIndex
+   */
+  updateCurrentMatchIndex(currentMatchIndex) {
+    this._updateSearchMatchesCountAndCurrentMatchIndex(this._searchProvider.currentSearchMatches, currentMatchIndex);
+  }
 
-    /**
-     * @return {boolean}
-     */
-    isSearchVisible: function()
-    {
-        return this._searchIsVisible;
-    },
+  /**
+   * @return {boolean}
+   */
+  isSearchVisible() {
+    return this._searchIsVisible;
+  }
 
-    closeSearch: function()
-    {
-        this.cancelSearch();
-        if (WebInspector.currentFocusElement() && WebInspector.currentFocusElement().isDescendant(this._footerElementContainer))
-            this.focus();
-    },
+  closeSearch() {
+    this.cancelSearch();
+    if (this._footerElementContainer.hasFocus())
+      this.focus();
+  }
 
-    _toggleSearchBar: function(toggled)
-    {
-        this._footerElementContainer.classList.toggle("hidden", !toggled);
-        this.doResize();
-    },
+  _toggleSearchBar(toggled) {
+    this._footerElementContainer.classList.toggle('hidden', !toggled);
+    this.doResize();
+  }
 
-    cancelSearch: function()
-    {
-        if (!this._searchIsVisible)
-            return;
-        this.resetSearch();
-        delete this._searchIsVisible;
-        this._toggleSearchBar(false);
-    },
+  cancelSearch() {
+    if (!this._searchIsVisible)
+      return;
+    this.resetSearch();
+    delete this._searchIsVisible;
+    this._toggleSearchBar(false);
+  }
 
-    resetSearch: function()
-    {
-        this._clearSearch();
-        this._updateReplaceVisibility();
-        this._matchesElement.textContent = "";
-    },
+  resetSearch() {
+    this._clearSearch();
+    this._updateReplaceVisibility();
+    this._matchesElement.textContent = '';
+  }
 
-    refreshSearch: function()
-    {
-        if (!this._searchIsVisible)
-            return;
-        this.resetSearch();
-        this._performSearch(false, false);
-    },
+  refreshSearch() {
+    if (!this._searchIsVisible)
+      return;
+    this.resetSearch();
+    this._performSearch(false, false);
+  }
 
-    /**
-     * @return {boolean}
-     */
-    handleFindNextShortcut: function()
-    {
-        if (!this._searchIsVisible)
-            return false;
-        this._searchProvider.jumpToNextSearchResult();
-        return true;
-    },
+  /**
+   * @return {boolean}
+   */
+  handleFindNextShortcut() {
+    if (!this._searchIsVisible)
+      return false;
+    this._searchProvider.jumpToNextSearchResult();
+    return true;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    handleFindPreviousShortcut: function()
-    {
-        if (!this._searchIsVisible)
-            return false;
-        this._searchProvider.jumpToPreviousSearchResult();
-        return true;
-    },
+  /**
+   * @return {boolean}
+   */
+  handleFindPreviousShortcut() {
+    if (!this._searchIsVisible)
+      return false;
+    this._searchProvider.jumpToPreviousSearchResult();
+    return true;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    handleFindShortcut: function()
-    {
-        this.showSearchField();
-        return true;
-    },
+  /**
+   * @return {boolean}
+   */
+  handleFindShortcut() {
+    this.showSearchField();
+    return true;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    handleCancelSearchShortcut: function()
-    {
-        if (!this._searchIsVisible)
-            return false;
-        this.closeSearch();
-        return true;
-    },
+  /**
+   * @return {boolean}
+   */
+  handleCancelSearchShortcut() {
+    if (!this._searchIsVisible)
+      return false;
+    this.closeSearch();
+    return true;
+  }
 
-    /**
-     * @param {boolean} enabled
-     */
-    _updateSearchNavigationButtonState: function(enabled)
-    {
-        this._replaceButtonElement.disabled = !enabled;
-        if (enabled) {
-            this._searchNavigationPrevElement.classList.add("enabled");
-            this._searchNavigationNextElement.classList.add("enabled");
-        } else {
-            this._searchNavigationPrevElement.classList.remove("enabled");
-            this._searchNavigationNextElement.classList.remove("enabled");
-        }
-    },
+  /**
+   * @param {boolean} enabled
+   */
+  _updateSearchNavigationButtonState(enabled) {
+    this._replaceButtonElement.disabled = !enabled;
+    this._replaceAllButtonElement.disabled = !enabled;
+    this._searchNavigationPrevElement.classList.toggle('enabled', enabled);
+    this._searchNavigationNextElement.classList.toggle('enabled', enabled);
+  }
 
-    /**
-     * @param {number} matches
-     * @param {number} currentMatchIndex
-     */
-    _updateSearchMatchesCountAndCurrentMatchIndex: function(matches, currentMatchIndex)
-    {
-        if (!this._currentQuery)
-            this._matchesElement.textContent = "";
-        else if (matches === 0 || currentMatchIndex >= 0)
-            this._matchesElement.textContent = WebInspector.UIString("%d of %d", currentMatchIndex + 1, matches);
-        else if (matches === 1)
-            this._matchesElement.textContent = WebInspector.UIString("1 match");
-        else
-            this._matchesElement.textContent = WebInspector.UIString("%d matches", matches);
-        this._updateSearchNavigationButtonState(matches > 0);
-    },
+  /**
+   * @param {number} matches
+   * @param {number} currentMatchIndex
+   */
+  _updateSearchMatchesCountAndCurrentMatchIndex(matches, currentMatchIndex) {
+    if (!this._currentQuery)
+      this._matchesElement.textContent = '';
+    else if (matches === 0 || currentMatchIndex >= 0)
+      this._matchesElement.textContent = Common.UIString('%d of %d', currentMatchIndex + 1, matches);
+    else if (matches === 1)
+      this._matchesElement.textContent = Common.UIString('1 match');
+    else
+      this._matchesElement.textContent = Common.UIString('%d matches', matches);
+    this._updateSearchNavigationButtonState(matches > 0);
+  }
 
-    showSearchField: function()
-    {
-        if (this._searchIsVisible)
-            this.cancelSearch();
+  showSearchField() {
+    if (this._searchIsVisible)
+      this.cancelSearch();
 
-        var queryCandidate;
-        if (WebInspector.currentFocusElement() !== this._searchInputElement) {
-            var selection = this._searchInputElement.getComponentSelection();
-            if (selection.rangeCount)
-                queryCandidate = selection.toString().replace(/\r?\n.*/, "");
-        }
+    let queryCandidate;
+    if (!this._searchInputElement.hasFocus()) {
+      const selection = UI.inspectorView.element.window().getSelection();
+      if (selection.rangeCount)
+        queryCandidate = selection.toString().replace(/\r?\n.*/, '');
+    }
 
-        this._toggleSearchBar(true);
-        this._updateReplaceVisibility();
-        if (queryCandidate)
-            this._searchInputElement.value = queryCandidate;
-        this._performSearch(false, false);
-        this._searchInputElement.focus();
-        this._searchInputElement.select();
-        this._searchIsVisible = true;
-    },
+    this._toggleSearchBar(true);
+    this._updateReplaceVisibility();
+    if (queryCandidate)
+      this._searchInputElement.value = queryCandidate;
+    this._performSearch(false, false);
+    this._searchInputElement.focus();
+    this._searchInputElement.select();
+    this._searchIsVisible = true;
+  }
 
-    _updateReplaceVisibility: function()
-    {
-        this._replaceElement.classList.toggle("hidden", !this._replaceable);
-        if (!this._replaceable) {
-            this._replaceCheckboxElement.checked = false;
-            this._updateSecondRowVisibility();
-        }
-    },
+  _updateReplaceVisibility() {
+    this._replaceToggleButton.setVisible(this._replaceable);
+    if (!this._replaceable) {
+      this._replaceToggleButton.setToggled(false);
+      this._updateSecondRowVisibility();
+    }
+  }
 
-    /**
-     * @param {!Event} event
-     */
-    _onSearchFieldManualFocus: function(event)
-    {
-        WebInspector.setCurrentFocusElement(/** @type {?Node} */ (event.target));
-    },
+  /**
+   * @param {!Event} event
+   */
+  _onSearchKeyDown(event) {
+    if (isEscKey(event)) {
+      this.closeSearch();
+      event.consume(true);
+      return;
+    }
+    if (!isEnterKey(event))
+      return;
 
-    /**
-     * @param {!Event} event
-     */
-    _onSearchKeyDown: function(event)
-    {
-        if (!isEnterKey(event))
-            return;
+    if (!this._currentQuery)
+      this._performSearch(true, true, event.shiftKey);
+    else
+      this._jumpToNextSearchResult(event.shiftKey);
+  }
 
-        if (!this._currentQuery)
-            this._performSearch(true, true, event.shiftKey);
-        else
-            this._jumpToNextSearchResult(event.shiftKey);
-    },
+  /**
+   * @param {!Event} event
+   */
+  _onReplaceKeyDown(event) {
+    if (isEnterKey(event))
+      this._replace();
+  }
 
-    /**
-     * @param {!Event} event
-     */
-    _onReplaceKeyDown: function(event)
-    {
-        if (isEnterKey(event))
-            this._replace();
-    },
+  /**
+   * @param {boolean=} isBackwardSearch
+   */
+  _jumpToNextSearchResult(isBackwardSearch) {
+    if (!this._currentQuery || !this._searchNavigationPrevElement.classList.contains('enabled'))
+      return;
 
-    /**
-     * @param {boolean=} isBackwardSearch
-     */
-    _jumpToNextSearchResult: function(isBackwardSearch)
-    {
-        if (!this._currentQuery || !this._searchNavigationPrevElement.classList.contains("enabled"))
-            return;
+    if (isBackwardSearch)
+      this._searchProvider.jumpToPreviousSearchResult();
+    else
+      this._searchProvider.jumpToNextSearchResult();
+  }
 
-        if (isBackwardSearch)
-            this._searchProvider.jumpToPreviousSearchResult();
-        else
-            this._searchProvider.jumpToNextSearchResult();
-    },
+  _onNextButtonSearch(event) {
+    if (!this._searchNavigationNextElement.classList.contains('enabled'))
+      return;
+    this._jumpToNextSearchResult();
+    this._searchInputElement.focus();
+  }
 
-    _onNextButtonSearch: function(event)
-    {
-        if (!this._searchNavigationNextElement.classList.contains("enabled"))
-            return;
-        this._jumpToNextSearchResult();
-        this._searchInputElement.focus();
-    },
+  _onPrevButtonSearch(event) {
+    if (!this._searchNavigationPrevElement.classList.contains('enabled'))
+      return;
+    this._jumpToNextSearchResult(true);
+    this._searchInputElement.focus();
+  }
 
-    _onPrevButtonSearch: function(event)
-    {
-        if (!this._searchNavigationPrevElement.classList.contains("enabled"))
-            return;
-        this._jumpToNextSearchResult(true);
-        this._searchInputElement.focus();
-    },
+  _onFindClick(event) {
+    if (!this._currentQuery)
+      this._performSearch(true, true);
+    else
+      this._jumpToNextSearchResult();
+    this._searchInputElement.focus();
+  }
 
-    _onFindClick: function(event)
-    {
-        if (!this._currentQuery)
-            this._performSearch(true, true);
-        else
-            this._jumpToNextSearchResult();
-        this._searchInputElement.focus();
-    },
+  _onPreviousClick(event) {
+    if (!this._currentQuery)
+      this._performSearch(true, true, true);
+    else
+      this._jumpToNextSearchResult(true);
+    this._searchInputElement.focus();
+  }
 
-    _onPreviousClick: function(event)
-    {
-        if (!this._currentQuery)
-            this._performSearch(true, true, true);
-        else
-            this._jumpToNextSearchResult(true);
-        this._searchInputElement.focus();
-    },
+  _clearSearch() {
+    delete this._currentQuery;
+    if (!!this._searchProvider.currentQuery) {
+      delete this._searchProvider.currentQuery;
+      this._searchProvider.searchCanceled();
+    }
+    this._updateSearchMatchesCountAndCurrentMatchIndex(0, -1);
+  }
 
-    _clearSearch: function()
-    {
-        delete this._currentQuery;
-        if (!!this._searchProvider.currentQuery) {
-            delete this._searchProvider.currentQuery;
-            this._searchProvider.searchCanceled();
-        }
-        this._updateSearchMatchesCountAndCurrentMatchIndex(0, -1);
-    },
+  /**
+   * @param {boolean} forceSearch
+   * @param {boolean} shouldJump
+   * @param {boolean=} jumpBackwards
+   */
+  _performSearch(forceSearch, shouldJump, jumpBackwards) {
+    const query = this._searchInputElement.value;
+    if (!query || (!forceSearch && query.length < this._minimalSearchQuerySize && !this._currentQuery)) {
+      this._clearSearch();
+      return;
+    }
 
-    /**
-     * @param {boolean} forceSearch
-     * @param {boolean} shouldJump
-     * @param {boolean=} jumpBackwards
-     */
-    _performSearch: function(forceSearch, shouldJump, jumpBackwards)
-    {
-        var query = this._searchInputElement.value;
-        if (!query || (!forceSearch && query.length < this._minimalSearchQuerySize && !this._currentQuery)) {
-            this._clearSearch();
-            return;
-        }
+    this._currentQuery = query;
+    this._searchProvider.currentQuery = query;
 
-        this._currentQuery = query;
-        this._searchProvider.currentQuery = query;
+    const searchConfig = this._currentSearchConfig();
+    this._searchProvider.performSearch(searchConfig, shouldJump, jumpBackwards);
+  }
 
-        var searchConfig = this._currentSearchConfig();
-        this._searchProvider.performSearch(searchConfig, shouldJump, jumpBackwards);
-    },
+  /**
+   * @return {!UI.SearchableView.SearchConfig}
+   */
+  _currentSearchConfig() {
+    const query = this._searchInputElement.value;
+    const caseSensitive = this._caseSensitiveButton ? this._caseSensitiveButton.toggled() : false;
+    const isRegex = this._regexButton ? this._regexButton.toggled() : false;
+    return new UI.SearchableView.SearchConfig(query, caseSensitive, isRegex);
+  }
 
-    /**
-     * @return {!WebInspector.SearchableView.SearchConfig}
-     */
-    _currentSearchConfig: function()
-    {
-        var query = this._searchInputElement.value;
-        var caseSensitive = this._caseSensitiveButton ? this._caseSensitiveButton.toggled() : false;
-        var isRegex = this._regexButton ? this._regexButton.toggled() : false;
-        return new WebInspector.SearchableView.SearchConfig(query, caseSensitive, isRegex);
-     },
+  _updateSecondRowVisibility() {
+    const secondRowVisible = this._replaceToggleButton.toggled();
+    this._footerElementContainer.classList.toggle('replaceable', secondRowVisible);
+    this._secondRowButtons.classList.toggle('hidden', !secondRowVisible);
+    this._replaceInputElement.classList.toggle('hidden', !secondRowVisible);
 
-    _updateSecondRowVisibility: function()
-    {
-        var secondRowVisible = this._replaceCheckboxElement.checked;
-        this._footerElementContainer.classList.toggle("replaceable", secondRowVisible);
-        this._footerElement.classList.toggle("toolbar-search-replace", secondRowVisible);
-        this._secondRowElement.classList.toggle("hidden", !secondRowVisible);
-        this._prevButtonElement.classList.toggle("hidden", !secondRowVisible);
-        this._findButtonElement.classList.toggle("hidden", !secondRowVisible);
-        this._replaceCheckboxElement.tabIndex = secondRowVisible ? -1 : 0;
+    if (secondRowVisible)
+      this._replaceInputElement.focus();
+    else
+      this._searchInputElement.focus();
+    this.doResize();
+  }
 
-        if (secondRowVisible)
-            this._replaceInputElement.focus();
-        else
-            this._searchInputElement.focus();
-        this.doResize();
-    },
+  _replace() {
+    const searchConfig = this._currentSearchConfig();
+    /** @type {!UI.Replaceable} */ (this._searchProvider)
+        .replaceSelectionWith(searchConfig, this._replaceInputElement.value);
+    delete this._currentQuery;
+    this._performSearch(true, true);
+  }
 
-    _replace: function()
-    {
-        var searchConfig = this._currentSearchConfig();
-        /** @type {!WebInspector.Replaceable} */ (this._searchProvider).replaceSelectionWith(searchConfig, this._replaceInputElement.value);
-        delete this._currentQuery;
-        this._performSearch(true, true);
-    },
+  _replaceAll() {
+    const searchConfig = this._currentSearchConfig();
+    /** @type {!UI.Replaceable} */ (this._searchProvider).replaceAllWith(searchConfig, this._replaceInputElement.value);
+  }
 
-    _replaceAll: function()
-    {
-        var searchConfig = this._currentSearchConfig();
-        /** @type {!WebInspector.Replaceable} */ (this._searchProvider).replaceAllWith(searchConfig, this._replaceInputElement.value);
-    },
+  /**
+   * @param {!Event} event
+   */
+  _onInput(event) {
+    if (this._valueChangedTimeoutId)
+      clearTimeout(this._valueChangedTimeoutId);
+    const timeout = this._searchInputElement.value.length < 3 ? 200 : 0;
+    this._valueChangedTimeoutId = setTimeout(this._onValueChanged.bind(this), timeout);
+  }
 
-    /**
-     * @param {!Event} event
-     */
-    _onInput: function(event)
-    {
-        if (this._valueChangedTimeoutId)
-            clearTimeout(this._valueChangedTimeoutId);
-        var timeout = this._searchInputElement.value.length < 3 ? 200 : 0;
-        this._valueChangedTimeoutId = setTimeout(this._onValueChanged.bind(this), timeout);
-    },
+  _onValueChanged() {
+    if (!this._searchIsVisible)
+      return;
+    delete this._valueChangedTimeoutId;
+    this._performSearch(false, true);
+  }
+};
 
-    _onValueChanged: function()
-    {
-        delete this._valueChangedTimeoutId;
-        this._performSearch(false, true);
-    },
 
-    __proto__: WebInspector.VBox.prototype
-}
+UI.SearchableView._symbol = Symbol('searchableView');
+
 
 /**
  * @interface
  */
-WebInspector.Searchable = function()
-{
-}
+UI.Searchable = function() {};
 
-WebInspector.Searchable.prototype = {
-    searchCanceled: function() { },
+UI.Searchable.prototype = {
+  searchCanceled() {},
 
-    /**
-     * @param {!WebInspector.SearchableView.SearchConfig} searchConfig
-     * @param {boolean} shouldJump
-     * @param {boolean=} jumpBackwards
-     */
-    performSearch: function(searchConfig, shouldJump, jumpBackwards) { },
+  /**
+   * @param {!UI.SearchableView.SearchConfig} searchConfig
+   * @param {boolean} shouldJump
+   * @param {boolean=} jumpBackwards
+   */
+  performSearch(searchConfig, shouldJump, jumpBackwards) {},
 
-    jumpToNextSearchResult: function() { },
+  jumpToNextSearchResult() {},
 
-    jumpToPreviousSearchResult: function() { },
+  jumpToPreviousSearchResult() {},
 
-    /**
-     * @return {boolean}
-     */
-    supportsCaseSensitiveSearch: function() { },
+  /**
+   * @return {boolean}
+   */
+  supportsCaseSensitiveSearch() {},
 
-    /**
-     * @return {boolean}
-     */
-    supportsRegexSearch: function() { }
-}
+  /**
+   * @return {boolean}
+   */
+  supportsRegexSearch() {}
+};
 
 /**
  * @interface
  */
-WebInspector.Replaceable = function()
-{
-}
+UI.Replaceable = function() {};
 
-WebInspector.Replaceable.prototype = {
-    /**
-     * @param {!WebInspector.SearchableView.SearchConfig} searchConfig
-     * @param {string} replacement
-     */
-    replaceSelectionWith: function(searchConfig, replacement) { },
+UI.Replaceable.prototype = {
+  /**
+   * @param {!UI.SearchableView.SearchConfig} searchConfig
+   * @param {string} replacement
+   */
+  replaceSelectionWith(searchConfig, replacement) {},
 
-    /**
-     * @param {!WebInspector.SearchableView.SearchConfig} searchConfig
-     * @param {string} replacement
-     */
-    replaceAllWith: function(searchConfig, replacement) { }
-}
+  /**
+   * @param {!UI.SearchableView.SearchConfig} searchConfig
+   * @param {string} replacement
+   */
+  replaceAllWith(searchConfig, replacement) {}
+};
 
 /**
- * @constructor
- * @param {string} query
- * @param {boolean} caseSensitive
- * @param {boolean} isRegex
+ * @unrestricted
  */
-WebInspector.SearchableView.SearchConfig = function(query, caseSensitive, isRegex)
-{
+UI.SearchableView.SearchConfig = class {
+  /**
+   * @param {string} query
+   * @param {boolean} caseSensitive
+   * @param {boolean} isRegex
+   */
+  constructor(query, caseSensitive, isRegex) {
     this.query = query;
     this.caseSensitive = caseSensitive;
     this.isRegex = isRegex;
-}
+  }
 
-WebInspector.SearchableView.SearchConfig.prototype = {
-    /**
-     * @param {boolean=} global
-     * @return {!RegExp}
-     */
-    toSearchRegex: function(global)
-    {
-        var modifiers = this.caseSensitive ? "" : "i";
-        if (global)
-            modifiers += "g";
-        var query = this.isRegex ? "/" + this.query + "/" : this.query;
+  /**
+   * @param {boolean=} global
+   * @return {!RegExp}
+   */
+  toSearchRegex(global) {
+    let modifiers = this.caseSensitive ? '' : 'i';
+    if (global)
+      modifiers += 'g';
+    const query = this.isRegex ? '/' + this.query + '/' : this.query;
 
-        var regex;
+    let regex;
 
-        // First try creating regex if user knows the / / hint.
-        try {
-            if (/^\/.+\/$/.test(query)) {
-                regex = new RegExp(query.substring(1, query.length - 1), modifiers);
-                regex.__fromRegExpQuery = true;
-            }
-        } catch (e) {
-            // Silent catch.
-        }
-
-        // Otherwise just do a plain text search.
-        if (!regex)
-            regex = createPlainTextSearchRegex(query, modifiers);
-
-        return regex;
+    // First try creating regex if user knows the / / hint.
+    try {
+      if (/^\/.+\/$/.test(query)) {
+        regex = new RegExp(query.substring(1, query.length - 1), modifiers);
+        regex.__fromRegExpQuery = true;
+      }
+    } catch (e) {
+      // Silent catch.
     }
-}
+
+    // Otherwise just do a plain text search.
+    if (!regex)
+      regex = createPlainTextSearchRegex(query, modifiers);
+
+    return regex;
+  }
+};

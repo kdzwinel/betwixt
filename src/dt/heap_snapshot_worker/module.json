@@ -1,15 +1,14 @@
 {
     "scripts": [
-        "../platform/utilities.js",
-        "../common/WebInspector.js",
-        "../common/UIString.js",
-        "../common/TextUtils.js",
-        "../profiler/HeapSnapshotCommon.js",
         "AllocationProfile.js",
         "HeapSnapshot.js",
         "HeapSnapshotLoader.js",
         "HeapSnapshotWorkerDispatcher.js",
-        "JSHeapSnapshot.js",
         "HeapSnapshotWorker.js"
+    ],
+    "dependencies": [
+        "heap_snapshot_model",
+        "platform",
+        "common"
     ]
 }

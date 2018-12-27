@@ -1,35 +1,33 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 /**
- * @constructor
+ * @unrestricted
  */
-WebInspector.ForwardedInputEventHandler = function()
-{
-    InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.KeyEventUnhandled, this._onKeyEventUnhandled, this);
-}
+UI.ForwardedInputEventHandler = class {
+  constructor() {
+    InspectorFrontendHost.events.addEventListener(
+        InspectorFrontendHostAPI.Events.KeyEventUnhandled, this._onKeyEventUnhandled, this);
+  }
 
-WebInspector.ForwardedInputEventHandler.prototype = {
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _onKeyEventUnhandled: function(event)
-    {
-        var data = event.data;
-        var type = /** @type {string} */ (data.type);
-        var keyIdentifier = /** @type {string} */ (data.keyIdentifier);
-        var keyCode = /** @type {number} */ (data.keyCode);
-        var modifiers =/** @type {number} */ (data.modifiers);
+  /**
+   * @param {!Common.Event} event
+   */
+  _onKeyEventUnhandled(event) {
+    const data = event.data;
+    const type = /** @type {string} */ (data.type);
+    const key = /** @type {string} */ (data.key);
+    const keyCode = /** @type {number} */ (data.keyCode);
+    const modifiers = /** @type {number} */ (data.modifiers);
 
-        if (type !== "keydown")
-            return;
+    if (type !== 'keydown')
+      return;
 
-        WebInspector.context.setFlavor(WebInspector.ShortcutRegistry.ForwardedShortcut, WebInspector.ShortcutRegistry.ForwardedShortcut.instance);
-        WebInspector.shortcutRegistry.handleKey(WebInspector.KeyboardShortcut.makeKey(keyCode, modifiers), keyIdentifier);
-        WebInspector.context.setFlavor(WebInspector.ShortcutRegistry.ForwardedShortcut, null);
-    }
-}
+    UI.context.setFlavor(UI.ShortcutRegistry.ForwardedShortcut, UI.ShortcutRegistry.ForwardedShortcut.instance);
+    UI.shortcutRegistry.handleKey(UI.KeyboardShortcut.makeKey(keyCode, modifiers), key);
+    UI.context.setFlavor(UI.ShortcutRegistry.ForwardedShortcut, null);
+  }
+};
 
-/** @type {!WebInspector.ForwardedInputEventHandler} */
-WebInspector.forwardedEventHandler = new WebInspector.ForwardedInputEventHandler();
+/** @type {!UI.ForwardedInputEventHandler} */
+UI.forwardedEventHandler = new UI.ForwardedInputEventHandler();

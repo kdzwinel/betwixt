@@ -27,21 +27,18 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-function postMessageWrapper(message)
-{
-    postMessage(message);
+function postMessageWrapper(message) {
+  postMessage(message);
 }
 
-var dispatcher = new WebInspector.HeapSnapshotWorkerDispatcher(this, postMessageWrapper);
+const dispatcher = new HeapSnapshotWorker.HeapSnapshotWorkerDispatcher(this, postMessageWrapper);
 
 /**
  * @param {function(!Event)} listener
  * @suppressGlobalPropertiesCheck
  */
-function installMessageEventListener(listener)
-{
-    self.addEventListener("message", listener, false);
+function installMessageEventListener(listener) {
+  self.addEventListener('message', listener, false);
 }
 
 installMessageEventListener(dispatcher.dispatchMessage.bind(dispatcher));

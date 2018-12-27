@@ -2,7 +2,6 @@
     "dependencies": [
     ],
     "scripts": [
-        "utilities.js",
-        "DOMExtension.js"
+        "utilities.js"
     ]
 }

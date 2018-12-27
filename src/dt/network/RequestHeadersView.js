@@ -28,553 +28,581 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/**
- * @constructor
- * @extends {WebInspector.VBox}
- * @param {!WebInspector.NetworkRequest} request
- */
-WebInspector.RequestHeadersView = function(request)
-{
-    WebInspector.VBox.call(this);
-    this.registerRequiredCSS("network/requestHeadersView.css");
-    this.element.classList.add("request-headers-view");
+Network.RequestHeadersView = class extends UI.VBox {
+  /**
+   * @param {!SDK.NetworkRequest} request
+   */
+  constructor(request) {
+    super();
+    this.registerRequiredCSS('network/requestHeadersView.css');
+    this.element.classList.add('request-headers-view');
 
     this._request = request;
     this._decodeRequestParameters = true;
     this._showRequestHeadersText = false;
     this._showResponseHeadersText = false;
 
-    this._requestHeaderFilterSetting = WebInspector.settings.createSetting("requestHeaderFilterSetting", "");
+    /** @type {?UI.TreeElement} */
+    this._highlightedElement = null;
 
-    /** @type {?RegExp} */
-    this._filterRegex = null;
-    if (Runtime.experiments.isEnabled("networkRequestHeadersFilterInDetailsView")) {
-        this._filterInput = this.element.createChild("input", "filter-input");
-        this._filterInput.type = "text";
-        this._filterInput.placeholder = WebInspector.UIString("Filter headers");
-        this._filterInput.addEventListener("input", this._updateFilter.bind(this), false);
-        this._filterInput.addEventListener("keydown", this._onFilterKeyDown.bind(this), false);
-        this._filterInput.value = this._requestHeaderFilterSetting.get() || "";
-    }
-
-    var root = new TreeOutline(true);
-    root.element.classList.add("outline-disclosure");
+    const root = new UI.TreeOutlineInShadow();
+    root.registerRequiredCSS('network/requestHeadersTree.css');
+    root.element.classList.add('request-headers-tree');
+    root.setFocusable(false);
+    root.makeDense();
     root.expandTreeElementsWhenArrowing = true;
     this.element.appendChild(root.element);
 
-    var generalCategory = new WebInspector.RequestHeadersView.Category(root, "general", WebInspector.UIString("General"));
+    const generalCategory = new Network.RequestHeadersView.Category(root, 'general', Common.UIString('General'));
     generalCategory.hidden = false;
     this._urlItem = generalCategory.createLeaf();
     this._requestMethodItem = generalCategory.createLeaf();
     this._statusCodeItem = generalCategory.createLeaf();
     this._remoteAddressItem = generalCategory.createLeaf();
     this._remoteAddressItem.hidden = true;
+    this._referrerPolicyItem = generalCategory.createLeaf();
+    this._referrerPolicyItem.hidden = true;
 
-    this._responseHeadersCategory = new WebInspector.RequestHeadersView.Category(root, "responseHeaders", "");
-    this._requestHeadersCategory = new WebInspector.RequestHeadersView.Category(root, "requestHeaders", "");
-    this._queryStringCategory = new WebInspector.RequestHeadersView.Category(root, "queryString", "");
-    this._formDataCategory = new WebInspector.RequestHeadersView.Category(root, "formData", "");
-    this._requestPayloadCategory = new WebInspector.RequestHeadersView.Category(root, "requestPayload", WebInspector.UIString("Request Payload"));
+    this._responseHeadersCategory = new Network.RequestHeadersView.Category(root, 'responseHeaders', '');
+    this._requestHeadersCategory = new Network.RequestHeadersView.Category(root, 'requestHeaders', '');
+    this._queryStringCategory = new Network.RequestHeadersView.Category(root, 'queryString', '');
+    this._formDataCategory = new Network.RequestHeadersView.Category(root, 'formData', '');
+    this._requestPayloadCategory =
+        new Network.RequestHeadersView.Category(root, 'requestPayload', Common.UIString('Request Payload'));
+  }
 
+  /**
+   * @override
+   */
+  wasShown() {
+    this._clearHighlight();
+    this._request.addEventListener(SDK.NetworkRequest.Events.RemoteAddressChanged, this._refreshRemoteAddress, this);
+    this._request.addEventListener(SDK.NetworkRequest.Events.RequestHeadersChanged, this._refreshRequestHeaders, this);
+    this._request.addEventListener(
+        SDK.NetworkRequest.Events.ResponseHeadersChanged, this._refreshResponseHeaders, this);
+    this._request.addEventListener(SDK.NetworkRequest.Events.FinishedLoading, this._refreshHTTPInformation, this);
 
-    if (Runtime.experiments.isEnabled("networkRequestHeadersFilterInDetailsView")) {
-        this._updateFilter();
+    this._refreshURL();
+    this._refreshQueryString();
+    this._refreshRequestHeaders();
+    this._refreshResponseHeaders();
+    this._refreshHTTPInformation();
+    this._refreshRemoteAddress();
+    this._refreshReferrerPolicy();
+  }
+
+  /**
+   * @override
+   */
+  willHide() {
+    this._request.removeEventListener(SDK.NetworkRequest.Events.RemoteAddressChanged, this._refreshRemoteAddress, this);
+    this._request.removeEventListener(
+        SDK.NetworkRequest.Events.RequestHeadersChanged, this._refreshRequestHeaders, this);
+    this._request.removeEventListener(
+        SDK.NetworkRequest.Events.ResponseHeadersChanged, this._refreshResponseHeaders, this);
+    this._request.removeEventListener(SDK.NetworkRequest.Events.FinishedLoading, this._refreshHTTPInformation, this);
+  }
+
+  /**
+   * @param {string} name
+   * @param {string} value
+   * @return {!DocumentFragment}
+   */
+  _formatHeader(name, value) {
+    const fragment = createDocumentFragment();
+    fragment.createChild('div', 'header-name').textContent = name + ': ';
+    fragment.createChild('span', 'header-separator');
+    fragment.createChild('div', 'header-value source-code').textContent = value;
+
+    return fragment;
+  }
+
+  /**
+   * @param {string} value
+   * @param {string} className
+   * @param {boolean} decodeParameters
+   * @return {!Element}
+   */
+  _formatParameter(value, className, decodeParameters) {
+    let errorDecoding = false;
+
+    if (decodeParameters) {
+      value = value.replace(/\+/g, ' ');
+      if (value.indexOf('%') >= 0) {
+        try {
+          value = decodeURIComponent(value);
+        } catch (e) {
+          errorDecoding = true;
+        }
+      }
     }
-}
+    const div = createElementWithClass('div', className);
+    if (value === '')
+      div.classList.add('empty-value');
+    if (errorDecoding)
+      div.createChild('span', 'header-decode-error').textContent = Common.UIString('(unable to decode value)');
+    else
+      div.textContent = value;
+    return div;
+  }
 
-WebInspector.RequestHeadersView.prototype = {
-    _updateFilter: function()
-    {
-        var text = this._filterInput.value;
-        this._requestHeaderFilterSetting.set(text);
-        this._filterRegex = text ? new RegExp(text.escapeForRegExp(), "i") : null;
-        this._updateHeaders();
-    },
+  _refreshURL() {
+    this._urlItem.title = this._formatHeader(Common.UIString('Request URL'), this._request.url());
+  }
 
-    /**
-     * @param {!Event} event
-     */
-    _onFilterKeyDown: function(event)
-    {
-        var text = this._filterInput.value;
-        if (!text)
-            return;
-        if (event.keyCode === WebInspector.KeyboardShortcut.Keys.Esc.code || event.keyIdentifier === "U+001B") {
-            event.consume(true);
-            this._filterInput.value = "";
-            this._updateFilter();
-        }
-    },
+  _refreshQueryString() {
+    const queryString = this._request.queryString();
+    const queryParameters = this._request.queryParameters;
+    this._queryStringCategory.hidden = !queryParameters;
+    if (queryParameters) {
+      this._refreshParams(
+          Common.UIString('Query String Parameters'), queryParameters, queryString, this._queryStringCategory);
+    }
+  }
 
-    _updateHeaders: function()
-    {
-        this._refreshRequestHeaders();
-        this._refreshResponseHeaders();
-    },
+  async _refreshFormData() {
+    this._formDataCategory.hidden = true;
+    this._requestPayloadCategory.hidden = true;
 
-    wasShown: function()
-    {
-        this._request.addEventListener(WebInspector.NetworkRequest.Events.RemoteAddressChanged, this._refreshRemoteAddress, this);
-        this._request.addEventListener(WebInspector.NetworkRequest.Events.RequestHeadersChanged, this._refreshRequestHeaders, this);
-        this._request.addEventListener(WebInspector.NetworkRequest.Events.ResponseHeadersChanged, this._refreshResponseHeaders, this);
-        this._request.addEventListener(WebInspector.NetworkRequest.Events.FinishedLoading, this._refreshHTTPInformation, this);
+    const formData = await this._request.requestFormData();
+    if (!formData)
+      return;
 
-        this._refreshURL();
-        this._refreshQueryString();
-        this._updateHeaders();
-        this._refreshHTTPInformation();
-        this._refreshRemoteAddress();
-    },
+    const formParameters = await this._request.formParameters();
+    if (formParameters) {
+      this._formDataCategory.hidden = false;
+      this._refreshParams(Common.UIString('Form Data'), formParameters, formData, this._formDataCategory);
+    } else {
+      this._requestPayloadCategory.hidden = false;
+      try {
+        const json = JSON.parse(formData);
+        this._refreshRequestJSONPayload(json, formData);
+      } catch (e) {
+        this._populateTreeElementWithSourceText(this._requestPayloadCategory, formData);
+      }
+    }
+  }
 
-    willHide: function()
-    {
-        this._request.removeEventListener(WebInspector.NetworkRequest.Events.RemoteAddressChanged, this._refreshRemoteAddress, this);
-        this._request.removeEventListener(WebInspector.NetworkRequest.Events.RequestHeadersChanged, this._refreshRequestHeaders, this);
-        this._request.removeEventListener(WebInspector.NetworkRequest.Events.ResponseHeadersChanged, this._refreshResponseHeaders, this);
-        this._request.removeEventListener(WebInspector.NetworkRequest.Events.FinishedLoading, this._refreshHTTPInformation, this);
-    },
+  /**
+   * @param {!UI.TreeElement} treeElement
+   * @param {?string} sourceText
+   */
+  _populateTreeElementWithSourceText(treeElement, sourceText) {
+    const max_len = 3000;
+    const text = (sourceText || '').trim();
+    const trim = text.length > max_len;
 
-    /**
-     * @param {string} name
-     * @param {string} value
-     * @return {!DocumentFragment}
-     */
-    _formatHeader: function(name, value)
-    {
-        var fragment = createDocumentFragment();
-        fragment.createChild("div", "header-name").textContent = name + ":";
-        fragment.createChild("div", "header-value source-code").textContent = value;
+    const sourceTextElement = createElementWithClass('span', 'header-value source-code');
+    sourceTextElement.textContent = trim ? text.substr(0, max_len) : text;
 
-        return fragment;
-    },
+    const sourceTreeElement = new UI.TreeElement(sourceTextElement);
+    sourceTreeElement.selectable = false;
+    treeElement.removeChildren();
+    treeElement.appendChild(sourceTreeElement);
+    if (!trim)
+      return;
 
-    /**
-     * @param {string} value
-     * @param {string} className
-     * @param {boolean} decodeParameters
-     * @return {!Element}
-     */
-    _formatParameter: function(value, className, decodeParameters)
-    {
-        var errorDecoding = false;
+    const showMoreButton = createElementWithClass('button', 'request-headers-show-more-button');
+    showMoreButton.textContent = Common.UIString('Show more');
+    showMoreButton.addEventListener('click', () => {
+      showMoreButton.remove();
+      sourceTextElement.textContent = text;
+    });
+    sourceTextElement.appendChild(showMoreButton);
+  }
 
-        if (decodeParameters) {
-            value = value.replace(/\+/g, " ");
-            if (value.indexOf("%") >= 0) {
-                try {
-                    value = decodeURIComponent(value);
-                } catch (e) {
-                    errorDecoding = true;
-                }
-            }
-        }
-        var div = createElementWithClass("div", className);
-        if (errorDecoding)
-            div.createChild("span", "error-message").textContent = WebInspector.UIString("(unable to decode value)");
-        else
-            div.textContent = value;
-        return div;
-    },
+  /**
+   * @param {string} title
+   * @param {?Array.<!SDK.NetworkRequest.NameValue>} params
+   * @param {?string} sourceText
+   * @param {!UI.TreeElement} paramsTreeElement
+   */
+  _refreshParams(title, params, sourceText, paramsTreeElement) {
+    paramsTreeElement.removeChildren();
 
-    _refreshURL: function()
-    {
-        this._urlItem.title = this._formatHeader(WebInspector.UIString("Request URL"), this._request.url);
-    },
+    paramsTreeElement.listItemElement.removeChildren();
+    paramsTreeElement.listItemElement.createTextChild(title);
 
-    _refreshQueryString: function()
-    {
-        var queryString = this._request.queryString();
-        var queryParameters = this._request.queryParameters;
-        this._queryStringCategory.hidden = !queryParameters;
-        if (queryParameters)
-            this._refreshParams(WebInspector.UIString("Query String Parameters"), queryParameters, queryString, this._queryStringCategory);
-    },
-
-    _refreshFormData: function()
-    {
-        this._formDataCategory.hidden = true;
-        this._requestPayloadCategory.hidden = true;
-
-        var formData = this._request.requestFormData;
-        if (!formData)
-            return;
-
-        var formParameters = this._request.formParameters;
-        if (formParameters) {
-            this._formDataCategory.hidden = false;
-            this._refreshParams(WebInspector.UIString("Form Data"), formParameters, formData, this._formDataCategory);
-        } else {
-            this._requestPayloadCategory.hidden = false;
-            try {
-                var json = JSON.parse(formData);
-                this._refreshRequestJSONPayload(json, formData);
-            } catch (e) {
-                this._populateTreeElementWithSourceText(this._requestPayloadCategory, formData);
-            }
-        }
-    },
-
-    /**
-     * @param {!TreeElement} treeElement
-     * @param {?string} sourceText
-     */
-    _populateTreeElementWithSourceText: function(treeElement, sourceText)
-    {
-        var sourceTextElement = createElementWithClass("span", "header-value source-code");
-        sourceTextElement.textContent = String(sourceText || "").trim();
-
-        var sourceTreeElement = new TreeElement(sourceTextElement);
-        sourceTreeElement.selectable = false;
-        treeElement.removeChildren();
-        treeElement.appendChild(sourceTreeElement);
-    },
-
-    /**
-     * @param {string} title
-     * @param {?Array.<!WebInspector.NetworkRequest.NameValue>} params
-     * @param {?string} sourceText
-     * @param {!TreeElement} paramsTreeElement
-     */
-    _refreshParams: function(title, params, sourceText, paramsTreeElement)
-    {
-        paramsTreeElement.removeChildren();
-
-        paramsTreeElement.listItemElement.removeChildren();
-        paramsTreeElement.listItemElement.createTextChild(title);
-
-        var headerCount = createElementWithClass("span", "header-count");
-        headerCount.textContent = WebInspector.UIString("\u00A0(%d)", params.length);
-        paramsTreeElement.listItemElement.appendChild(headerCount);
-
-        /**
-         * @param {!Event} event
-         * @this {WebInspector.RequestHeadersView}
-         */
-        function toggleViewSource(event)
-        {
-            paramsTreeElement._viewSource = !paramsTreeElement._viewSource;
-            this._refreshParams(title, params, sourceText, paramsTreeElement);
-            event.consume();
-        }
-
-        paramsTreeElement.listItemElement.appendChild(this._createViewSourceToggle(paramsTreeElement._viewSource, toggleViewSource.bind(this)));
-
-        if (paramsTreeElement._viewSource) {
-            this._populateTreeElementWithSourceText(paramsTreeElement, sourceText);
-            return;
-        }
-
-        var toggleTitle = this._decodeRequestParameters ? WebInspector.UIString("view URL encoded") : WebInspector.UIString("view decoded");
-        var toggleButton = this._createToggleButton(toggleTitle);
-        toggleButton.addEventListener("click", this._toggleURLDecoding.bind(this), false);
-        paramsTreeElement.listItemElement.appendChild(toggleButton);
-
-        for (var i = 0; i < params.length; ++i) {
-            var paramNameValue = createDocumentFragment();
-            var name = this._formatParameter(params[i].name + ":", "header-name", this._decodeRequestParameters);
-            var value = this._formatParameter(params[i].value, "header-value source-code", this._decodeRequestParameters);
-            paramNameValue.appendChild(name);
-            paramNameValue.appendChild(value);
-
-            var parmTreeElement = new TreeElement(paramNameValue);
-            parmTreeElement.selectable = false;
-            paramsTreeElement.appendChild(parmTreeElement);
-        }
-    },
-
-    /**
-     * @param {*} parsedObject
-     * @param {string} sourceText
-     */
-    _refreshRequestJSONPayload: function(parsedObject, sourceText)
-    {
-        var treeElement = this._requestPayloadCategory;
-        treeElement.removeChildren();
-
-        var listItem = this._requestPayloadCategory.listItemElement;
-        listItem.removeChildren();
-        listItem.createTextChild(this._requestPayloadCategory.title);
-
-        /**
-         * @param {!Event} event
-         * @this {WebInspector.RequestHeadersView}
-         */
-        function toggleViewSource(event)
-        {
-            treeElement._viewSource = !treeElement._viewSource;
-            this._refreshRequestJSONPayload(parsedObject, sourceText);
-            event.consume();
-        }
-
-        listItem.appendChild(this._createViewSourceToggle(treeElement._viewSource, toggleViewSource.bind(this)));
-        if (treeElement._viewSource) {
-            this._populateTreeElementWithSourceText(this._requestPayloadCategory, sourceText);
-        } else {
-            var object = WebInspector.RemoteObject.fromLocalObject(parsedObject);
-            var section = new WebInspector.ObjectPropertiesSection(object, object.description);
-            section.expand();
-            section.editable = false;
-            treeElement.appendChild(new TreeElement(section.element));
-        }
-    },
-
-    /**
-     * @param {boolean} viewSource
-     * @param {function(!Event)} handler
-     * @return {!Element}
-     */
-    _createViewSourceToggle: function(viewSource, handler)
-    {
-        var viewSourceToggleTitle = viewSource ? WebInspector.UIString("view parsed") : WebInspector.UIString("view source");
-        var viewSourceToggleButton = this._createToggleButton(viewSourceToggleTitle);
-        viewSourceToggleButton.addEventListener("click", handler, false);
-        return viewSourceToggleButton;
-    },
+    const headerCount = createElementWithClass('span', 'header-count');
+    headerCount.textContent = Common.UIString('\u00A0(%d)', params.length);
+    paramsTreeElement.listItemElement.appendChild(headerCount);
 
     /**
      * @param {!Event} event
+     * @this {Network.RequestHeadersView}
      */
-    _toggleURLDecoding: function(event)
-    {
-        this._decodeRequestParameters = !this._decodeRequestParameters;
-        this._refreshQueryString();
-        this._refreshFormData();
-        event.consume();
-    },
+    function toggleViewSource(event) {
+      paramsTreeElement[Network.RequestHeadersView._viewSourceSymbol] =
+          !paramsTreeElement[Network.RequestHeadersView._viewSourceSymbol];
+      this._refreshParams(title, params, sourceText, paramsTreeElement);
+      event.consume();
+    }
 
-    _refreshRequestHeaders: function()
-    {
-        var treeElement = this._requestHeadersCategory;
+    paramsTreeElement.listItemElement.appendChild(this._createViewSourceToggle(
+        paramsTreeElement[Network.RequestHeadersView._viewSourceSymbol], toggleViewSource.bind(this)));
 
-        var headers = this._request.requestHeaders().slice();
-        var filterRegex = this._filterRegex;
-        if (filterRegex)
-            headers = headers.filter(function(header) { return filterRegex.test(header.name) || filterRegex.test(header.value);});
-        headers.sort(function(a, b) { return a.name.toLowerCase().compareTo(b.name.toLowerCase()); });
-        var headersText = this._request.requestHeadersText();
+    if (paramsTreeElement[Network.RequestHeadersView._viewSourceSymbol]) {
+      this._populateTreeElementWithSourceText(paramsTreeElement, sourceText);
+      return;
+    }
 
-        if (this._showRequestHeadersText && headersText)
-            this._refreshHeadersText(WebInspector.UIString("Request Headers"), headers.length, headersText, treeElement);
-        else
-            this._refreshHeaders(WebInspector.UIString("Request Headers"), headers, treeElement, headersText === undefined);
+    const toggleTitle =
+        this._decodeRequestParameters ? Common.UIString('view URL encoded') : Common.UIString('view decoded');
+    const toggleButton = this._createToggleButton(toggleTitle);
+    toggleButton.addEventListener('click', this._toggleURLDecoding.bind(this), false);
+    paramsTreeElement.listItemElement.appendChild(toggleButton);
 
-        if (headersText) {
-            var toggleButton = this._createHeadersToggleButton(this._showRequestHeadersText);
-            toggleButton.addEventListener("click", this._toggleRequestHeadersText.bind(this), false);
-            treeElement.listItemElement.appendChild(toggleButton);
-        }
+    for (let i = 0; i < params.length; ++i) {
+      const paramNameValue = createDocumentFragment();
+      if (params[i].name !== '') {
+        const name = this._formatParameter(params[i].name + ': ', 'header-name', this._decodeRequestParameters);
+        const value = this._formatParameter(params[i].value, 'header-value source-code', this._decodeRequestParameters);
+        paramNameValue.appendChild(name);
+        paramNameValue.createChild('span', 'header-separator');
+        paramNameValue.appendChild(value);
+      } else {
+        paramNameValue.appendChild(
+            this._formatParameter(Common.UIString('(empty)'), 'empty-request-header', this._decodeRequestParameters));
+      }
 
-        this._refreshFormData();
-    },
+      const paramTreeElement = new UI.TreeElement(paramNameValue);
+      paramTreeElement.selectable = false;
+      paramsTreeElement.appendChild(paramTreeElement);
+    }
+  }
 
-    _refreshResponseHeaders: function()
-    {
-        var treeElement = this._responseHeadersCategory;
-        var headers = this._request.sortedResponseHeaders.slice();
-        var filterRegex = this._filterRegex;
-        if (filterRegex)
-            headers = headers.filter(function(header) { return filterRegex.test(header.name) || filterRegex.test(header.value);});
-        var headersText = this._request.responseHeadersText;
+  /**
+   * @param {*} parsedObject
+   * @param {string} sourceText
+   */
+  _refreshRequestJSONPayload(parsedObject, sourceText) {
+    const treeElement = this._requestPayloadCategory;
+    treeElement.removeChildren();
 
-        if (this._showResponseHeadersText)
-            this._refreshHeadersText(WebInspector.UIString("Response Headers"), headers.length, headersText, treeElement);
-        else
-            this._refreshHeaders(WebInspector.UIString("Response Headers"), headers, treeElement);
-
-        if (headersText) {
-            var toggleButton = this._createHeadersToggleButton(this._showResponseHeadersText);
-            toggleButton.addEventListener("click", this._toggleResponseHeadersText.bind(this), false);
-            treeElement.listItemElement.appendChild(toggleButton);
-        }
-    },
-
-    _refreshHTTPInformation: function()
-    {
-        var requestMethodElement = this._requestMethodItem;
-        requestMethodElement.hidden = !this._request.statusCode;
-        var statusCodeElement = this._statusCodeItem;
-        statusCodeElement.hidden = !this._request.statusCode;
-
-        if (this._request.statusCode) {
-            var statusCodeFragment = createDocumentFragment();
-            statusCodeFragment.createChild("div", "header-name").textContent = WebInspector.UIString("Status Code") + ":";
-
-            var statusCodeImage = statusCodeFragment.createChild("label", "resource-status-image", "dt-icon-label");
-            statusCodeImage.title = this._request.statusCode + " " + this._request.statusText;
-
-            if (this._request.statusCode < 300 || this._request.statusCode === 304)
-                statusCodeImage.type = "green-ball";
-            else if (this._request.statusCode < 400)
-                statusCodeImage.type = "orange-ball";
-            else
-                statusCodeImage.type = "red-ball";
-
-            requestMethodElement.title = this._formatHeader(WebInspector.UIString("Request Method"), this._request.requestMethod);
-
-            var statusTextElement = statusCodeFragment.createChild("div", "header-value source-code");
-            var statusText = this._request.statusCode + " " + this._request.statusText;
-            if (this._request.fetchedViaServiceWorker) {
-                statusText += " " + WebInspector.UIString("(from ServiceWorker)");
-                statusTextElement.classList.add("status-from-cache");
-            } else if (this._request.cached()) {
-                statusText += " " + WebInspector.UIString("(from cache)");
-                statusTextElement.classList.add("status-from-cache");
-            }
-            statusTextElement.textContent = statusText;
-
-            statusCodeElement.title = statusCodeFragment;
-        }
-    },
-
-    /**
-     * @param {string} title
-     * @param {!TreeElement} headersTreeElement
-     * @param {number} headersLength
-     */
-    _refreshHeadersTitle: function(title, headersTreeElement, headersLength)
-    {
-        headersTreeElement.listItemElement.removeChildren();
-        headersTreeElement.listItemElement.createTextChild(title);
-
-        var headerCount = WebInspector.UIString("\u00A0(%d)", headersLength);
-        headersTreeElement.listItemElement.createChild("span", "header-count").textContent = headerCount;
-    },
-
-    /**
-     * @param {string} title
-     * @param {!Array.<!WebInspector.NetworkRequest.NameValue>} headers
-     * @param {!TreeElement} headersTreeElement
-     * @param {boolean=} provisionalHeaders
-     */
-    _refreshHeaders: function(title, headers, headersTreeElement, provisionalHeaders)
-    {
-        headersTreeElement.removeChildren();
-
-        var length = headers.length;
-        this._refreshHeadersTitle(title, headersTreeElement, length);
-
-        if (provisionalHeaders) {
-            var cautionText = WebInspector.UIString("Provisional headers are shown");
-            var cautionFragment = createDocumentFragment();
-            cautionFragment.createChild("label", "", "dt-icon-label").type = "warning-icon";
-            cautionFragment.createChild("div", "caution").textContent = cautionText;
-            var cautionTreeElement = new TreeElement(cautionFragment);
-            cautionTreeElement.selectable = false;
-            headersTreeElement.appendChild(cautionTreeElement);
-        }
-
-        headersTreeElement.hidden = !length && !provisionalHeaders;
-        for (var i = 0; i < length; ++i) {
-            var headerTreeElement = new TreeElement(this._formatHeader(headers[i].name, headers[i].value));
-            headerTreeElement.selectable = false;
-            headersTreeElement.appendChild(headerTreeElement);
-        }
-    },
-
-    /**
-     * @param {string} title
-     * @param {number} count
-     * @param {string} headersText
-     * @param {!TreeElement} headersTreeElement
-     */
-    _refreshHeadersText: function(title, count, headersText, headersTreeElement)
-    {
-        this._populateTreeElementWithSourceText(headersTreeElement, headersText);
-        this._refreshHeadersTitle(title, headersTreeElement, count);
-    },
-
-    _refreshRemoteAddress: function()
-    {
-        var remoteAddress = this._request.remoteAddress();
-        var treeElement = this._remoteAddressItem;
-        treeElement.hidden = !remoteAddress;
-        if (remoteAddress)
-            treeElement.title = this._formatHeader(WebInspector.UIString("Remote Address"), remoteAddress);
-    },
+    const listItem = this._requestPayloadCategory.listItemElement;
+    listItem.removeChildren();
+    listItem.createTextChild(this._requestPayloadCategory.title);
 
     /**
      * @param {!Event} event
+     * @this {Network.RequestHeadersView}
      */
-    _toggleRequestHeadersText: function(event)
-    {
-        this._showRequestHeadersText = !this._showRequestHeadersText;
-        this._refreshRequestHeaders();
-        event.consume();
-    },
+    function toggleViewSource(event) {
+      treeElement[Network.RequestHeadersView._viewSourceSymbol] =
+          !treeElement[Network.RequestHeadersView._viewSourceSymbol];
+      this._refreshRequestJSONPayload(parsedObject, sourceText);
+      event.consume();
+    }
 
-    /**
-     * @param {!Event} event
-     */
-    _toggleResponseHeadersText: function(event)
-    {
-        this._showResponseHeadersText = !this._showResponseHeadersText;
-        this._refreshResponseHeaders();
-        event.consume();
-    },
+    listItem.appendChild(this._createViewSourceToggle(
+        treeElement[Network.RequestHeadersView._viewSourceSymbol], toggleViewSource.bind(this)));
+    if (treeElement[Network.RequestHeadersView._viewSourceSymbol]) {
+      this._populateTreeElementWithSourceText(this._requestPayloadCategory, sourceText);
+    } else {
+      const object = SDK.RemoteObject.fromLocalObject(parsedObject);
+      const section = new ObjectUI.ObjectPropertiesSection(object, object.description);
+      section.expand();
+      section.editable = false;
+      treeElement.appendChild(new UI.TreeElement(section.element));
+    }
+  }
 
-    /**
-     * @param {string} title
-     * @return {!Element}
-     */
-    _createToggleButton: function(title)
-    {
-        var button = createElementWithClass("span", "header-toggle");
-        button.textContent = title;
-        return button;
-    },
+  /**
+   * @param {boolean} viewSource
+   * @param {function(!Event)} handler
+   * @return {!Element}
+   */
+  _createViewSourceToggle(viewSource, handler) {
+    const viewSourceToggleTitle = viewSource ? Common.UIString('view parsed') : Common.UIString('view source');
+    const viewSourceToggleButton = this._createToggleButton(viewSourceToggleTitle);
+    viewSourceToggleButton.addEventListener('click', handler, false);
+    return viewSourceToggleButton;
+  }
 
-    /**
-     * @param {boolean} isHeadersTextShown
-     * @return {!Element}
-     */
-    _createHeadersToggleButton: function(isHeadersTextShown)
-    {
-        var toggleTitle = isHeadersTextShown ? WebInspector.UIString("view parsed") : WebInspector.UIString("view source");
-        return this._createToggleButton(toggleTitle);
-    },
+  /**
+   * @param {!Event} event
+   */
+  _toggleURLDecoding(event) {
+    this._decodeRequestParameters = !this._decodeRequestParameters;
+    this._refreshQueryString();
+    this._refreshFormData();
+    event.consume();
+  }
 
-    __proto__: WebInspector.VBox.prototype
-}
+  _refreshRequestHeaders() {
+    const treeElement = this._requestHeadersCategory;
+    const headers = this._request.requestHeaders().slice();
+    headers.sort(function(a, b) {
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    const headersText = this._request.requestHeadersText();
+
+    if (this._showRequestHeadersText && headersText)
+      this._refreshHeadersText(Common.UIString('Request Headers'), headers.length, headersText, treeElement);
+    else
+      this._refreshHeaders(Common.UIString('Request Headers'), headers, treeElement, headersText === undefined);
+
+    if (headersText) {
+      const toggleButton = this._createHeadersToggleButton(this._showRequestHeadersText);
+      toggleButton.addEventListener('click', this._toggleRequestHeadersText.bind(this), false);
+      treeElement.listItemElement.appendChild(toggleButton);
+    }
+
+    this._refreshFormData();
+  }
+
+  _refreshResponseHeaders() {
+    const treeElement = this._responseHeadersCategory;
+    const headers = this._request.sortedResponseHeaders.slice();
+    const headersText = this._request.responseHeadersText;
+
+    if (this._showResponseHeadersText)
+      this._refreshHeadersText(Common.UIString('Response Headers'), headers.length, headersText, treeElement);
+    else
+      this._refreshHeaders(Common.UIString('Response Headers'), headers, treeElement);
+
+    if (headersText) {
+      const toggleButton = this._createHeadersToggleButton(this._showResponseHeadersText);
+      toggleButton.addEventListener('click', this._toggleResponseHeadersText.bind(this), false);
+      treeElement.listItemElement.appendChild(toggleButton);
+    }
+  }
+
+  _refreshHTTPInformation() {
+    const requestMethodElement = this._requestMethodItem;
+    requestMethodElement.hidden = !this._request.statusCode;
+    const statusCodeElement = this._statusCodeItem;
+    statusCodeElement.hidden = !this._request.statusCode;
+
+    if (this._request.statusCode) {
+      const statusCodeFragment = createDocumentFragment();
+      statusCodeFragment.createChild('div', 'header-name').textContent = Common.UIString('Status Code') + ': ';
+      statusCodeFragment.createChild('span', 'header-separator');
+
+      const statusCodeImage = statusCodeFragment.createChild('label', 'resource-status-image', 'dt-icon-label');
+      statusCodeImage.title = this._request.statusCode + ' ' + this._request.statusText;
+
+      if (this._request.statusCode < 300 || this._request.statusCode === 304)
+        statusCodeImage.type = 'smallicon-green-ball';
+      else if (this._request.statusCode < 400)
+        statusCodeImage.type = 'smallicon-orange-ball';
+      else
+        statusCodeImage.type = 'smallicon-red-ball';
+
+      requestMethodElement.title = this._formatHeader(Common.UIString('Request Method'), this._request.requestMethod);
+
+      const statusTextElement = statusCodeFragment.createChild('div', 'header-value source-code');
+      let statusText = this._request.statusCode + ' ' + this._request.statusText;
+      if (this._request.cachedInMemory()) {
+        statusText += ' ' + Common.UIString('(from memory cache)');
+        statusTextElement.classList.add('status-from-cache');
+      } else if (this._request.fetchedViaServiceWorker) {
+        statusText += ' ' + Common.UIString('(from ServiceWorker)');
+        statusTextElement.classList.add('status-from-cache');
+      } else if (
+          this._request.redirectSource() && this._request.redirectSource().signedExchangeInfo() &&
+          !this._request.redirectSource().signedExchangeInfo().errors) {
+        statusText += ' ' + Common.UIString('(from signed-exchange)');
+        statusTextElement.classList.add('status-from-cache');
+      } else if (this._request.cached()) {
+        statusText += ' ' + Common.UIString('(from disk cache)');
+        statusTextElement.classList.add('status-from-cache');
+      }
+      statusTextElement.textContent = statusText;
+
+      statusCodeElement.title = statusCodeFragment;
+    }
+  }
+
+  /**
+   * @param {string} title
+   * @param {!UI.TreeElement} headersTreeElement
+   * @param {number} headersLength
+   */
+  _refreshHeadersTitle(title, headersTreeElement, headersLength) {
+    headersTreeElement.listItemElement.removeChildren();
+    headersTreeElement.listItemElement.createTextChild(title);
+
+    const headerCount = Common.UIString('\u00A0(%d)', headersLength);
+    headersTreeElement.listItemElement.createChild('span', 'header-count').textContent = headerCount;
+  }
+
+  /**
+   * @param {string} title
+   * @param {!Array.<!SDK.NetworkRequest.NameValue>} headers
+   * @param {!UI.TreeElement} headersTreeElement
+   * @param {boolean=} provisionalHeaders
+   */
+  _refreshHeaders(title, headers, headersTreeElement, provisionalHeaders) {
+    headersTreeElement.removeChildren();
+
+    const length = headers.length;
+    this._refreshHeadersTitle(title, headersTreeElement, length);
+
+    if (provisionalHeaders) {
+      const cautionText = Common.UIString('Provisional headers are shown');
+      const cautionFragment = createDocumentFragment();
+      cautionFragment.createChild('label', '', 'dt-icon-label').type = 'smallicon-warning';
+      cautionFragment.createChild('div', 'caution').textContent = cautionText;
+      const cautionTreeElement = new UI.TreeElement(cautionFragment);
+      cautionTreeElement.selectable = false;
+      headersTreeElement.appendChild(cautionTreeElement);
+    }
+
+    headersTreeElement.hidden = !length && !provisionalHeaders;
+    for (let i = 0; i < length; ++i) {
+      const headerTreeElement = new UI.TreeElement(this._formatHeader(headers[i].name, headers[i].value));
+      headerTreeElement.selectable = false;
+      headersTreeElement.appendChild(headerTreeElement);
+      headerTreeElement[Network.RequestHeadersView._headerNameSymbol] = headers[i].name;
+    }
+  }
+
+  /**
+   * @param {string} title
+   * @param {number} count
+   * @param {string} headersText
+   * @param {!UI.TreeElement} headersTreeElement
+   */
+  _refreshHeadersText(title, count, headersText, headersTreeElement) {
+    this._populateTreeElementWithSourceText(headersTreeElement, headersText);
+    this._refreshHeadersTitle(title, headersTreeElement, count);
+  }
+
+  _refreshRemoteAddress() {
+    const remoteAddress = this._request.remoteAddress();
+    const treeElement = this._remoteAddressItem;
+    treeElement.hidden = !remoteAddress;
+    if (remoteAddress)
+      treeElement.title = this._formatHeader(Common.UIString('Remote Address'), remoteAddress);
+  }
+
+  _refreshReferrerPolicy() {
+    const referrerPolicy = this._request.referrerPolicy();
+    const treeElement = this._referrerPolicyItem;
+    treeElement.hidden = !referrerPolicy;
+    if (referrerPolicy)
+      treeElement.title = this._formatHeader(Common.UIString('Referrer Policy'), referrerPolicy);
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  _toggleRequestHeadersText(event) {
+    this._showRequestHeadersText = !this._showRequestHeadersText;
+    this._refreshRequestHeaders();
+    event.consume();
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  _toggleResponseHeadersText(event) {
+    this._showResponseHeadersText = !this._showResponseHeadersText;
+    this._refreshResponseHeaders();
+    event.consume();
+  }
+
+  /**
+   * @param {string} title
+   * @return {!Element}
+   */
+  _createToggleButton(title) {
+    const button = createElementWithClass('span', 'header-toggle');
+    button.textContent = title;
+    return button;
+  }
+
+  /**
+   * @param {boolean} isHeadersTextShown
+   * @return {!Element}
+   */
+  _createHeadersToggleButton(isHeadersTextShown) {
+    const toggleTitle = isHeadersTextShown ? Common.UIString('view parsed') : Common.UIString('view source');
+    return this._createToggleButton(toggleTitle);
+  }
+
+  _clearHighlight() {
+    if (this._highlightedElement)
+      this._highlightedElement.listItemElement.classList.remove('header-highlight');
+    this._highlightedElement = null;
+  }
+
+
+  /**
+   * @param {?UI.TreeElement} category
+   * @param {string} name
+   */
+  _revealAndHighlight(category, name) {
+    this._clearHighlight();
+    for (const element of category.children()) {
+      if (element[Network.RequestHeadersView._headerNameSymbol] !== name)
+        continue;
+      this._highlightedElement = element;
+      element.reveal();
+      element.listItemElement.classList.add('header-highlight');
+      return;
+    }
+  }
+
+  /**
+   * @param {string} header
+   */
+  revealRequestHeader(header) {
+    this._revealAndHighlight(this._requestHeadersCategory, header);
+  }
+
+  /**
+   * @param {string} header
+   */
+  revealResponseHeader(header) {
+    this._revealAndHighlight(this._responseHeadersCategory, header);
+  }
+};
+
+Network.RequestHeadersView._headerNameSymbol = Symbol('HeaderName');
+Network.RequestHeadersView._viewSourceSymbol = Symbol('ViewSource');
 
 /**
- * @constructor
- * @extends {TreeElement}
- * @param {!TreeOutline} root
- * @param {string} name
- * @param {string=} title
+ * @unrestricted
  */
-WebInspector.RequestHeadersView.Category = function(root, name, title)
-{
-    TreeElement.call(this, title || "", true);
+Network.RequestHeadersView.Category = class extends UI.TreeElement {
+  /**
+   * @param {!UI.TreeOutline} root
+   * @param {string} name
+   * @param {string=} title
+   */
+  constructor(root, name, title) {
+    super(title || '', true);
     this.selectable = false;
     this.toggleOnClick = true;
     this.hidden = true;
-    this._expandedSetting = WebInspector.settings.createSetting("request-info-" + name + "-category-expanded", true);
+    this._expandedSetting = Common.settings.createSetting('request-info-' + name + '-category-expanded', true);
     this.expanded = this._expandedSetting.get();
     root.appendChild(this);
-}
+  }
 
-WebInspector.RequestHeadersView.Category.prototype = {
-    /**
-     * @return {!TreeElement}
-     */
-    createLeaf: function()
-    {
-        var leaf = new TreeElement();
-        leaf.selectable = false;
-        this.appendChild(leaf);
-        return leaf;
-    },
+  /**
+   * @return {!UI.TreeElement}
+   */
+  createLeaf() {
+    const leaf = new UI.TreeElement();
+    leaf.selectable = false;
+    this.appendChild(leaf);
+    return leaf;
+  }
 
-    onexpand: function()
-    {
-        this._expandedSetting.set(true);
-    },
+  /**
+   * @override
+   */
+  onexpand() {
+    this._expandedSetting.set(true);
+  }
 
-    oncollapse: function()
-    {
-        this._expandedSetting.set(false);
-    },
-
-    __proto__: TreeElement.prototype
-}
+  /**
+   * @override
+   */
+  oncollapse() {
+    this._expandedSetting.set(false);
+  }
+};

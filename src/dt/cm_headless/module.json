@@ -1,0 +1,8 @@
+{
+    "scripts": [
+        "headlesscodemirror.js"
+    ],
+    "skip_compilation": [
+        "headlesscodemirror.js"
+    ]
+}

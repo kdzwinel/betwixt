@@ -29,10 +29,11 @@
  */
 
 .filter-bar {
-    background-color: #f3f3f3;
-    padding: 4px 0 2px 0;
+    background-color: var(--toolbar-bg-color);
     flex: none;
-    border-bottom: 1px solid #dadada;
+    flex-wrap: wrap;
+    align-items: center;
+    border-bottom: var(--divider-border);
 }
 
 .filter-text-filter {
@@ -55,17 +56,17 @@
     overflow: hidden;
     height: 24px;
     position: relative;
-    top: -1px;
+    margin: 0;
 }
 
-.filter-bitset-filter li {
+.filter-bitset-filter span {
     display: inline-block;
     flex: none;
     margin: auto 2px;
-    padding: 3px 6px 3px 3px;
+    padding: 3px;
     background: transparent;
     text-shadow: rgba(255, 255, 255, 0.5) 0 1px 0;
-    border-radius: 8px;
+    border-radius: 6px;
     overflow: hidden;
 }
 
@@ -77,22 +78,22 @@
     display: inline-block;
 }
 
-.filter-bitset-filter li.selected,
-.filter-bitset-filter li:hover,
-.filter-bitset-filter li:active {
+.filter-bitset-filter span.selected,
+.filter-bitset-filter span:hover,
+.filter-bitset-filter span:active {
     color: white;
     text-shadow: rgba(0, 0, 0, 0.4) 0 1px 0;
 }
 
-.filter-bitset-filter li:hover {
+.filter-bitset-filter span:hover {
     background: rgba(0, 0, 0, 0.2);
 }
 
-.filter-bitset-filter li.selected {
+.filter-bitset-filter span.selected {
     background: rgba(0, 0, 0, 0.3);
 }
 
-.filter-bitset-filter li:active {
+.filter-bitset-filter span:active {
     background: rgba(0, 0, 0, 0.5);
 }
 
@@ -113,16 +114,11 @@
     vertical-align: middle;
     height: 24px;
     position: relative;
-    top: -2px;
 }
 
 .filter-checkbox-filter > label {
     display: flex;
     margin: auto 0;
-}
-
-.filter-text-invalid {
-    background-color: rgb(255, 200, 200);
 }
 
 .filter-checkbox-filter .checkbox-filter-checkbox {
@@ -139,13 +135,23 @@
 }
 
 .filter-input-field {
-    -webkit-appearance: none;
-    border: 1px solid rgb(163, 163, 163);
-    border-radius: 2px;
-    padding: 1px 3px 0;
-    margin: 0 0 0 1px;
-    width: 253px;
-    height: 20px;
-    line-height: 17px;
-    flex: 1;
+    margin: 0 3px;
+    padding-left: 3px;
+    width: 163px;
+    height: 18px;
+    line-height: 20px;
+    display: inline-block;
+    background: #FFF;
+    overflow: hidden;
+    white-space: nowrap;
+    cursor: auto;
+}
+
+.filter-input-field:hover {
+    box-shadow: var(--focus-ring-inactive-shadow);
+}
+
+.filter-input-field:focus,
+.filter-input-field:not(:empty) {
+    box-shadow: var(--focus-ring-active-shadow);
 }

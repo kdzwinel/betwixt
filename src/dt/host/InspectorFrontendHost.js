@@ -27,603 +27,550 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-const {clipboard, remote} = require('electron');
-const {dialog} = remote;
-const fs = remote.require('fs');
-const Menu = remote.Menu;
-const electronWindow = remote.getCurrentWindow();
-
 /**
- * @constructor
  * @implements {InspectorFrontendHostAPI}
- * @suppressGlobalPropertiesCheck
+ * @unrestricted
  */
-WebInspector.InspectorFrontendHostStub = function()
-{
-    this._urlSavePath = {};
-
+Host.InspectorFrontendHostStub = class {
+  /**
+   * @suppressGlobalPropertiesCheck
+   */
+  constructor() {
     /**
      * @param {!Event} event
      */
-    function stopEventPropagation(event)
-    {
-        // Let browser handle Ctrl+/Ctrl- shortcuts in hosted mode.
-        var zoomModifier = WebInspector.isMac() ? event.metaKey : event.ctrlKey;
-        if (zoomModifier && (event.keyCode === 187 || event.keyCode === 189))
-            event.stopPropagation();
+    function stopEventPropagation(event) {
+      // Let browser handle Ctrl+/Ctrl- shortcuts in hosted mode.
+      const zoomModifier = Host.isMac() ? event.metaKey : event.ctrlKey;
+      if (zoomModifier && (event.keyCode === 187 || event.keyCode === 189))
+        event.stopPropagation();
     }
-    document.addEventListener("keydown", stopEventPropagation, true);
-}
-
-WebInspector.InspectorFrontendHostStub.prototype = {
+    document.addEventListener('keydown', stopEventPropagation, true);
     /**
-     * @override
-     * @return {string}
+     * @type {!Map<string, !Array<string>>}
      */
-    getSelectionBackgroundColor: function()
-    {
-        return "#6e86ff";
-    },
+    this._urlsBeingSaved = new Map();
+  }
 
-    /**
-     * @override
-     * @return {string}
-     */
-    getSelectionForegroundColor: function()
-    {
-        return "#ffffff";
-    },
+  /**
+   * @override
+   * @return {string}
+   */
+  platform() {
+    let match = navigator.userAgent.match(/Windows NT/);
+    if (match)
+      return 'windows';
+    match = navigator.userAgent.match(/Mac OS X/);
+    if (match)
+      return 'mac';
+    return 'linux';
+  }
 
-    /**
-     * @override
-     * @return {string}
-     */
-    platform: function()
-    {
-        var match = navigator.userAgent.match(/Windows NT/);
-        if (match)
-            return "windows";
-        match = navigator.userAgent.match(/Mac OS X/);
-        if (match)
-            return "mac";
-        return "linux";
-    },
+  /**
+   * @override
+   */
+  loadCompleted() {
+  }
 
-    /**
-     * @override
-     */
-    loadCompleted: function()
-    {
-    },
+  /**
+   * @override
+   */
+  bringToFront() {
+    this._windowVisible = true;
+  }
 
-    /**
-     * @override
-     */
-    bringToFront: function()
-    {
-        this._windowVisible = true;
-    },
+  /**
+   * @override
+   */
+  closeWindow() {
+    this._windowVisible = false;
+  }
 
-    /**
-     * @override
-     */
-    closeWindow: function()
-    {
-        this._windowVisible = false;
-    },
+  /**
+   * @override
+   * @param {boolean} isDocked
+   * @param {function()} callback
+   */
+  setIsDocked(isDocked, callback) {
+    setTimeout(callback, 0);
+  }
 
-    /**
-     * @override
-     * @param {boolean} isDocked
-     * @param {function()} callback
-     */
-    setIsDocked: function(isDocked, callback)
-    {
-        setTimeout(callback, 0);
-    },
+  /**
+   * Requests inspected page to be placed atop of the inspector frontend with specified bounds.
+   * @override
+   * @param {{x: number, y: number, width: number, height: number}} bounds
+   */
+  setInspectedPageBounds(bounds) {
+  }
 
-    /**
-     * Requests inspected page to be placed atop of the inspector frontend with specified bounds.
-     * @override
-     * @param {{x: number, y: number, width: number, height: number}} bounds
-     */
-    setInspectedPageBounds: function(bounds)
-    {
-    },
+  /**
+   * @override
+   */
+  inspectElementCompleted() {
+  }
 
-    /**
-     * @override
-     */
-    inspectElementCompleted: function()
-    {
-    },
+  /**
+   * @override
+   * @param {string} origin
+   * @param {string} script
+   */
+  setInjectedScriptForOrigin(origin, script) {
+  }
 
-    /**
-     * @override
-     * @param {string} origin
-     * @param {string} script
-     */
-    setInjectedScriptForOrigin: function(origin, script)
-    {
-    },
+  /**
+   * @override
+   * @param {string} url
+   * @suppressGlobalPropertiesCheck
+   */
+  inspectedURLChanged(url) {
+    document.title = Common.UIString('DevTools - %s', url.replace(/^https?:\/\//, ''));
+  }
 
-    /**
-     * @override
-     * @param {string} url
-     * @suppressGlobalPropertiesCheck
-     */
-    inspectedURLChanged: function(url)
-    {
-    },
-
-    /**
-     * @override
-     * @param {string} text
-     */
-    copyText: function(text)
-    {
-        clipboard.writeText(text);
-    },
-
-    /**
-     * @override
-     * @param {string} url
-     */
-    openInNewTab: function(url)
-    {
-        window.open(url, "_blank");
-    },
-
-    /**
-     * @override
-     * @param {string} url
-     * @param {string} content
-     * @param {boolean} forceSaveAs
-     */
-    save: function(url, content, forceSaveAs)
-    {
-        function saveToPath(path) {
-            if (!path) {
-                return Promise.reject();
-            }
-
-            return new Promise((resolve, reject) => {
-                fs.writeFile(path, content, (err) => {
-                    if (err) {
-                        reject(err.message);
-                    }
-                    resolve();
-                });
-            });
-        }
-
-        dialog.showSaveDialog(electronWindow, {
-            defaultPath: url
-        }, (path) => {
-            saveToPath(path)
-                .then(() => {
-                    this._urlSavePath[url] = path;
-                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.SavedURL, url);
-                })
-                .catch((msg) => {
-                    if (msg) {
-                        dialog.showMessageBox(electronWindow, {
-                            type: "warning",
-                            buttons: ["OK"],
-                            title: "Error",
-                            message: "Error writing to file",
-                            detail: msg
-                        });
-                    }
-
-                    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.CanceledSaveURL, url);
-                });
-        });
-    },
-
-    /**
-     * @override
-     * @param {string} url
-     * @param {string} content
-     */
-    append: function(url, content)
-    {
-        const path = this._urlSavePath[url];
-
-        if (path) {
-            fs.appendFile(path, content, (err) => {
-                if (err) {
-                    return;
-                }
-
-                this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.AppendedToURL, url);
-            });
-        }
-    },
-
-    /**
-     * @override
-     * @param {string} message
-     */
-    sendMessageToBackend: function(message)
-    {
-    },
-
-    /**
-     * @override
-     * @param {string} actionName
-     * @param {number} actionCode
-     * @param {number} bucketSize
-     */
-    recordEnumeratedHistogram: function(actionName, actionCode, bucketSize)
-    {
-    },
-
-    /**
-     * @override
-     */
-    requestFileSystems: function()
-    {
-        this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.FileSystemsLoaded, []);
-    },
-
-    /**
-     * @override
-     * @param {string=} fileSystemPath
-     */
-    addFileSystem: function(fileSystemPath)
-    {
-    },
-
-    /**
-     * @override
-     * @param {string} fileSystemPath
-     */
-    removeFileSystem: function(fileSystemPath)
-    {
-    },
-
-    /**
-     * @override
-     * @param {string} fileSystemId
-     * @param {string} registeredName
-     * @return {?DOMFileSystem}
-     */
-    isolatedFileSystem: function(fileSystemId, registeredName)
-    {
-        return null;
-    },
-
-    /**
-     * @override
-     * @param {string} url
-     * @param {string} headers
-     * @param {number} streamId
-     * @param {function(!InspectorFrontendHostAPI.LoadNetworkResourceResult)} callback
-     */
-    loadNetworkResource: function(url, headers, streamId, callback)
-    {
-        loadResourcePromise(url).then(function(text) {
-            WebInspector.ResourceLoader.streamWrite(streamId, text);
-            callback({statusCode: 200});
-        }).catch(function() {
-            callback({statusCode: 404});
-        });
-    },
-
-    /**
-     * @override
-     * @param {function(!Object<string, string>)} callback
-     */
-    getPreferences: function(callback)
-    {
-        var prefs = {};
-        for (var name in window.localStorage)
-            prefs[name] = window.localStorage[name];
-        callback(prefs);
-    },
-
-    /**
-     * @override
-     * @param {string} name
-     * @param {string} value
-     */
-    setPreference: function(name, value)
-    {
-        window.localStorage[name] = value;
-    },
-
-    /**
-     * @override
-     * @param {string} name
-     */
-    removePreference: function(name)
-    {
-        delete window.localStorage[name];
-    },
-
-    /**
-     * @override
-     */
-    clearPreferences: function()
-    {
-        window.localStorage.clear();
-    },
-
-    /**
-     * @override
-     * @param {!FileSystem} fileSystem
-     */
-    upgradeDraggedFileSystemPermissions: function(fileSystem)
-    {
-    },
-
-    /**
-     * @override
-     * @param {number} requestId
-     * @param {string} fileSystemPath
-     */
-    indexPath: function(requestId, fileSystemPath)
-    {
-    },
-
-    /**
-     * @override
-     * @param {number} requestId
-     */
-    stopIndexing: function(requestId)
-    {
-    },
-
-    /**
-     * @override
-     * @param {number} requestId
-     * @param {string} fileSystemPath
-     * @param {string} query
-     */
-    searchInPath: function(requestId, fileSystemPath, query)
-    {
-    },
-
-    /**
-     * @override
-     * @return {number}
-     */
-    zoomFactor: function()
-    {
-        return 1;
-    },
-
-    /**
-     * @override
-     */
-    zoomIn: function()
-    {
-    },
-
-    /**
-     * @override
-     */
-    zoomOut: function()
-    {
-    },
-
-    /**
-     * @override
-     */
-    resetZoom: function()
-    {
-    },
-
-    /**
-     * @override
-     * @param {string} shortcuts
-     */
-    setWhitelistedShortcuts: function(shortcuts)
-    {
-    },
-
-    /**
-     * @override
-     * @return {boolean}
-     */
-    isUnderTest: function()
-    {
-        return false;
-    },
-
-    /**
-     * @override
-     * @param {boolean} discoverUsbDevices
-     * @param {boolean} portForwardingEnabled
-     * @param {!Adb.PortForwardingConfig} portForwardingConfig
-     */
-    setDevicesDiscoveryConfig: function(discoverUsbDevices, portForwardingEnabled, portForwardingConfig)
-    {
-    },
-
-    /**
-     * @override
-     * @param {boolean} enabled
-     */
-    setDevicesUpdatesEnabled: function(enabled)
-    {
-    },
-
-    /**
-     * @override
-     * @param {string} pageId
-     * @param {string} action
-     */
-    performActionOnRemotePage: function(pageId, action)
-    {
-    },
-
-    /**
-     * @override
-     * @param {number} x
-     * @param {number} y
-     * @param {!Array.<!InspectorFrontendHostAPI.ContextMenuDescriptor>} items
-     * @param {!Document} document
-     * @param {function(number)} callback
-     */
-    showContextMenuAtPoint: function(x, y, items, document, callback)
-    {
-        //TODO does not support checkboxes, radio and submenus yet
-        const menu = Menu.buildFromTemplate(items.map(item => {
-            if (item.type === "separator") {
-                return {
-                   type: "separator"
-                };
-            }
-
-            return {
-                id: item.id,
-                label: item.label,
-                enabled: item.enabled,
-                click: () => callback(item.id)
-            };
-        }));
-
-        menu.popup(electronWindow);
-
-        window.getSelection().removeAllRanges();
-    },
-
-    /**
-     * @override
-     * @return {boolean}
-     */
-    isHostedMode: function()
-    {
-        return true;
-    },
-
-    /**
-     * @override
-     * @return {boolean}
-     */
-    isElectron: function()
-    {
-        return true;
-    },
-
-    /**
-     * @override
-     * @param {string} message
-     */
-    sendFrontendAPINotification: function(message)
-    {
+  /**
+   * @override
+   * @param {string} text
+   * @suppressGlobalPropertiesCheck
+   */
+  copyText(text) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+    } else if (document.queryCommandSupported('copy')) {
+      const input = document.createElement('input');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    } else {
+      Common.console.error('Clipboard is not enabled in hosted mode. Please inspect using chrome://inspect');
     }
+  }
+
+  /**
+   * @override
+   * @param {string} url
+   */
+  openInNewTab(url) {
+    window.open(url, '_blank');
+  }
+
+  /**
+   * @override
+   * @param {string} fileSystemPath
+   */
+  showItemInFolder(fileSystemPath) {
+    Common.console.error('Show item in folder is not enabled in hosted mode. Please inspect using chrome://inspect');
+  }
+
+  /**
+   * @override
+   * @param {string} url
+   * @param {string} content
+   * @param {boolean} forceSaveAs
+   */
+  save(url, content, forceSaveAs) {
+    let buffer = this._urlsBeingSaved.get(url);
+    if (!buffer) {
+      buffer = [];
+      this._urlsBeingSaved.set(url, buffer);
+    }
+    buffer.push(content);
+    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.SavedURL, {url, fileSystemPath: url});
+  }
+
+  /**
+   * @override
+   * @param {string} url
+   * @param {string} content
+   */
+  append(url, content) {
+    const buffer = this._urlsBeingSaved.get(url);
+    buffer.push(content);
+    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.AppendedToURL, url);
+  }
+
+  /**
+   * @override
+   * @param {string} url
+   */
+  close(url) {
+    const buffer = this._urlsBeingSaved.get(url);
+    this._urlsBeingSaved.delete(url);
+    const fileName = url ? url.trimURL().removeURLFragment() : '';
+    const link = createElement('a');
+    link.download = fileName;
+    const blob = new Blob([buffer.join('')], {type: 'text/plain'});
+    link.href = URL.createObjectURL(blob);
+    link.click();
+  }
+
+  /**
+   * @override
+   * @param {string} message
+   */
+  sendMessageToBackend(message) {
+  }
+
+  /**
+   * @override
+   * @param {string} actionName
+   * @param {number} actionCode
+   * @param {number} bucketSize
+   */
+  recordEnumeratedHistogram(actionName, actionCode, bucketSize) {
+  }
+
+  /**
+   * @override
+   */
+  requestFileSystems() {
+    this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.FileSystemsLoaded, []);
+  }
+
+  /**
+   * @override
+   * @param {string=} type
+   */
+  addFileSystem(type) {
+  }
+
+  /**
+   * @override
+   * @param {string} fileSystemPath
+   */
+  removeFileSystem(fileSystemPath) {
+  }
+
+  /**
+   * @override
+   * @param {string} fileSystemId
+   * @param {string} registeredName
+   * @return {?DOMFileSystem}
+   */
+  isolatedFileSystem(fileSystemId, registeredName) {
+    return null;
+  }
+
+  /**
+   * @override
+   * @param {string} url
+   * @param {string} headers
+   * @param {number} streamId
+   * @param {function(!InspectorFrontendHostAPI.LoadNetworkResourceResult)} callback
+   */
+  loadNetworkResource(url, headers, streamId, callback) {
+    Runtime.loadResourcePromise(url)
+        .then(function(text) {
+          Host.ResourceLoader.streamWrite(streamId, text);
+          callback({statusCode: 200});
+        })
+        .catch(function() {
+          callback({statusCode: 404});
+        });
+  }
+
+  /**
+   * @override
+   * @param {function(!Object<string, string>)} callback
+   */
+  getPreferences(callback) {
+    const prefs = {};
+    for (const name in window.localStorage)
+      prefs[name] = window.localStorage[name];
+    callback(prefs);
+  }
+
+  /**
+   * @override
+   * @param {string} name
+   * @param {string} value
+   */
+  setPreference(name, value) {
+    window.localStorage[name] = value;
+  }
+
+  /**
+   * @override
+   * @param {string} name
+   */
+  removePreference(name) {
+    delete window.localStorage[name];
+  }
+
+  /**
+   * @override
+   */
+  clearPreferences() {
+    window.localStorage.clear();
+  }
+
+  /**
+   * @override
+   * @param {!FileSystem} fileSystem
+   */
+  upgradeDraggedFileSystemPermissions(fileSystem) {
+  }
+
+  /**
+   * @override
+   * @param {number} requestId
+   * @param {string} fileSystemPath
+   * @param {string} excludedFolders
+   */
+  indexPath(requestId, fileSystemPath, excludedFolders) {
+  }
+
+  /**
+   * @override
+   * @param {number} requestId
+   */
+  stopIndexing(requestId) {
+  }
+
+  /**
+   * @override
+   * @param {number} requestId
+   * @param {string} fileSystemPath
+   * @param {string} query
+   */
+  searchInPath(requestId, fileSystemPath, query) {
+  }
+
+  /**
+   * @override
+   * @return {number}
+   */
+  zoomFactor() {
+    return 1;
+  }
+
+  /**
+   * @override
+   */
+  zoomIn() {
+  }
+
+  /**
+   * @override
+   */
+  zoomOut() {
+  }
+
+  /**
+   * @override
+   */
+  resetZoom() {
+  }
+
+  /**
+   * @override
+   * @param {string} shortcuts
+   */
+  setWhitelistedShortcuts(shortcuts) {
+  }
+
+  /**
+   * @override
+   * @param {boolean} active
+   */
+  setEyeDropperActive(active) {
+  }
+
+  /**
+   * @param {!Array<string>} certChain
+   * @override
+   */
+  showCertificateViewer(certChain) {
+  }
+
+  /**
+   * @override
+   * @param {function()} callback
+   */
+  reattach(callback) {
+  }
+
+  /**
+   * @override
+   */
+  readyForTest() {
+  }
+
+  /**
+   * @override
+   */
+  connectionReady() {
+  }
+
+  /**
+   * @override
+   * @param {boolean} value
+   */
+  setOpenNewWindowForPopups(value) {
+  }
+
+  /**
+   * @override
+   * @param {!Adb.Config} config
+   */
+  setDevicesDiscoveryConfig(config) {
+  }
+
+  /**
+   * @override
+   * @param {boolean} enabled
+   */
+  setDevicesUpdatesEnabled(enabled) {
+  }
+
+  /**
+   * @override
+   * @param {string} pageId
+   * @param {string} action
+   */
+  performActionOnRemotePage(pageId, action) {
+  }
+
+  /**
+   * @override
+   * @param {string} browserId
+   * @param {string} url
+   */
+  openRemotePage(browserId, url) {
+  }
+
+  /**
+   * @override
+   */
+  openNodeFrontend() {
+  }
+
+  /**
+   * @override
+   * @param {number} x
+   * @param {number} y
+   * @param {!Array.<!InspectorFrontendHostAPI.ContextMenuDescriptor>} items
+   * @param {!Document} document
+   */
+  showContextMenuAtPoint(x, y, items, document) {
+    throw 'Soft context menu should be used';
+  }
+
+  /**
+   * @override
+   * @return {boolean}
+   */
+  isHostedMode() {
+    return true;
+  }
+};
+
+/**
+ * @unrestricted
+ */
+Host.InspectorFrontendAPIImpl = class {
+  constructor() {
+    this._debugFrontend =
+        !!Runtime.queryParam('debugFrontend') || (window['InspectorTest'] && window['InspectorTest']['debugTest']);
+
+    const descriptors = InspectorFrontendHostAPI.EventDescriptors;
+    for (let i = 0; i < descriptors.length; ++i)
+      this[descriptors[i][1]] = this._dispatch.bind(this, descriptors[i][0], descriptors[i][2], descriptors[i][3]);
+  }
+
+  /**
+   * @param {symbol} name
+   * @param {!Array.<string>} signature
+   * @param {boolean} runOnceLoaded
+   */
+  _dispatch(name, signature, runOnceLoaded) {
+    const params = Array.prototype.slice.call(arguments, 3);
+
+    if (this._debugFrontend)
+      setImmediate(innerDispatch);
+    else
+      innerDispatch();
+
+    function innerDispatch() {
+      // Single argument methods get dispatched with the param.
+      if (signature.length < 2) {
+        try {
+          InspectorFrontendHost.events.dispatchEventToListeners(name, params[0]);
+        } catch (e) {
+          console.error(e + ' ' + e.stack);
+        }
+        return;
+      }
+      const data = {};
+      for (let i = 0; i < signature.length; ++i)
+        data[signature[i]] = params[i];
+      try {
+        InspectorFrontendHost.events.dispatchEventToListeners(name, data);
+      } catch (e) {
+        console.error(e + ' ' + e.stack);
+      }
+    }
+  }
+
+  /**
+   * @param {number} id
+   * @param {string} chunk
+   */
+  streamWrite(id, chunk) {
+    Host.ResourceLoader.streamWrite(id, chunk);
+  }
 };
 
 /**
  * @type {!InspectorFrontendHostAPI}
  */
-var InspectorFrontendHost = window.InspectorFrontendHost || null;
-
+let InspectorFrontendHost = window.InspectorFrontendHost;
 (function() {
 
-    function initializeInspectorFrontendHost()
-    {
-        if (!InspectorFrontendHost) {
-            // Instantiate stub for web-hosted mode if necessary.
-            InspectorFrontendHost = new WebInspector.InspectorFrontendHostStub();
-        } else {
-            // Otherwise add stubs for missing methods that are declared in the interface.
-            var proto = WebInspector.InspectorFrontendHostStub.prototype;
-            for (var name in proto) {
-                var value = proto[name];
-                if (typeof value !== "function" || InspectorFrontendHost[name])
-                    continue;
+  function initializeInspectorFrontendHost() {
+    let proto;
+    if (!InspectorFrontendHost) {
+      // Instantiate stub for web-hosted mode if necessary.
+      window.InspectorFrontendHost = InspectorFrontendHost = new Host.InspectorFrontendHostStub();
+    } else {
+      // Otherwise add stubs for missing methods that are declared in the interface.
+      proto = Host.InspectorFrontendHostStub.prototype;
+      for (const name of Object.getOwnPropertyNames(proto)) {
+        const stub = proto[name];
+        if (typeof stub !== 'function' || InspectorFrontendHost[name])
+          continue;
 
-                InspectorFrontendHost[name] = stub.bind(null, name);
-            }
-        }
-
-        /**
-         * @param {string} name
-         * @return {?}
-         */
-        function stub(name)
-        {
-            console.error("Incompatible embedder: method InspectorFrontendHost." + name + " is missing. Using stub instead.");
-            var args = Array.prototype.slice.call(arguments, 1);
-            return proto[name].apply(InspectorFrontendHost, args);
-        }
-
-        // Attach the events object.
-        InspectorFrontendHost.events = new WebInspector.Object();
+        console.error(
+            'Incompatible embedder: method InspectorFrontendHost.' + name + ' is missing. Using stub instead.');
+        InspectorFrontendHost[name] = stub;
+      }
     }
 
-    /**
-     * @constructor
-     */
-    function InspectorFrontendAPIImpl()
-    {
-        this._debugFrontend = !!Runtime.queryParam("debugFrontend") || (window["InspectorTest"] && window["InspectorTest"]["debugTest"]);
+    // Attach the events object.
+    InspectorFrontendHost.events = new Common.Object();
+  }
 
-        var descriptors = InspectorFrontendHostAPI.EventDescriptors;
-        for (var i = 0; i < descriptors.length; ++i)
-            this[descriptors[i][0]] = this._dispatch.bind(this, descriptors[i][0], descriptors[i][1], descriptors[i][2]);
-    }
-
-    InspectorFrontendAPIImpl.prototype = {
-        /**
-         * @param {string} name
-         * @param {!Array.<string>} signature
-         * @param {boolean} runOnceLoaded
-         */
-        _dispatch: function(name, signature, runOnceLoaded)
-        {
-            var params = Array.prototype.slice.call(arguments, 3);
-
-            if (this._debugFrontend)
-                setImmediate(innerDispatch);
-            else
-                innerDispatch();
-
-            function innerDispatch()
-            {
-                // Single argument methods get dispatched with the param.
-                if (signature.length < 2) {
-                    try {
-                        InspectorFrontendHost.events.dispatchEventToListeners(name, params[0]);
-                    } catch(e) {
-                        console.error(e + " " + e.stack);
-                    }
-                    return;
-                }
-                var data = {};
-                for (var i = 0; i < signature.length; ++i)
-                    data[signature[i]] = params[i];
-                try {
-                    InspectorFrontendHost.events.dispatchEventToListeners(name, data);
-                } catch(e) {
-                    console.error(e + " " + e.stack);
-                }
-            }
-        },
-
-        /**
-         * @param {number} id
-         * @param {string} chunk
-         */
-        streamWrite: function(id, chunk)
-        {
-            WebInspector.ResourceLoader.streamWrite(id, chunk);
-        }
-    }
-
-    // FIXME: This file is included into both apps, since the devtools_app needs the InspectorFrontendHostAPI only,
-    // so the host instance should not initialized there.
-    initializeInspectorFrontendHost();
-    window.InspectorFrontendAPI = new InspectorFrontendAPIImpl();
-    WebInspector.setLocalizationPlatform(InspectorFrontendHost.platform());
+  // FIXME: This file is included into both apps, since the devtools_app needs the InspectorFrontendHostAPI only,
+  // so the host instance should not initialized there.
+  initializeInspectorFrontendHost();
+  window.InspectorFrontendAPI = new Host.InspectorFrontendAPIImpl();
 })();
 
 /**
- * @type {!WebInspector.EventTarget}
+ * @type {!Common.EventTarget}
  */
 InspectorFrontendHost.events;
+
+/**
+ * @param {!Object<string, string>=} prefs
+ * @return {boolean}
+ */
+Host.isUnderTest = function(prefs) {
+  // Integration tests rely on test queryParam.
+  if (Runtime.queryParam('test'))
+    return true;
+  // Browser tests rely on prefs.
+  if (prefs)
+    return prefs['isUnderTest'] === 'true';
+  return Common.settings && Common.settings.createSetting('isUnderTest', false).get();
+};

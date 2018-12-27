@@ -27,809 +27,769 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-
 /**
- * @constructor
- * @extends {WebInspector.Object}
- * @implements {WebInspector.ContentProvider}
- * @param {!WebInspector.Project} project
- * @param {string} parentPath
- * @param {string} name
- * @param {string} originURL
- * @param {!WebInspector.ResourceType} contentType
+ * @implements {Common.ContentProvider}
+ * @unrestricted
  */
-WebInspector.UISourceCode = function(project, parentPath, name, originURL, contentType)
-{
+Workspace.UISourceCode = class extends Common.Object {
+  /**
+   * @param {!Workspace.Project} project
+   * @param {string} url
+   * @param {!Common.ResourceType} contentType
+   */
+  constructor(project, url, contentType) {
+    super();
     this._project = project;
-    this._parentPath = parentPath;
-    this._name = name;
-    this._originURL = originURL;
+    this._url = url;
+
+    const parsedURL = url.asParsedURL();
+    if (parsedURL) {
+      this._origin = parsedURL.securityOrigin();
+      this._parentURL = this._origin + parsedURL.folderPathComponents;
+      this._name = parsedURL.lastPathComponent;
+      if (parsedURL.queryParams)
+        this._name += '?' + parsedURL.queryParams;
+    } else {
+      this._origin = '';
+      this._parentURL = '';
+      this._name = url;
+    }
+
     this._contentType = contentType;
-    /** @type {!Array.<function(?string)>} */
-    this._requestContentCallbacks = [];
+    /** @type {?Promise<?string>} */
+    this._requestContentPromise = null;
+    /** @type {?Multimap<string, !Workspace.UISourceCode.LineMarker>} */
+    this._decorations = null;
+    this._hasCommits = false;
+    /** @type {?Set<!Workspace.UISourceCode.Message>} */
+    this._messages = null;
+    this._contentLoaded = false;
+    /** @type {?string} */
+    this._content = null;
+    /** @type {boolean|undefined} */
+    this._contentEncoded;
+    this._forceLoadOnCheckContent = false;
+    this._checkingContent = false;
+    /** @type {?string} */
+    this._lastAcceptedContent = null;
+    /** @type {?string} */
+    this._workingCopy = null;
+    /** @type {?function() : string} */
+    this._workingCopyGetter = null;
+  }
 
-    /** @type {!Array.<!WebInspector.Revision>} */
-    this.history = [];
-    this._hasUnsavedCommittedChanges = false;
+  /**
+   * @return {!Promise<?Workspace.UISourceCodeMetadata>}
+   */
+  requestMetadata() {
+    return this._project.requestMetadata(this);
+  }
 
-    /** @type {!Array<!WebInspector.UISourceCode.Message>} */
-    this._messages = [];
-}
+  /**
+   * @return {string}
+   */
+  name() {
+    return this._name;
+  }
+
+  /**
+   * @return {string}
+   */
+  mimeType() {
+    return this._project.mimeType(this);
+  }
+
+  /**
+   * @return {string}
+   */
+  url() {
+    return this._url;
+  }
+
+  /**
+   * @return {string}
+   */
+  parentURL() {
+    return this._parentURL;
+  }
+
+  /**
+   * @return {string}
+   */
+  origin() {
+    return this._origin;
+  }
+
+  /**
+   * @return {string}
+   */
+  fullDisplayName() {
+    return this._project.fullDisplayName(this);
+  }
+
+  /**
+   * @param {boolean=} skipTrim
+   * @return {string}
+   */
+  displayName(skipTrim) {
+    if (!this._name)
+      return Common.UIString('(index)');
+    let name = this._name;
+    try {
+      if (this.project().type() === Workspace.projectTypes.FileSystem)
+        name = unescape(name);
+      else
+        name = decodeURI(name);
+    } catch (e) {
+    }
+    return skipTrim ? name : name.trimEnd(100);
+  }
+
+  /**
+   * @return {boolean}
+   */
+  canRename() {
+    return this._project.canRename();
+  }
+
+  /**
+   * @param {string} newName
+   * @return {!Promise<boolean>}
+   */
+  rename(newName) {
+    let fulfill;
+    const promise = new Promise(x => fulfill = x);
+    this._project.rename(this, newName, innerCallback.bind(this));
+    return promise;
+
+    /**
+     * @param {boolean} success
+     * @param {string=} newName
+     * @param {string=} newURL
+     * @param {!Common.ResourceType=} newContentType
+     * @this {Workspace.UISourceCode}
+     */
+    function innerCallback(success, newName, newURL, newContentType) {
+      if (success) {
+        this._updateName(
+            /** @type {string} */ (newName), /** @type {string} */ (newURL),
+            /** @type {!Common.ResourceType} */ (newContentType));
+      }
+      fulfill(success);
+    }
+  }
+
+  remove() {
+    this._project.deleteFile(this);
+  }
+
+  /**
+   * @param {string} name
+   * @param {string} url
+   * @param {!Common.ResourceType=} contentType
+   */
+  _updateName(name, url, contentType) {
+    const oldURL = this._url;
+    this._url = this._url.substring(0, this._url.length - this._name.length) + name;
+    this._name = name;
+    if (url)
+      this._url = url;
+    if (contentType)
+      this._contentType = contentType;
+    this.dispatchEventToListeners(Workspace.UISourceCode.Events.TitleChanged, this);
+    this.project().workspace().dispatchEventToListeners(
+        Workspace.Workspace.Events.UISourceCodeRenamed, {oldURL: oldURL, uiSourceCode: this});
+  }
+
+  /**
+   * @override
+   * @return {string}
+   */
+  contentURL() {
+    return this.url();
+  }
+
+  /**
+   * @override
+   * @return {!Common.ResourceType}
+   */
+  contentType() {
+    return this._contentType;
+  }
+
+  /**
+   * @override
+   * @return {!Promise<boolean>}
+   */
+  async contentEncoded() {
+    await this.requestContent();
+    return this._contentEncoded || false;
+  }
+
+  /**
+   * @return {!Workspace.Project}
+   */
+  project() {
+    return this._project;
+  }
+
+  /**
+   * @override
+   * @return {!Promise<?string>}
+   */
+  requestContent() {
+    if (this._requestContentPromise)
+      return this._requestContentPromise;
+
+    if (this._contentLoaded) {
+      this._requestContentPromise = Promise.resolve(this._content);
+    } else {
+      let fulfill;
+      this._requestContentPromise = new Promise(x => fulfill = x);
+      this._project.requestFileContent(this, (content, encoded) => {
+        if (!this._contentLoaded) {
+          this._contentLoaded = true;
+          this._content = content;
+          this._contentEncoded = encoded;
+        }
+        fulfill(this._content);
+      });
+    }
+    return this._requestContentPromise;
+  }
+
+  checkContentUpdated() {
+    if (!this._contentLoaded && !this._forceLoadOnCheckContent)
+      return;
+
+    if (!this._project.canSetFileContent() || this._checkingContent)
+      return;
+
+    this._checkingContent = true;
+    this._project.requestFileContent(this, contentLoaded.bind(this));
+
+    /**
+     * @param {?string} updatedContent
+     * @param {boolean} encoded
+     * @this {Workspace.UISourceCode}
+     */
+    async function contentLoaded(updatedContent, encoded) {
+      this._checkingContent = false;
+      if (updatedContent === null) {
+        const workingCopy = this.workingCopy();
+        this._contentCommitted('', false);
+        this.setWorkingCopy(workingCopy);
+        return;
+      }
+      if (this._lastAcceptedContent === updatedContent)
+        return;
+
+      if (this._content === updatedContent) {
+        this._lastAcceptedContent = null;
+        return;
+      }
+
+      if (!this.isDirty() || this._workingCopy === updatedContent) {
+        this._contentCommitted(/** @type {string} */ (updatedContent), false);
+        return;
+      }
+
+      await Common.Revealer.reveal(this);
+
+      // Make sure we are in the next frame before stopping the world with confirm
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const shouldUpdate =
+          window.confirm(Common.UIString('This file was changed externally. Would you like to reload it?'));
+      if (shouldUpdate)
+        this._contentCommitted(/** @type {string} */ (updatedContent), false);
+      else
+        this._lastAcceptedContent = updatedContent;
+    }
+  }
+
+  forceLoadOnCheckContent() {
+    this._forceLoadOnCheckContent = true;
+  }
+
+  /**
+   * @param {string} content
+   */
+  _commitContent(content) {
+    if (this._project.canSetFileContent())
+      this._project.setFileContent(this, content, false);
+    this._contentCommitted(content, true);
+  }
+
+  /**
+   * @param {string} content
+   * @param {boolean} committedByUser
+   */
+  _contentCommitted(content, committedByUser) {
+    this._lastAcceptedContent = null;
+    this._content = content;
+    this._contentLoaded = true;
+    this._requestContentPromise = null;
+
+    this._hasCommits = true;
+
+    this._innerResetWorkingCopy();
+    const data = {uiSourceCode: this, content, encoded: this._contentEncoded};
+    this.dispatchEventToListeners(Workspace.UISourceCode.Events.WorkingCopyCommitted, data);
+    this._project.workspace().dispatchEventToListeners(Workspace.Workspace.Events.WorkingCopyCommitted, data);
+    if (committedByUser)
+      this._project.workspace().dispatchEventToListeners(Workspace.Workspace.Events.WorkingCopyCommittedByUser, data);
+  }
+
+  /**
+   * @param {string} content
+   */
+  addRevision(content) {
+    this._commitContent(content);
+  }
+
+  /**
+   * @return {boolean}
+   */
+  hasCommits() {
+    return this._hasCommits;
+  }
+
+  /**
+   * @return {string}
+   */
+  workingCopy() {
+    if (this._workingCopyGetter) {
+      this._workingCopy = this._workingCopyGetter();
+      this._workingCopyGetter = null;
+    }
+    if (this.isDirty())
+      return /** @type {string} */ (this._workingCopy);
+    return this._content || '';
+  }
+
+  resetWorkingCopy() {
+    this._innerResetWorkingCopy();
+    this._workingCopyChanged();
+  }
+
+  _innerResetWorkingCopy() {
+    this._workingCopy = null;
+    this._workingCopyGetter = null;
+  }
+
+  /**
+   * @param {string} newWorkingCopy
+   */
+  setWorkingCopy(newWorkingCopy) {
+    this._workingCopy = newWorkingCopy;
+    this._workingCopyGetter = null;
+    this._workingCopyChanged();
+  }
+
+  /**
+   * @param {string} content
+   * @param {boolean} isBase64
+   */
+  setContent(content, isBase64) {
+    this._contentEncoded = isBase64;
+    if (this._project.canSetFileContent())
+      this._project.setFileContent(this, content, isBase64);
+    this._contentCommitted(content, true);
+  }
+
+  /**
+  * @param {function(): string } workingCopyGetter
+  */
+  setWorkingCopyGetter(workingCopyGetter) {
+    this._workingCopyGetter = workingCopyGetter;
+    this._workingCopyChanged();
+  }
+
+  _workingCopyChanged() {
+    this._removeAllMessages();
+    this.dispatchEventToListeners(Workspace.UISourceCode.Events.WorkingCopyChanged, this);
+    this._project.workspace().dispatchEventToListeners(
+        Workspace.Workspace.Events.WorkingCopyChanged, {uiSourceCode: this});
+  }
+
+  removeWorkingCopyGetter() {
+    if (!this._workingCopyGetter)
+      return;
+    this._workingCopy = this._workingCopyGetter();
+    this._workingCopyGetter = null;
+  }
+
+  commitWorkingCopy() {
+    if (this.isDirty())
+      this._commitContent(this.workingCopy());
+  }
+
+  /**
+   * @return {boolean}
+   */
+  isDirty() {
+    return this._workingCopy !== null || this._workingCopyGetter !== null;
+  }
+
+  /**
+   * @return {string}
+   */
+  extension() {
+    return Common.ParsedURL.extractExtension(this._name);
+  }
+
+  /**
+   * @return {?string}
+   */
+  content() {
+    return this._content;
+  }
+
+  /**
+   * @override
+   * @param {string} query
+   * @param {boolean} caseSensitive
+   * @param {boolean} isRegex
+   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   */
+  searchInContent(query, caseSensitive, isRegex) {
+    const content = this.content();
+    if (!content)
+      return this._project.searchInFileContent(this, query, caseSensitive, isRegex);
+    return Promise.resolve(Common.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex));
+  }
+
+  /**
+   * @return {boolean}
+   */
+  contentLoaded() {
+    return this._contentLoaded;
+  }
+
+  /**
+   * @param {number} lineNumber
+   * @param {number=} columnNumber
+   * @return {!Workspace.UILocation}
+   */
+  uiLocation(lineNumber, columnNumber) {
+    if (typeof columnNumber === 'undefined')
+      columnNumber = 0;
+    return new Workspace.UILocation(this, lineNumber, columnNumber);
+  }
+
+  /**
+   * @return {!Set<!Workspace.UISourceCode.Message>}
+   */
+  messages() {
+    return this._messages ? new Set(this._messages) : new Set();
+  }
+
+  /**
+   * @param {!Workspace.UISourceCode.Message.Level} level
+   * @param {string} text
+   * @param {number} lineNumber
+   * @param {number=} columnNumber
+   * @return {!Workspace.UISourceCode.Message} message
+   */
+  addLineMessage(level, text, lineNumber, columnNumber) {
+    return this.addMessage(
+        level, text, new TextUtils.TextRange(lineNumber, columnNumber || 0, lineNumber, columnNumber || 0));
+  }
+
+  /**
+   * @param {!Workspace.UISourceCode.Message.Level} level
+   * @param {string} text
+   * @param {!TextUtils.TextRange} range
+   * @return {!Workspace.UISourceCode.Message} message
+   */
+  addMessage(level, text, range) {
+    const message = new Workspace.UISourceCode.Message(this, level, text, range);
+    if (!this._messages)
+      this._messages = new Set();
+    this._messages.add(message);
+    this.dispatchEventToListeners(Workspace.UISourceCode.Events.MessageAdded, message);
+    return message;
+  }
+
+  /**
+   * @param {!Workspace.UISourceCode.Message} message
+   */
+  removeMessage(message) {
+    if (this._messages && this._messages.delete(message))
+      this.dispatchEventToListeners(Workspace.UISourceCode.Events.MessageRemoved, message);
+  }
+
+  _removeAllMessages() {
+    if (!this._messages)
+      return;
+    for (const message of this._messages)
+      this.dispatchEventToListeners(Workspace.UISourceCode.Events.MessageRemoved, message);
+    this._messages = null;
+  }
+
+  /**
+   * @param {number} lineNumber
+   * @param {string} type
+   * @param {?} data
+   */
+  addLineDecoration(lineNumber, type, data) {
+    this.addDecoration(TextUtils.TextRange.createFromLocation(lineNumber, 0), type, data);
+  }
+
+  /**
+   * @param {!TextUtils.TextRange} range
+   * @param {string} type
+   * @param {?} data
+   */
+  addDecoration(range, type, data) {
+    const marker = new Workspace.UISourceCode.LineMarker(range, type, data);
+    if (!this._decorations)
+      this._decorations = new Multimap();
+    this._decorations.set(type, marker);
+    this.dispatchEventToListeners(Workspace.UISourceCode.Events.LineDecorationAdded, marker);
+  }
+
+  /**
+   * @param {string} type
+   */
+  removeDecorationsForType(type) {
+    if (!this._decorations)
+      return;
+    const markers = this._decorations.get(type);
+    this._decorations.deleteAll(type);
+    markers.forEach(marker => {
+      this.dispatchEventToListeners(Workspace.UISourceCode.Events.LineDecorationRemoved, marker);
+    });
+  }
+
+  /**
+   * @return {!Array<!Workspace.UISourceCode.LineMarker>}
+   */
+  allDecorations() {
+    return this._decorations ? this._decorations.valuesArray() : [];
+  }
+
+  removeAllDecorations() {
+    if (!this._decorations)
+      return;
+    const decorationList = this._decorations.valuesArray();
+    this._decorations.clear();
+    decorationList.forEach(
+        marker => this.dispatchEventToListeners(Workspace.UISourceCode.Events.LineDecorationRemoved, marker));
+  }
+
+  /**
+   * @param {string} type
+   * @return {?Set<!Workspace.UISourceCode.LineMarker>}
+   */
+  decorationsForType(type) {
+    return this._decorations ? this._decorations.get(type) : null;
+  }
+};
+
+/** @enum {symbol} */
+Workspace.UISourceCode.Events = {
+  WorkingCopyChanged: Symbol('WorkingCopyChanged'),
+  WorkingCopyCommitted: Symbol('WorkingCopyCommitted'),
+  TitleChanged: Symbol('TitleChanged'),
+  MessageAdded: Symbol('MessageAdded'),
+  MessageRemoved: Symbol('MessageRemoved'),
+  LineDecorationAdded: Symbol('LineDecorationAdded'),
+  LineDecorationRemoved: Symbol('LineDecorationRemoved')
+};
 
 /**
- * @enum {string}
+ * @unrestricted
  */
-WebInspector.UISourceCode.Events = {
-    WorkingCopyChanged: "WorkingCopyChanged",
-    WorkingCopyCommitted: "WorkingCopyCommitted",
-    TitleChanged: "TitleChanged",
-    SourceMappingChanged: "SourceMappingChanged",
-    MessageAdded: "MessageAdded",
-    MessageRemoved: "MessageRemoved",
-}
-
-WebInspector.UISourceCode.prototype = {
-    /**
-     * @return {string}
-     */
-    name: function()
-    {
-        return this._name;
-    },
-
-    /**
-     * @return {string}
-     */
-    parentPath: function()
-    {
-        return this._parentPath;
-    },
-
-    /**
-     * @return {string}
-     */
-    path: function()
-    {
-        return this._parentPath ? this._parentPath + "/" + this._name : this._name;
-    },
-
-    /**
-     * @return {string}
-     */
-    fullDisplayName: function()
-    {
-        return this._project.displayName() + "/" + (this._parentPath ? this._parentPath + "/" : "") + this.displayName(true);
-    },
-
-    /**
-     * @param {boolean=} skipTrim
-     * @return {string}
-     */
-    displayName: function(skipTrim)
-    {
-        var displayName = this.name() || WebInspector.UIString("(index)");
-        return skipTrim ? displayName : displayName.trimEnd(100);
-    },
-
-    /**
-     * @return {string}
-     */
-    uri: function()
-    {
-        var path = this.path();
-        if (!this._project.url())
-            return path;
-        if (!path)
-            return this._project.url();
-        return this._project.url() + "/" + path;
-    },
-
-    /**
-     * @return {string}
-     */
-    originURL: function()
-    {
-        return this._originURL;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    canRename: function()
-    {
-        return this._project.canRename();
-    },
-
-    /**
-     * @param {string} newName
-     * @param {function(boolean)} callback
-     */
-    rename: function(newName, callback)
-    {
-        this._project.rename(this, newName, innerCallback.bind(this));
-
-        /**
-         * @param {boolean} success
-         * @param {string=} newName
-         * @param {string=} newOriginURL
-         * @param {!WebInspector.ResourceType=} newContentType
-         * @this {WebInspector.UISourceCode}
-         */
-        function innerCallback(success, newName, newOriginURL, newContentType)
-        {
-            if (success)
-                this._updateName(/** @type {string} */ (newName), /** @type {string} */ (newOriginURL), /** @type {!WebInspector.ResourceType} */ (newContentType));
-            callback(success);
-        }
-    },
-
-    remove: function()
-    {
-        this._project.deleteFile(this.path());
-    },
-
-    /**
-     * @param {string} name
-     * @param {string} originURL
-     * @param {!WebInspector.ResourceType=} contentType
-     */
-    _updateName: function(name, originURL, contentType)
-    {
-        var oldURI = this.uri();
-        this._name = name;
-        if (originURL)
-            this._originURL = originURL;
-        if (contentType)
-            this._contentType = contentType;
-        this.dispatchEventToListeners(WebInspector.UISourceCode.Events.TitleChanged, oldURI);
-    },
-
-    /**
-     * @override
-     * @return {string}
-     */
-    contentURL: function()
-    {
-        return this.originURL();
-    },
-
-    /**
-     * @override
-     * @return {!WebInspector.ResourceType}
-     */
-    contentType: function()
-    {
-        return this._contentType;
-    },
-
-    /**
-     * @return {!WebInspector.Project}
-     */
-    project: function()
-    {
-        return this._project;
-    },
-
-    /**
-     * @param {function(?Date, ?number)} callback
-     */
-    requestMetadata: function(callback)
-    {
-        this._project.requestMetadata(this, callback);
-    },
-
-    /**
-     * @override
-     * @param {function(?string)} callback
-     */
-    requestContent: function(callback)
-    {
-        if (this._content || this._contentLoaded) {
-            callback(this._content);
-            return;
-        }
-        this._requestContentCallbacks.push(callback);
-        if (this._requestContentCallbacks.length === 1)
-            this._project.requestFileContent(this, this._fireContentAvailable.bind(this));
-    },
-
-    /**
-     * @param {function()} callback
-     */
-    _pushCheckContentUpdatedCallback: function(callback)
-    {
-        if (!this._checkContentUpdatedCallbacks)
-            this._checkContentUpdatedCallbacks = [];
-        this._checkContentUpdatedCallbacks.push(callback);
-    },
-
-    _terminateContentCheck: function()
-    {
-        delete this._checkingContent;
-        if (this._checkContentUpdatedCallbacks) {
-            this._checkContentUpdatedCallbacks.forEach(function(callback) { callback(); });
-            delete this._checkContentUpdatedCallbacks;
-        }
-    },
-
-    /**
-     * @param {function()=} callback
-     */
-    checkContentUpdated: function(callback)
-    {
-        callback = callback || function() {};
-        if (!this._project.canSetFileContent()) {
-            callback();
-            return;
-        }
-        this._pushCheckContentUpdatedCallback(callback);
-
-        if (this._checkingContent) {
-            return;
-        }
-        this._checkingContent = true;
-        this._project.requestFileContent(this, contentLoaded.bind(this));
-
-        /**
-         * @param {?string} updatedContent
-         * @this {WebInspector.UISourceCode}
-         */
-        function contentLoaded(updatedContent)
-        {
-            if (updatedContent === null) {
-                var workingCopy = this.workingCopy();
-                this._contentCommitted("", true, false);
-                this.setWorkingCopy(workingCopy);
-                this._terminateContentCheck();
-                return;
-            }
-            if (typeof this._lastAcceptedContent === "string" && this._lastAcceptedContent === updatedContent) {
-                this._terminateContentCheck();
-                return;
-            }
-
-            if (this._content === updatedContent) {
-                delete this._lastAcceptedContent;
-                this._terminateContentCheck();
-                return;
-            }
-
-            if (!this.isDirty() || this._workingCopy === updatedContent) {
-                this._contentCommitted(updatedContent, true, false);
-                this._terminateContentCheck();
-                return;
-            }
-
-            var shouldUpdate = window.confirm(WebInspector.UIString("This file was changed externally. Would you like to reload it?"));
-            if (shouldUpdate)
-                this._contentCommitted(updatedContent, true, false);
-            else
-                this._lastAcceptedContent = updatedContent;
-            this._terminateContentCheck();
-        }
-    },
-
-    /**
-     * @param {function(?string)} callback
-     */
-    requestOriginalContent: function(callback)
-    {
-        this._project.requestFileContent(this, callback);
-    },
-
-    /**
-     * @param {string} content
-     */
-    _commitContent: function(content)
-    {
-        var wasPersisted = false;
-        if (this._project.canSetFileContent()) {
-            this._project.setFileContent(this, content, function() { });
-            wasPersisted = true;
-        } else if (this._project.workspace().hasResourceContentTrackingExtensions()) {
-            wasPersisted = true;
-        } else if (this._originURL && WebInspector.fileManager.isURLSaved(this._originURL)) {
-            WebInspector.fileManager.save(this._originURL, content, false, function() { });
-            WebInspector.fileManager.close(this._originURL);
-            wasPersisted = true;
-        }
-        this._contentCommitted(content, wasPersisted, true);
-    },
-
-    /**
-     * @param {string} content
-     * @param {boolean} wasPersisted
-     * @param {boolean} committedByUser
-     */
-    _contentCommitted: function(content, wasPersisted, committedByUser)
-    {
-        delete this._lastAcceptedContent;
-        this._content = content;
-        this._contentLoaded = true;
-
-        var lastRevision = this.history.length ? this.history[this.history.length - 1] : null;
-        if (!lastRevision || lastRevision._content !== this._content) {
-            var revision = new WebInspector.Revision(this, this._content, new Date());
-            this.history.push(revision);
-        }
-
-        this._innerResetWorkingCopy();
-        this._hasUnsavedCommittedChanges = !wasPersisted;
-        this.dispatchEventToListeners(WebInspector.UISourceCode.Events.WorkingCopyCommitted);
-        this._project.workspace().dispatchEventToListeners(WebInspector.Workspace.Events.WorkingCopyCommitted, { uiSourceCode: this, content: content });
-        if (committedByUser)
-            this._project.workspace().dispatchEventToListeners(WebInspector.Workspace.Events.WorkingCopyCommittedByUser, { uiSourceCode: this, content: content });
-    },
-
-    saveAs: function()
-    {
-        WebInspector.fileManager.save(this._originURL, this.workingCopy(), true, callback.bind(this));
-        WebInspector.fileManager.close(this._originURL);
-
-        /**
-         * @param {boolean} accepted
-         * @this {WebInspector.UISourceCode}
-         */
-        function callback(accepted)
-        {
-            if (accepted)
-                this._contentCommitted(this.workingCopy(), true, true);
-        }
-    },
-
-    /**
-     * @return {boolean}
-     */
-    hasUnsavedCommittedChanges: function()
-    {
-        return this._hasUnsavedCommittedChanges;
-    },
-
-    /**
-     * @param {string} content
-     */
-    addRevision: function(content)
-    {
-        this._commitContent(content);
-    },
-
-    revertToOriginal: function()
-    {
-        /**
-         * @this {WebInspector.UISourceCode}
-         * @param {?string} content
-         */
-        function callback(content)
-        {
-            if (typeof content !== "string")
-                return;
-
-            this.addRevision(content);
-        }
-
-        WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.RevisionApplied);
-        this.requestOriginalContent(callback.bind(this));
-    },
-
-    /**
-     * @param {function(!WebInspector.UISourceCode)} callback
-     */
-    revertAndClearHistory: function(callback)
-    {
-        /**
-         * @this {WebInspector.UISourceCode}
-         * @param {?string} content
-         */
-        function revert(content)
-        {
-            if (typeof content !== "string")
-                return;
-
-            this.addRevision(content);
-            this.history = [];
-            callback(this);
-        }
-
-        WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.RevisionApplied);
-        this.requestOriginalContent(revert.bind(this));
-    },
-
-    /**
-     * @return {string}
-     */
-    workingCopy: function()
-    {
-        if (this._workingCopyGetter) {
-            this._workingCopy = this._workingCopyGetter();
-            delete this._workingCopyGetter;
-        }
-        if (this.isDirty())
-            return this._workingCopy;
-        return this._content;
-    },
-
-    resetWorkingCopy: function()
-    {
-        this._innerResetWorkingCopy();
-        this.dispatchEventToListeners(WebInspector.UISourceCode.Events.WorkingCopyChanged);
-    },
-
-    _innerResetWorkingCopy: function()
-    {
-        delete this._workingCopy;
-        delete this._workingCopyGetter;
-    },
-
-    /**
-     * @param {string} newWorkingCopy
-     */
-    setWorkingCopy: function(newWorkingCopy)
-    {
-        this._workingCopy = newWorkingCopy;
-        delete this._workingCopyGetter;
-        this.dispatchEventToListeners(WebInspector.UISourceCode.Events.WorkingCopyChanged);
-        this._project.workspace().dispatchEventToListeners(WebInspector.Workspace.Events.WorkingCopyChanged, { uiSourceCode: this });
-    },
-
-    setWorkingCopyGetter: function(workingCopyGetter)
-    {
-        this._workingCopyGetter = workingCopyGetter;
-        this.dispatchEventToListeners(WebInspector.UISourceCode.Events.WorkingCopyChanged);
-        this._project.workspace().dispatchEventToListeners(WebInspector.Workspace.Events.WorkingCopyChanged, { uiSourceCode: this  });
-    },
-
-    removeWorkingCopyGetter: function()
-    {
-        if (!this._workingCopyGetter)
-            return;
-        this._workingCopy = this._workingCopyGetter();
-        delete this._workingCopyGetter;
-    },
-
-    commitWorkingCopy: function()
-    {
-        if (this.isDirty())
-            this._commitContent(this.workingCopy());
-    },
-
-    /**
-     * @return {boolean}
-     */
-    isDirty: function()
-    {
-        return typeof this._workingCopy !== "undefined" || typeof this._workingCopyGetter !== "undefined";
-    },
-
-    /**
-     * @return {string}
-     */
-    extension: function()
-    {
-        var lastIndexOfDot = this._name.lastIndexOf(".");
-        var extension = lastIndexOfDot !== -1 ? this._name.substr(lastIndexOfDot + 1) : "";
-        var indexOfQuestionMark = extension.indexOf("?");
-        if (indexOfQuestionMark !== -1)
-            extension = extension.substr(0, indexOfQuestionMark);
-        return extension;
-    },
-
-    /**
-     * @return {?string}
-     */
-    content: function()
-    {
-        return this._content;
-    },
-
-    /**
-     * @override
-     * @param {string} query
-     * @param {boolean} caseSensitive
-     * @param {boolean} isRegex
-     * @param {function(!Array.<!WebInspector.ContentProvider.SearchMatch>)} callback
-     */
-    searchInContent: function(query, caseSensitive, isRegex, callback)
-    {
-        var content = this.content();
-        if (content) {
-            WebInspector.StaticContentProvider.searchInContent(content, query, caseSensitive, isRegex, callback);
-            return;
-        }
-
-        this._project.searchInFileContent(this, query, caseSensitive, isRegex, callback);
-    },
-
-    /**
-     * @param {?string} content
-     */
-    _fireContentAvailable: function(content)
-    {
-        this._contentLoaded = true;
-        this._content = content;
-
-        var callbacks = this._requestContentCallbacks.slice();
-        this._requestContentCallbacks = [];
-        for (var i = 0; i < callbacks.length; ++i)
-            callbacks[i](content);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    contentLoaded: function()
-    {
-        return this._contentLoaded;
-    },
-
-    /**
-     * @param {number} lineNumber
-     * @param {number=} columnNumber
-     * @return {!WebInspector.UILocation}
-     */
-    uiLocation: function(lineNumber, columnNumber)
-    {
-        if (typeof columnNumber === "undefined")
-            columnNumber = 0;
-        return new WebInspector.UILocation(this, lineNumber, columnNumber);
-    },
-
-    /**
-     * @return {!Array<!WebInspector.UISourceCode.Message>}
-     */
-    messages: function()
-    {
-        return this._messages.slice();
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode.Message.Level} level
-     * @param {string} text
-     * @param {number} lineNumber
-     * @param {number=} columnNumber
-     * @return {!WebInspector.UISourceCode.Message} message
-     */
-    addMessage: function(level, text, lineNumber, columnNumber)
-    {
-        var message = new WebInspector.UISourceCode.Message(this, level, text, lineNumber, columnNumber);
-        this._messages.push(message);
-        this.dispatchEventToListeners(WebInspector.UISourceCode.Events.MessageAdded, message);
-        return message;
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode.Message} message
-     */
-    removeMessage: function(message)
-    {
-        if (this._messages.remove(message))
-            this.dispatchEventToListeners(WebInspector.UISourceCode.Events.MessageRemoved, message);
-    },
-
-    removeAllMessages: function()
-    {
-        var messages = this._messages;
-        this._messages = [];
-        for (var message of messages)
-            this.dispatchEventToListeners(WebInspector.UISourceCode.Events.MessageRemoved, message);
-    },
-
-    __proto__: WebInspector.Object.prototype
-}
-
-/**
- * @constructor
- * @param {!WebInspector.UISourceCode} uiSourceCode
- * @param {number} lineNumber
- * @param {number} columnNumber
- */
-WebInspector.UILocation = function(uiSourceCode, lineNumber, columnNumber)
-{
+Workspace.UILocation = class {
+  /**
+   * @param {!Workspace.UISourceCode} uiSourceCode
+   * @param {number} lineNumber
+   * @param {number} columnNumber
+   */
+  constructor(uiSourceCode, lineNumber, columnNumber) {
     this.uiSourceCode = uiSourceCode;
     this.lineNumber = lineNumber;
     this.columnNumber = columnNumber;
-}
+  }
 
-WebInspector.UILocation.prototype = {
-    /**
-     * @return {string}
-     */
-    linkText: function()
-    {
-        var linkText = this.uiSourceCode.displayName();
-        if (typeof this.lineNumber === "number")
-            linkText += ":" + (this.lineNumber + 1);
-        return linkText;
-    },
+  /**
+   * @param {boolean=} skipTrim
+   * @return {string}
+   */
+  linkText(skipTrim) {
+    let linkText = this.uiSourceCode.displayName(skipTrim);
+    if (typeof this.lineNumber === 'number')
+      linkText += ':' + (this.lineNumber + 1);
+    return linkText;
+  }
 
-    /**
-     * @return {string}
-     */
-    id: function()
-    {
-        return this.uiSourceCode.project().id() + ":" + this.uiSourceCode.uri() + ":" + this.lineNumber + ":" + this.columnNumber;
-    },
+  /**
+   * @return {string}
+   */
+  id() {
+    return this.uiSourceCode.project().id() + ':' + this.uiSourceCode.url() + ':' + this.lineNumber + ':' +
+        this.columnNumber;
+  }
 
-    /**
-     * @return {string}
-     */
-    toUIString: function()
-    {
-        return this.uiSourceCode.uri() + ":" + (this.lineNumber + 1);
-    }
-}
+  /**
+   * @return {string}
+   */
+  toUIString() {
+    return this.uiSourceCode.url() + ':' + (this.lineNumber + 1);
+  }
 
-/**
- * @constructor
- * @implements {WebInspector.ContentProvider}
- * @param {!WebInspector.UISourceCode} uiSourceCode
- * @param {?string|undefined} content
- * @param {!Date} timestamp
- */
-WebInspector.Revision = function(uiSourceCode, content, timestamp)
-{
-    this._uiSourceCode = uiSourceCode;
-    this._content = content;
-    this._timestamp = timestamp;
-}
+  /**
+   * @param {!Workspace.UILocation} location1
+   * @param {!Workspace.UILocation} location2
+   * @return {number}
+   */
+  static comparator(location1, location2) {
+    return location1.compareTo(location2);
+  }
 
-WebInspector.Revision.prototype = {
-    /**
-     * @return {!WebInspector.UISourceCode}
-     */
-    get uiSourceCode()
-    {
-        return this._uiSourceCode;
-    },
-
-    /**
-     * @return {!Date}
-     */
-    get timestamp()
-    {
-        return this._timestamp;
-    },
-
-    /**
-     * @return {?string}
-     */
-    get content()
-    {
-        return this._content || null;
-    },
-
-    revertToThis: function()
-    {
-        /**
-         * @param {string} content
-         * @this {WebInspector.Revision}
-         */
-        function revert(content)
-        {
-            if (this._uiSourceCode._content !== content)
-                this._uiSourceCode.addRevision(content);
-        }
-        WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.RevisionApplied);
-        this.requestContent(revert.bind(this));
-    },
-
-    /**
-     * @override
-     * @return {string}
-     */
-    contentURL: function()
-    {
-        return this._uiSourceCode.originURL();
-    },
-
-    /**
-     * @override
-     * @return {!WebInspector.ResourceType}
-     */
-    contentType: function()
-    {
-        return this._uiSourceCode.contentType();
-    },
-
-    /**
-     * @override
-     * @param {function(string)} callback
-     */
-    requestContent: function(callback)
-    {
-        callback(this._content || "");
-    },
-
-    /**
-     * @override
-     * @param {string} query
-     * @param {boolean} caseSensitive
-     * @param {boolean} isRegex
-     * @param {function(!Array.<!WebInspector.ContentProvider.SearchMatch>)} callback
-     */
-    searchInContent: function(query, caseSensitive, isRegex, callback)
-    {
-        callback([]);
-    }
-}
+  /**
+   * @param {!Workspace.UILocation} other
+   * @return {number}
+   */
+  compareTo(other) {
+    if (this.uiSourceCode.url() !== other.uiSourceCode.url())
+      return this.uiSourceCode.url() > other.uiSourceCode.url() ? 1 : -1;
+    if (this.lineNumber !== other.lineNumber)
+      return this.lineNumber - other.lineNumber;
+    return this.columnNumber - other.columnNumber;
+  }
+};
 
 /**
- * @constructor
- * @param {!WebInspector.UISourceCode} uiSourceCode
- * @param {!WebInspector.UISourceCode.Message.Level} level
- * @param {string} text
- * @param {number} lineNumber
- * @param {number=} columnNumber
+ * @unrestricted
  */
-WebInspector.UISourceCode.Message = function(uiSourceCode, level, text, lineNumber, columnNumber)
-{
+Workspace.UISourceCode.Message = class {
+  /**
+   * @param {!Workspace.UISourceCode} uiSourceCode
+   * @param {!Workspace.UISourceCode.Message.Level} level
+   * @param {string} text
+   * @param {!TextUtils.TextRange} range
+   */
+  constructor(uiSourceCode, level, text, range) {
     this._uiSourceCode = uiSourceCode;
     this._level = level;
     this._text = text;
-    this._lineNumber = lineNumber;
-    this._columnNumber = columnNumber;
-}
+    this._range = range;
+  }
+
+  /**
+   * @return {!Workspace.UISourceCode}
+   */
+  uiSourceCode() {
+    return this._uiSourceCode;
+  }
+
+  /**
+   * @return {!Workspace.UISourceCode.Message.Level}
+   */
+  level() {
+    return this._level;
+  }
+
+  /**
+   * @return {string}
+   */
+  text() {
+    return this._text;
+  }
+
+  /**
+   * @return {!TextUtils.TextRange}
+   */
+  range() {
+    return this._range;
+  }
+
+  /**
+   * @return {number}
+   */
+  lineNumber() {
+    return this._range.startLine;
+  }
+
+  /**
+   * @return {(number|undefined)}
+   */
+  columnNumber() {
+    return this._range.startColumn;
+  }
+
+  /**
+   * @param {!Workspace.UISourceCode.Message} another
+   * @return {boolean}
+   */
+  isEqual(another) {
+    return this._uiSourceCode === another._uiSourceCode && this.text() === another.text() &&
+        this.level() === another.level() && this.range().equal(another.range());
+  }
+
+  remove() {
+    this._uiSourceCode.removeMessage(this);
+  }
+};
 
 /**
  * @enum {string}
  */
-WebInspector.UISourceCode.Message.Level = {
-    Error: "Error",
-    Warning: "Warning"
-}
+Workspace.UISourceCode.Message.Level = {
+  Error: 'Error',
+  Warning: 'Warning'
+};
 
-WebInspector.UISourceCode.Message.prototype = {
-    /**
-     * @return {!WebInspector.UISourceCode}
-     */
-    uiSourceCode: function()
-    {
-        return this._uiSourceCode;
-    },
+/**
+ * @unrestricted
+ */
+Workspace.UISourceCode.LineMarker = class {
+  /**
+   * @param {!TextUtils.TextRange} range
+   * @param {string} type
+   * @param {?} data
+   */
+  constructor(range, type, data) {
+    this._range = range;
+    this._type = type;
+    this._data = data;
+  }
 
-    /**
-     * @return {!WebInspector.UISourceCode.Message.Level}
-     */
-    level: function()
-    {
-        return this._level;
-    },
+  /**
+   * @return {!TextUtils.TextRange}
+   */
+  range() {
+    return this._range;
+  }
 
-    /**
-     * @return {string}
-     */
-    text: function()
-    {
-        return this._text;
-    },
+  /**
+   * @return {string}
+   */
+  type() {
+    return this._type;
+  }
 
-    /**
-     * @return {number}
-     */
-    lineNumber: function()
-    {
-        return this._lineNumber;
-    },
+  /**
+   * @return {*}
+   */
+  data() {
+    return this._data;
+  }
+};
 
-    /**
-     * @return {(number|undefined)}
-     */
-    columnNumber: function()
-    {
-        return this._columnNumber;
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode.Message} another
-     * @return {boolean}
-     */
-    isEqual: function(another)
-    {
-        return this._uiSourceCode === another._uiSourceCode && this.text() === another.text() && this.level() === another.level() && this.lineNumber() === another.lineNumber() && this.columnNumber() === another.columnNumber();
-    },
-
-    remove: function()
-    {
-        this._uiSourceCode.removeMessage(this);
-    }
-}
+/**
+ * @unrestricted
+ */
+Workspace.UISourceCodeMetadata = class {
+  /**
+   * @param {?Date} modificationTime
+   * @param {?number} contentSize
+   */
+  constructor(modificationTime, contentSize) {
+    this.modificationTime = modificationTime;
+    this.contentSize = contentSize;
+  }
+};

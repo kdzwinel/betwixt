@@ -5,43 +5,79 @@
 
 .lock-icon,
 .security-property {
-    background-size: cover;
     height: 16px;
     width: 16px;
+
+    -webkit-mask-image: url(Images/securityIcons.png);
+    -webkit-mask-size: 80px 32px;
+
+    background-color: #888;
 }
 
-.lock-icon-unknown {
-    background-image: url(Images/securityStateNeutral.svg);
-}
-
-.lock-icon-neutral {
-    background-image: url(Images/securityStateNeutral.svg);
-}
-
-.lock-icon-insecure {
-    background-image: url(Images/securityStateInsecure.svg);
+@media (-webkit-min-device-pixel-ratio: 1.1) {
+    .lock-icon,
+    .security-property {
+        -webkit-mask-image: url(Images/securityIcons_2x.png);
+    }
 }
 
 .lock-icon-secure {
-    background-image: url(Images/securityStateSecure.svg);
+    -webkit-mask-position: 0px 0px;
+    background-color: #0B8043;
 }
 
-.security-property-insecure {
-    background-image: url(Images/securityPropertyInsecure.svg);
+.lock-icon-unknown,
+.lock-icon-neutral {
+    -webkit-mask-position: -16px 0px;
+    background-color: #000000; /* Black for clarity on lower DPI screens */
 }
 
-.security-property-neutral {
-    background-image: url(Images/securityPropertyWarning.svg);
+@media (-webkit-min-device-pixel-ratio: 1.1) {
+    .lock-icon-unknown,
+    .lock-icon-neutral {
+        background-color: #5A5A5A; /* Gray for hiDPI screens */
+    }
 }
 
-.security-property-warning {
-    background-image: url(Images/securityPropertyWarning.svg);
+.lock-icon-insecure {
+    -webkit-mask-position: -32px 0px;
+    background-color: #C63626;
 }
 
 .security-property-secure {
-    background-image: url(Images/securityPropertySecure.svg);
+    -webkit-mask-position: 0px -16px;
+    background-color: #0B8043;
+}
+
+.security-property-neutral {
+    -webkit-mask-position: -16px -16px;
+    background-color: #C63626;
+}
+
+.security-property-insecure {
+    -webkit-mask-position: -32px -16px;
+    background-color: #C63626;
 }
 
 .security-property-info {
-    background-image: url(Images/securityPropertyInfo.svg);
+    -webkit-mask-position: -48px -16px;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.security-property-unknown {
+    -webkit-mask-position: -64px -16px;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.url-scheme-secure {
+    color: #0b8043;
+}
+
+.url-scheme-neutral,
+.url-scheme-insecure {
+    color: #cb3626;
+}
+
+.url-scheme-separator {
+    color: #8a8a8a;
 }

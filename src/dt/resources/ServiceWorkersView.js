@@ -1,661 +1,591 @@
 // Copyright (c) 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 /**
- * @constructor
- * @extends {WebInspector.VBox}
- * @implements {WebInspector.TargetManager.Observer}
+ * @implements {SDK.SDKModelObserver<!SDK.ServiceWorkerManager>}
  */
-WebInspector.ServiceWorkersView = function()
-{
-    WebInspector.VBox.call(this, true);
-    this.registerRequiredCSS("resources/serviceWorkersView.css");
-    this.contentElement.classList.add("service-workers-view");
+Resources.ServiceWorkersView = class extends UI.VBox {
+  constructor() {
+    super(true);
+    this.registerRequiredCSS('resources/serviceWorkersView.css');
 
-    /** @type {!Set.<string>} */
-    this._securityOriginHosts = new Set();
-    /** @type {!Map.<string, !WebInspector.ServiceWorkerOriginElement>} */
-    this._originHostToOriginElementMap = new Map();
-    /** @type {!Map.<string, !WebInspector.ServiceWorkerOriginElement>} */
-    this._registrationIdToOriginElementMap = new Map();
+    this._currentWorkersView = new UI.ReportView(Common.UIString('Service Workers'));
+    this._currentWorkersView.setBodyScrollable(false);
+    this.contentElement.classList.add('service-worker-list');
+    this._currentWorkersView.show(this.contentElement);
+    this._currentWorkersView.element.classList.add('service-workers-this-origin');
 
-    var settingsDiv = createElementWithClass("div", "service-workers-settings");
-    var debugOnStartCheckboxLabel = createCheckboxLabel(WebInspector.UIString("Open DevTools window and pause JavaScript execution on Service Worker startup for debugging."));
-    this._debugOnStartCheckbox = debugOnStartCheckboxLabel.checkboxElement;
-    this._debugOnStartCheckbox.addEventListener("change", this._debugOnStartCheckboxChanged.bind(this), false)
-    this._debugOnStartCheckbox.disabled = true
-    settingsDiv.appendChild(debugOnStartCheckboxLabel);
-    this.contentElement.appendChild(settingsDiv);
+    this._toolbar = this._currentWorkersView.createToolbar();
+    this._toolbar.makeWrappable(true /* growVertically */);
 
-    this._root = this.contentElement.createChild("ol");
-    this._root.classList.add("service-workers-root");
+    /** @type {!Map<!SDK.ServiceWorkerRegistration, !Resources.ServiceWorkersView.Section>} */
+    this._sections = new Map();
 
-    WebInspector.targetManager.observeTargets(this);
-}
+    /** @type {?SDK.ServiceWorkerManager} */
+    this._manager = null;
+    /** @type {?SDK.SecurityOriginManager} */
+    this._securityOriginManager = null;
 
-WebInspector.ServiceWorkersView.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetAdded: function(target)
-    {
-        if (this._target)
-            return;
-        this._target = target;
-        this._manager = this._target.serviceWorkerManager;
+    this._filterThrottler = new Common.Throttler(300);
 
-        this._debugOnStartCheckbox.disabled = false;
-        this._debugOnStartCheckbox.checked = this._manager.debugOnStart();
+    this._otherWorkers = this.contentElement.createChild('div', 'service-workers-other-origin');
+    this._otherSWFilter = this._otherWorkers.createChild('div', 'service-worker-filter');
+    this._otherSWFilter.setAttribute('tabindex', 0);
+    this._otherSWFilter.setAttribute('role', 'switch');
+    this._otherSWFilter.setAttribute('aria-checked', false);
+    this._otherSWFilter.addEventListener('keydown', event => {
+      if (event.target !== this._otherSWFilter)
+        return;
+      if (isEnterKey(event) || event.keyCode === UI.KeyboardShortcut.Keys.Space.code)
+        this._toggleFilter();
+    });
+    const filterLabel = this._otherSWFilter.createChild('label', 'service-worker-filter-label');
+    filterLabel.textContent = Common.UIString('Service workers from other domains');
+    filterLabel.setAttribute('for', 'expand-all');
+    filterLabel.addEventListener('click', () => this._toggleFilter());
 
-        for (var registration of this._manager.registrations().values())
-            this._updateRegistration(registration);
+    const toolbar = new UI.Toolbar('service-worker-filter-toolbar', this._otherSWFilter);
+    this._filter = new UI.ToolbarInput('Filter', 1);
+    this._filter.addEventListener(UI.ToolbarInput.Event.TextChanged, () => this._filterChanged());
+    toolbar.appendToolbarItem(this._filter);
 
-        this._manager.addEventListener(WebInspector.ServiceWorkerManager.Events.RegistrationUpdated, this._registrationUpdated, this);
-        this._manager.addEventListener(WebInspector.ServiceWorkerManager.Events.RegistrationDeleted, this._registrationDeleted, this);
-        this._manager.addEventListener(WebInspector.ServiceWorkerManager.Events.DebugOnStartUpdated, this._debugOnStartUpdated, this);
-        this._target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.SecurityOriginAdded, this._securityOriginAdded, this);
-        this._target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.SecurityOriginRemoved, this._securityOriginRemoved, this);
-        var securityOrigins = this._target.resourceTreeModel.securityOrigins();
-        for (var i = 0; i < securityOrigins.length; ++i)
-            this._addOrigin(securityOrigins[i]);
-    },
+    this._otherWorkersView = new UI.ReportView();
+    this._otherWorkersView.setBodyScrollable(false);
+    this._otherWorkersView.show(this._otherWorkers);
+    this._otherWorkersView.element.classList.add('service-workers-for-other-origins');
 
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetRemoved: function(target)
-    {
-        if (target !== this._target)
-            return;
-        delete this._target;
-    },
+    this._updateCollapsedStyle();
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _registrationUpdated: function(event)
-    {
-        var registration = /** @type {!WebInspector.ServiceWorkerRegistration} */ (event.data);
-        this._updateRegistration(registration);
-    },
+    this._toolbar.appendToolbarItem(MobileThrottling.throttlingManager().createOfflineToolbarCheckbox());
+    const updateOnReloadSetting = Common.settings.createSetting('serviceWorkerUpdateOnReload', false);
+    updateOnReloadSetting.setTitle(Common.UIString('Update on reload'));
+    const forceUpdate = new UI.ToolbarSettingCheckbox(
+        updateOnReloadSetting, Common.UIString('Force update Service Worker on page reload'));
+    this._toolbar.appendToolbarItem(forceUpdate);
+    const bypassServiceWorkerSetting = Common.settings.createSetting('bypassServiceWorker', false);
+    bypassServiceWorkerSetting.setTitle(Common.UIString('Bypass for network'));
+    const fallbackToNetwork = new UI.ToolbarSettingCheckbox(
+        bypassServiceWorkerSetting, Common.UIString('Bypass Service Worker and load resources from the network'));
+    this._toolbar.appendToolbarItem(fallbackToNetwork);
 
-    /**
-     * @param {!WebInspector.ServiceWorkerRegistration} registration
-     */
-    _updateRegistration: function(registration)
-    {
-        var parsedURL = registration.scopeURL.asParsedURL();
-        if (!parsedURL)
-          return;
-        var originHost = parsedURL.host;
-        var originElement = this._originHostToOriginElementMap.get(originHost);
-        if (!originElement) {
-            originElement = new WebInspector.ServiceWorkerOriginElement(this._manager, originHost);
-            if (this._securityOriginHosts.has(originHost))
-                this._appendOriginNode(originElement);
-            this._originHostToOriginElementMap.set(originHost, originElement);
-        }
-        this._registrationIdToOriginElementMap.set(registration.id, originElement);
-        originElement._updateRegistration(registration);
-    },
+    /** @type {!Map<!SDK.ServiceWorkerManager, !Array<!Common.EventTarget.EventDescriptor>>}*/
+    this._eventListeners = new Map();
+    SDK.targetManager.observeModels(SDK.ServiceWorkerManager, this);
+    this._updateListVisibility();
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _registrationDeleted: function(event)
-    {
-        var registration = /** @type {!WebInspector.ServiceWorkerRegistration} */ (event.data);
-        var registrationId = registration.id;
-        var originElement = this._registrationIdToOriginElementMap.get(registrationId);
-        if (!originElement)
-            return;
-        this._registrationIdToOriginElementMap.delete(registrationId);
-        originElement._deleteRegistration(registrationId);
-        if (originElement._hasRegistration())
-            return;
-        if (this._securityOriginHosts.has(originElement._originHost))
-            this._removeOriginNode(originElement);
-        this._originHostToOriginElementMap.delete(originElement._originHost);
-    },
+  /**
+   * @override
+   * @param {!SDK.ServiceWorkerManager} serviceWorkerManager
+   */
+  modelAdded(serviceWorkerManager) {
+    if (this._manager)
+      return;
+    this._manager = serviceWorkerManager;
+    this._securityOriginManager = serviceWorkerManager.target().model(SDK.SecurityOriginManager);
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _debugOnStartUpdated: function(event)
-    {
-        var debugOnStart = /** @type {boolean} */ (event.data);
-        this._debugOnStartCheckbox.checked = debugOnStart;
-    },
+    for (const registration of this._manager.registrations().values())
+      this._updateRegistration(registration);
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _securityOriginAdded: function(event)
-    {
-        this._addOrigin(/** @type {string} */ (event.data));
-    },
+    this._eventListeners.set(serviceWorkerManager, [
+      this._manager.addEventListener(
+          SDK.ServiceWorkerManager.Events.RegistrationUpdated, this._registrationUpdated, this),
+      this._manager.addEventListener(
+          SDK.ServiceWorkerManager.Events.RegistrationDeleted, this._registrationDeleted, this),
+      this._securityOriginManager.addEventListener(
+          SDK.SecurityOriginManager.Events.SecurityOriginAdded, this._updateSectionVisibility, this),
+      this._securityOriginManager.addEventListener(
+          SDK.SecurityOriginManager.Events.SecurityOriginRemoved, this._updateSectionVisibility, this),
+    ]);
+  }
 
-    /**
-     * @param {string} securityOrigin
-     */
-    _addOrigin: function(securityOrigin)
-    {
-        var parsedURL = securityOrigin.asParsedURL();
-        if (!parsedURL)
-          return;
-        var originHost = parsedURL.host;
-        if (this._securityOriginHosts.has(originHost))
-            return;
-        this._securityOriginHosts.add(originHost);
-        var originElement = this._originHostToOriginElementMap.get(originHost);
-        if (!originElement)
-          return;
-        this._appendOriginNode(originElement);
-    },
+  /**
+   * @override
+   * @param {!SDK.ServiceWorkerManager} serviceWorkerManager
+   */
+  modelRemoved(serviceWorkerManager) {
+    if (!this._manager || this._manager !== serviceWorkerManager)
+      return;
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _securityOriginRemoved: function(event)
-    {
-        var securityOrigin = /** @type {string} */ (event.data);
-        var parsedURL = securityOrigin.asParsedURL();
-        if (!parsedURL)
-          return;
-        var originHost = parsedURL.host;
-        if (!this._securityOriginHosts.has(originHost))
-            return;
-        this._securityOriginHosts.delete(originHost);
-        var originElement = this._originHostToOriginElementMap.get(originHost);
-        if (!originElement)
-          return;
-        this._removeOriginNode(originElement);
-    },
+    Common.EventTarget.removeEventListeners(this._eventListeners.get(serviceWorkerManager));
+    this._eventListeners.delete(serviceWorkerManager);
+    this._manager = null;
+    this._securityOriginManager = null;
+  }
 
-    /**
-     * @param {!WebInspector.ServiceWorkerOriginElement} originElement
-     */
-    _appendOriginNode: function(originElement)
-    {
-        this._root.appendChild(originElement._element);
-    },
+  _updateSectionVisibility() {
+    let hasOthers = false;
+    let hasThis = false;
+    const movedSections = [];
+    for (const section of this._sections.values()) {
+      const expectedView = this._getReportViewForOrigin(section._registration.securityOrigin);
+      hasOthers |= expectedView === this._otherWorkersView;
+      hasThis |= expectedView === this._currentWorkersView;
+      if (section._section.parentWidget() !== expectedView)
+        movedSections.push(section);
+    }
 
-    /**
-     * @param {!WebInspector.ServiceWorkerOriginElement} originElement
-     */
-    _removeOriginNode: function(originElement)
-    {
-        this._root.removeChild(originElement._element);
-    },
+    for (const section of movedSections) {
+      const registration = section._registration;
+      this._removeRegistrationFromList(registration);
+      this._updateRegistration(registration, true);
+    }
 
-    _debugOnStartCheckboxChanged: function()
-    {
-        if (!this._manager)
-            return;
-        this._manager.setDebugOnStart(this._debugOnStartCheckbox.checked);
-        this._debugOnStartCheckbox.checked = this._manager.debugOnStart();
-    },
+    const scorer = new Sources.FilePathScoreFunction(this._filter.value());
+    this._otherWorkersView.sortSections((a, b) => {
+      const cmp = scorer.score(b.title(), null) - scorer.score(a.title(), null);
+      return cmp === 0 ? a.title().localeCompare(b.title()) : cmp;
+    });
+    for (const section of this._sections.values()) {
+      if (section._section.parentWidget() === this._currentWorkersView ||
+          this._isRegistrationVisible(section._registration))
+        section._section.showWidget();
+      else
+        section._section.hideWidget();
+    }
+    this.contentElement.classList.toggle('service-worker-has-current', hasThis);
+    this._otherWorkers.classList.toggle('hidden', !hasOthers);
+    this._updateListVisibility();
+  }
 
-    __proto__: WebInspector.VBox.prototype
-}
-
-/**
- * @constructor
- * @param {!WebInspector.ServiceWorkerManager} manager
- * @param {string} originHost
- */
-WebInspector.ServiceWorkerOriginElement = function(manager, originHost)
-{
-    this._manager = manager;
-    /** @type {!Map.<string, !WebInspector.SWRegistrationElement>} */
-    this._registrationElements = new Map();
-    this._originHost = originHost;
-    this._element = createElementWithClass("div", "service-workers-origin");
-    this._listItemNode = this._element.createChild("li", "service-workers-origin-title");
-    this._listItemNode.createChild("div").createTextChild(originHost);
-    this._childrenListNode = this._element.createChild("ol");
-}
-
-WebInspector.ServiceWorkerOriginElement.prototype = {
-    /**
-     * @return {boolean}
-     */
-    _hasRegistration: function()
-    {
-        return this._registrationElements.size != 0;
-    },
-
-    /**
-     * @param {!WebInspector.ServiceWorkerRegistration} registration
-     */
-    _updateRegistration: function(registration)
-    {
-        var swRegistrationElement = this._registrationElements.get(registration.id);
-        if (swRegistrationElement) {
-            swRegistrationElement._updateRegistration(registration);
-            return;
-        }
-        swRegistrationElement = new WebInspector.SWRegistrationElement(this._manager, this, registration);
-        this._registrationElements.set(registration.id, swRegistrationElement);
-        this._childrenListNode.appendChild(swRegistrationElement._element);
-    },
-
-    /**
-     * @param {string} registrationId
-     */
-    _deleteRegistration: function(registrationId)
-    {
-        var swRegistrationElement = this._registrationElements.get(registrationId);
-        if (!swRegistrationElement)
-            return;
-        this._registrationElements.delete(registrationId);
-        this._childrenListNode.removeChild(swRegistrationElement._element);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    _visible: function()
-    {
-        return !!this._element.parentElement;
-    },
-}
-
-/**
- * @constructor
- * @param {!WebInspector.ServiceWorkerManager} manager
- * @param {!WebInspector.ServiceWorkerOriginElement} originElement
- * @param {!WebInspector.ServiceWorkerRegistration} registration
- */
-WebInspector.SWRegistrationElement = function(manager, originElement, registration)
-{
-    this._manager = manager;
-    this._originElement = originElement;
-    this._registration = registration;
-    this._element = createElementWithClass("div", "service-workers-registration");
-    var headerNode = this._element.createChild("div", "service-workers-registration-header");
-    this._titleNode = headerNode.createChild("div", "service-workers-registration-title");
-    var buttonsNode = headerNode.createChild("div", "service-workers-registration-buttons");
-    this._updateButton = buttonsNode.createChild("button", "service-workers-button service-workers-update-button");
-    this._updateButton.addEventListener("click", this._updateButtonClicked.bind(this), false);
-    this._updateButton.title = WebInspector.UIString("Update");
-    this._updateButton.disabled = true
-    this._pushButton = buttonsNode.createChild("button", "service-workers-button service-workers-push-button");
-    this._pushButton.addEventListener("click", this._pushButtonClicked.bind(this), false);
-    this._pushButton.title = WebInspector.UIString("Emulate push event");
-    this._pushButton.disabled = true
-    this._deleteButton = buttonsNode.createChild("button", "service-workers-button service-workers-delete-button");
-    this._deleteButton.addEventListener("click", this._deleteButtonClicked.bind(this), false);
-    this._deleteButton.title = WebInspector.UIString("Delete");
-    this._childrenListNode = this._element.createChild("div", "service-workers-registration-content");
-
-    /**
-     * @type {!Object.<string, !Array.<!WebInspector.ServiceWorkerVersion>>}
-     */
-    this._categorizedVersions = {};
-    for (var mode in WebInspector.ServiceWorkerVersion.Modes)
-        this._categorizedVersions[WebInspector.ServiceWorkerVersion.Modes[mode]] = [];
-
-    this._selectedMode = WebInspector.ServiceWorkerVersion.Modes.Active;
-
-    /**
-     * @type {!Array.<!WebInspector.SWVersionElement>}
-     */
-    this._versionElements = [];
-
+  /**
+   * @param {!Common.Event} event
+   */
+  _registrationUpdated(event) {
+    const registration = /** @type {!SDK.ServiceWorkerRegistration} */ (event.data);
     this._updateRegistration(registration);
-}
+    this._gcRegistrations();
+  }
 
-WebInspector.SWRegistrationElement.prototype = {
-    /**
-     * @param {!WebInspector.ServiceWorkerRegistration} registration
-     */
-    _updateRegistration: function(registration)
-    {
-        this._registration = registration;
-        this._titleNode.textContent = WebInspector.UIString(registration.isDeleted ? "Scope: %s - deleted" : "Scope: %s", registration.scopeURL.asParsedURL().path);
-        this._updateButton.disabled = !!registration.isDeleted;
-        this._deleteButton.disabled = !!registration.isDeleted;
+  _gcRegistrations() {
+    let hasNonDeletedRegistrations = false;
+    const securityOrigins = new Set(this._securityOriginManager.securityOrigins());
+    for (const registration of this._manager.registrations().values()) {
+      if (!securityOrigins.has(registration.securityOrigin) && !this._isRegistrationVisible(registration))
+        continue;
+      if (!registration.canBeRemoved()) {
+        hasNonDeletedRegistrations = true;
+        break;
+      }
+    }
 
-        var lastFocusedVersionId = undefined;
-        if (this._categorizedVersions[this._selectedMode].length)
-            lastFocusedVersionId = this._categorizedVersions[this._selectedMode][0].id;
-        for (var mode in WebInspector.ServiceWorkerVersion.Modes)
-            this._categorizedVersions[WebInspector.ServiceWorkerVersion.Modes[mode]] = [];
-        for (var version of registration.versions.valuesArray()) {
-            if (version.isStoppedAndRedundant() && !version.errorMessages.length)
-                continue;
-            var mode = version.mode();
-            this._categorizedVersions[mode].push(version);
-            if (version.id === lastFocusedVersionId)
-                this._selectedMode = mode;
-        }
-        if (!this._categorizedVersions[this._selectedMode].length) {
-            for (var mode of [WebInspector.ServiceWorkerVersion.Modes.Active,
-                              WebInspector.ServiceWorkerVersion.Modes.Waiting,
-                              WebInspector.ServiceWorkerVersion.Modes.Installing,
-                              WebInspector.ServiceWorkerVersion.Modes.Redundant]) {
-                if (this._categorizedVersions[mode].length) {
-                    this._selectedMode = mode;
-                    break;
-                }
-            }
-        }
-        this._pushButton.disabled = !this._categorizedVersions[WebInspector.ServiceWorkerVersion.Modes.Active].length || !!this._registration.isDeleted;
+    if (!hasNonDeletedRegistrations)
+      return;
 
-        this._updateVersionList();
-    },
+    for (const registration of this._manager.registrations().values()) {
+      const visible = securityOrigins.has(registration.securityOrigin) || this._isRegistrationVisible(registration);
+      if (!visible && registration.canBeRemoved())
+        this._removeRegistrationFromList(registration);
+    }
+  }
 
-    _updateVersionList: function()
-    {
-        var fragment = createDocumentFragment();
-        var modeTabList = createElementWithClass("div", "service-workers-versions-mode-tab-list");
-        modeTabList.appendChild(this._createVersionModeTab(WebInspector.ServiceWorkerVersion.Modes.Installing));
-        modeTabList.appendChild(this._createVersionModeTab(WebInspector.ServiceWorkerVersion.Modes.Waiting));
-        modeTabList.appendChild(this._createVersionModeTab(WebInspector.ServiceWorkerVersion.Modes.Active));
-        modeTabList.appendChild(this._createVersionModeTab(WebInspector.ServiceWorkerVersion.Modes.Redundant));
-        fragment.appendChild(modeTabList);
-        fragment.appendChild(this._createSelectedModeVersionsPanel(this._selectedMode));
-        this._childrenListNode.removeChildren();
-        this._childrenListNode.appendChild(fragment);
-    },
+  /**
+   * @param {string} origin
+   * @return {!UI.ReportView}
+   */
+  _getReportViewForOrigin(origin) {
+    if (this._securityOriginManager.securityOrigins().includes(origin))
+      return this._currentWorkersView;
+    else
+      return this._otherWorkersView;
+  }
 
-    /**
-     * @param {string} mode
-     * @return {!Element}
-     */
-    _createVersionModeTab: function(mode)
-    {
-        var versions = this._categorizedVersions[mode];
-        var modeTitle = WebInspector.UIString(mode);
-        var selected = this._selectedMode == mode;
-        var modeTab = createElementWithClass("div", "service-workers-versions-mode-tab");
-        for (var version of versions) {
-            var icon = modeTab.createChild("div", "service-workers-versions-mode-tab-icon service-workers-color-" + (version.id % 10));
-            icon.title = WebInspector.UIString("ID: %s", version.id);
-        }
-        var modeTabText = modeTab.createChild("div", "service-workers-versions-mode-tab-text");
-        modeTabText.createTextChild(WebInspector.UIString(modeTitle));
-        if (selected) {
-            modeTab.classList.add("service-workers-versions-mode-tab-selected");
-            modeTabText.classList.add("service-workers-versions-mode-tab-text-selected");
-        }
-        if (versions.length) {
-            modeTab.addEventListener("click", this._modeTabClicked.bind(this, mode), false);
-        } else {
-            modeTab.classList.add("service-workers-versions-mode-tab-disabled");
-            modeTabText.classList.add("service-workers-versions-mode-tab-text-disabled");
-        }
-        return modeTab;
-    },
+  /**
+   * @param {!SDK.ServiceWorkerRegistration} registration
+   * @param {boolean=} skipUpdate
+   */
+  _updateRegistration(registration, skipUpdate) {
+    let section = this._sections.get(registration);
+    if (!section) {
+      const title = Resources.ServiceWorkersView._displayScopeURL(registration.scopeURL);
+      section = new Resources.ServiceWorkersView.Section(
+          /** @type {!SDK.ServiceWorkerManager} */ (this._manager),
+          this._getReportViewForOrigin(registration.securityOrigin).appendSection(title), registration);
+      this._sections.set(registration, section);
+    }
+    if (skipUpdate)
+      return;
+    this._updateSectionVisibility();
+    section._scheduleUpdate();
+  }
 
-    /**
-     * @param {string} mode
-     * @return {!Element}
-     */
-    _createSelectedModeVersionsPanel: function(mode)
-    {
-        var versions = this._categorizedVersions[mode];
-        var panelContainer = createElementWithClass("div", "service-workers-versions-panel-container");
-        var index = 0;
-        var versionElement;
-        for (var i = 0; i < versions.length; ++i) {
-            if (i < this._versionElements.length) {
-                versionElement = this._versionElements[i];
-                versionElement._updateVersion(versions[i]);
-            } else {
-                versionElement = new WebInspector.SWVersionElement(this._manager, this._registration.scopeURL, versions[i]);
-                this._versionElements.push(versionElement);
-            }
-            panelContainer.appendChild(versionElement._element);
-        }
-        this._versionElements.splice(versions.length);
-        return panelContainer;
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _registrationDeleted(event) {
+    const registration = /** @type {!SDK.ServiceWorkerRegistration} */ (event.data);
+    this._removeRegistrationFromList(registration);
+  }
 
-    /**
-     * @param {string} mode
-     */
-    _modeTabClicked: function(mode)
-    {
-        if (this._selectedMode == mode)
-            return;
-        this._selectedMode = mode;
-        this._updateVersionList();
-    },
+  /**
+   * @param {!SDK.ServiceWorkerRegistration} registration
+   */
+  _removeRegistrationFromList(registration) {
+    const section = this._sections.get(registration);
+    if (section)
+      section._section.detach();
+    this._sections.delete(registration);
+    this._updateSectionVisibility();
+  }
 
-    /**
-     * @param {!Event} event
-     */
-    _deleteButtonClicked: function(event)
-    {
-        this._manager.deleteRegistration(this._registration.id);
-    },
+  /**
+   * @param {!SDK.ServiceWorkerRegistration} registration
+   * @return {boolean}
+   */
+  _isRegistrationVisible(registration) {
+    const filterString = this._filter.value();
+    if (!filterString || !registration.scopeURL)
+      return true;
 
-    /**
-     * @param {!Event} event
-     */
-    _updateButtonClicked: function(event)
-    {
-        this._manager.updateRegistration(this._registration.id);
-    },
+    const regex = String.filterRegex(filterString);
+    return registration.scopeURL.match(regex);
+  }
 
-    /**
-     * @param {!Event} event
-     */
-    _pushButtonClicked: function(event)
-    {
-        var data = "Test push message from DevTools."
-        this._manager.deliverPushMessage(this._registration.id, data);
-    },
+  _filterChanged() {
+    this._updateCollapsedStyle();
+    this._filterThrottler.schedule(() => Promise.resolve(this._updateSectionVisibility()));
+  }
 
-    /**
-     * @return {boolean}
-     */
-    _visible: function()
-    {
-        return this._originElement._visible();
-    },
-}
+  _updateCollapsedStyle() {
+    const expanded = this._otherSWFilter.getAttribute('aria-checked') === 'true';
+    this._otherWorkers.classList.toggle('service-worker-filter-collapsed', !expanded);
+    if (expanded)
+      this._otherWorkersView.showWidget();
+    else
+      this._otherWorkersView.hideWidget();
+    this._otherWorkersView.setHeaderVisible(false);
+  }
 
-/**
- * @constructor
- * @param {!WebInspector.ServiceWorkerManager} manager
- * @param {string} scopeURL
- * @param {!WebInspector.ServiceWorkerVersion} version
- */
-WebInspector.SWVersionElement = function(manager, scopeURL, version)
-{
+  /**
+   * @param {string} scopeURL
+   * @return {string}
+   */
+  static _displayScopeURL(scopeURL) {
+    const parsedURL = scopeURL.asParsedURL();
+    let path = parsedURL.path;
+    if (path.endsWith('/'))
+      path = path.substring(0, path.length - 1);
+    return parsedURL.host + path;
+  }
+
+  _updateListVisibility() {
+    this.contentElement.classList.toggle('service-worker-list-empty', this._sections.size === 0);
+  }
+
+  _toggleFilter() {
+    const expanded = this._otherSWFilter.getAttribute('aria-checked') === 'true';
+    this._otherSWFilter.setAttribute('aria-checked', !expanded);
+    this._filterChanged();
+  }
+};
+
+Resources.ServiceWorkersView.Section = class {
+  /**
+   * @param {!SDK.ServiceWorkerManager} manager
+   * @param {!UI.ReportView.Section} section
+   * @param {!SDK.ServiceWorkerRegistration} registration
+   */
+  constructor(manager, section, registration) {
     this._manager = manager;
-    this._scopeURL = scopeURL;
-    this._version = version;
-    this._element = createElementWithClass("div", "service-workers-version");
+    this._section = section;
+    this._registration = registration;
+    /** @type {?symbol} */
+    this._fingerprint = null;
+    this._pushNotificationDataSetting =
+        Common.settings.createLocalSetting('pushData', Common.UIString('Test push message from DevTools.'));
+    this._syncTagNameSetting = Common.settings.createLocalSetting('syncTagName', 'test-tag-from-devtools');
+
+    this._toolbar = section.createToolbar();
+    this._toolbar.renderAsLinks();
+    this._updateButton = new UI.ToolbarButton(Common.UIString('Update'), undefined, Common.UIString('Update'));
+    this._updateButton.addEventListener(UI.ToolbarButton.Events.Click, this._updateButtonClicked, this);
+    this._toolbar.appendToolbarItem(this._updateButton);
+    this._deleteButton =
+        new UI.ToolbarButton(Common.UIString('Unregister service worker'), undefined, Common.UIString('Unregister'));
+    this._deleteButton.addEventListener(UI.ToolbarButton.Events.Click, this._unregisterButtonClicked, this);
+    this._toolbar.appendToolbarItem(this._deleteButton);
+
+    // Preserve the order.
+    this._sourceField = this._wrapWidget(this._section.appendField(Common.UIString('Source')));
+    this._statusField = this._wrapWidget(this._section.appendField(Common.UIString('Status')));
+    this._clientsField = this._wrapWidget(this._section.appendField(Common.UIString('Clients')));
+    this._createSyncNotificationField(
+        Common.UIString('Push'), this._pushNotificationDataSetting.get(), Common.UIString('Push data'),
+        this._push.bind(this));
+    this._createSyncNotificationField(
+        Common.UIString('Sync'), this._syncTagNameSetting.get(), Common.UIString('Sync tag'), this._sync.bind(this));
+
+    this._linkifier = new Components.Linkifier();
+    /** @type {!Map<string, !Protocol.Target.TargetInfo>} */
+    this._clientInfoCache = new Map();
+    this._throttler = new Common.Throttler(500);
+  }
+
+  /**
+   * @param {string} label
+   * @param {string} initialValue
+   * @param {string} placeholder
+   * @param {function(string)} callback
+   */
+  _createSyncNotificationField(label, initialValue, placeholder, callback) {
+    const form =
+        this._wrapWidget(this._section.appendField(label)).createChild('form', 'service-worker-editor-with-button');
+    const editor = form.createChild('input', 'source-code service-worker-notification-editor');
+    const button = UI.createTextButton(label);
+    button.type = 'submit';
+    form.appendChild(button);
+
+    editor.value = initialValue;
+    editor.placeholder = placeholder;
+
+    form.addEventListener('submit', e => {
+      callback(editor.value || '');
+      e.consume(true);
+    });
+  }
+
+  _scheduleUpdate() {
+    if (Resources.ServiceWorkersView._noThrottle) {
+      this._update();
+      return;
+    }
+    this._throttler.schedule(this._update.bind(this));
+  }
+
+  /**
+   * @param {string} versionId
+   * @return {?SDK.Target}
+   */
+  _targetForVersionId(versionId) {
+    const version = this._manager.findVersion(versionId);
+    if (!version || !version.targetId)
+      return null;
+    return SDK.targetManager.targetById(version.targetId);
+  }
+
+  /**
+   * @param {!Element} versionsStack
+   * @param {string} icon
+   * @param {string} label
+   * @return {!Element}
+   */
+  _addVersion(versionsStack, icon, label) {
+    const installingEntry = versionsStack.createChild('div', 'service-worker-version');
+    installingEntry.createChild('div', icon);
+    installingEntry.createChild('span').textContent = label;
+    return installingEntry;
+  }
+
+  /**
+   * @param {!SDK.ServiceWorkerVersion} version
+   */
+  _updateClientsField(version) {
+    this._clientsField.removeChildren();
+    this._section.setFieldVisible(Common.UIString('Clients'), version.controlledClients.length);
+    for (const client of version.controlledClients) {
+      const clientLabelText = this._clientsField.createChild('div', 'service-worker-client');
+      if (this._clientInfoCache.has(client)) {
+        this._updateClientInfo(
+            clientLabelText, /** @type {!Protocol.Target.TargetInfo} */ (this._clientInfoCache.get(client)));
+      }
+      this._manager.target().targetAgent().getTargetInfo(client).then(this._onClientInfo.bind(this, clientLabelText));
+    }
+  }
+
+  /**
+   * @param {!SDK.ServiceWorkerVersion} version
+   */
+  _updateSourceField(version) {
+    this._sourceField.removeChildren();
+    const fileName = Common.ParsedURL.extractName(version.scriptURL);
+    const name = this._sourceField.createChild('div', 'report-field-value-filename');
+    name.appendChild(Components.Linkifier.linkifyURL(version.scriptURL, {text: fileName}));
+    if (this._registration.errors.length) {
+      const errorsLabel = UI.createLabel(String(this._registration.errors.length), 'smallicon-error');
+      errorsLabel.classList.add('link');
+      errorsLabel.addEventListener('click', () => Common.console.show());
+      name.appendChild(errorsLabel);
+    }
+    this._sourceField.createChild('div', 'report-field-value-subtitle').textContent =
+        Common.UIString('Received %s', new Date(version.scriptResponseTime * 1000).toLocaleString());
+  }
+
+  /**
+   * @return {!Promise}
+   */
+  _update() {
+    const fingerprint = this._registration.fingerprint();
+    if (fingerprint === this._fingerprint)
+      return Promise.resolve();
+    this._fingerprint = fingerprint;
+
+    this._toolbar.setEnabled(!this._registration.isDeleted);
+
+    const versions = this._registration.versionsByMode();
+    const scopeURL = Resources.ServiceWorkersView._displayScopeURL(this._registration.scopeURL);
+    const title = this._registration.isDeleted ? Common.UIString('%s - deleted', scopeURL) : scopeURL;
+    this._section.setTitle(title);
+
+    const active = versions.get(SDK.ServiceWorkerVersion.Modes.Active);
+    const waiting = versions.get(SDK.ServiceWorkerVersion.Modes.Waiting);
+    const installing = versions.get(SDK.ServiceWorkerVersion.Modes.Installing);
+    const redundant = versions.get(SDK.ServiceWorkerVersion.Modes.Redundant);
+
+    this._statusField.removeChildren();
+    const versionsStack = this._statusField.createChild('div', 'service-worker-version-stack');
+    versionsStack.createChild('div', 'service-worker-version-stack-bar');
+
+    if (active) {
+      this._updateSourceField(active);
+      const activeEntry = this._addVersion(
+          versionsStack, 'service-worker-active-circle',
+          Common.UIString('#%s activated and is %s', active.id, active.runningStatus));
+
+      if (active.isRunning() || active.isStarting()) {
+        createLink(activeEntry, Common.UIString('stop'), this._stopButtonClicked.bind(this, active.id));
+        if (!this._targetForVersionId(active.id))
+          createLink(activeEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, active.id));
+      } else if (active.isStartable()) {
+        createLink(activeEntry, Common.UIString('start'), this._startButtonClicked.bind(this));
+      }
+      this._updateClientsField(active);
+    } else if (redundant) {
+      this._updateSourceField(redundant);
+      this._addVersion(
+          versionsStack, 'service-worker-redundant-circle', Common.UIString('#%s is redundant', redundant.id));
+      this._updateClientsField(redundant);
+    }
+
+    if (waiting) {
+      const waitingEntry = this._addVersion(
+          versionsStack, 'service-worker-waiting-circle', Common.UIString('#%s waiting to activate', waiting.id));
+      createLink(waitingEntry, Common.UIString('skipWaiting'), this._skipButtonClicked.bind(this));
+      waitingEntry.createChild('div', 'service-worker-subtitle').textContent =
+          Common.UIString('Received %s', new Date(waiting.scriptResponseTime * 1000).toLocaleString());
+      if (!this._targetForVersionId(waiting.id) && (waiting.isRunning() || waiting.isStarting()))
+        createLink(waitingEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, waiting.id));
+    }
+    if (installing) {
+      const installingEntry = this._addVersion(
+          versionsStack, 'service-worker-installing-circle', Common.UIString('#%s installing', installing.id));
+      installingEntry.createChild('div', 'service-worker-subtitle').textContent =
+          Common.UIString('Received %s', new Date(installing.scriptResponseTime * 1000).toLocaleString());
+      if (!this._targetForVersionId(installing.id) && (installing.isRunning() || installing.isStarting()))
+        createLink(installingEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, installing.id));
+    }
 
     /**
-     * @type {!Object.<string, !WebInspector.TargetInfo>}
-     */
-    this._clientInfoCache = {};
-    this._createElements();
-    this._updateVersion(version);
-}
-
-WebInspector.SWVersionElement.prototype = {
-    _createElements: function()
-    {
-        var panel = createElementWithClass("div", "service-workers-versions-panel");
-        var leftPanel = panel.createChild("div", "service-workers-versions-panel-left");
-        var rightPanel = panel.createChild("div", "service-workers-versions-panel-right");
-        this._stateCell = this._addTableRow(leftPanel, WebInspector.UIString("State"));
-        this._workerCell = this._addTableRow(leftPanel, WebInspector.UIString("Worker"));
-        this._scriptCell = this._addTableRow(leftPanel, WebInspector.UIString("Script URL"));
-        this._updatedCell = this._addTableRow(leftPanel, WebInspector.UIString("Updated"));
-        this._updatedCell.classList.add("service-worker-script-response-time");
-        this._scriptLastModifiedCell = this._addTableRow(leftPanel, WebInspector.UIString("Last-Modified"));
-        this._scriptLastModifiedCell.classList.add("service-worker-script-last-modified");
-        rightPanel.createChild("div", "service-workers-versions-table-messages-title").createTextChild(WebInspector.UIString("Recent messages"));
-        this._messagesPanel = rightPanel.createChild("div", "service-workers-versions-table-messages-content");
-        this._clientsTitle = rightPanel.createChild("div", "service-workers-versions-table-clients-title");
-        this._clientsTitle.createTextChild(WebInspector.UIString("Controlled clients"));
-        this._clientsPanel = rightPanel.createChild("div", "service-workers-versions-table-clients-content");
-        this._element.appendChild(panel);
-    },
-
-    /**
-     * @param {!WebInspector.ServiceWorkerVersion} version
-     */
-    _updateVersion: function(version)
-    {
-        this._stateCell.removeChildren();
-        this._stateCell.createTextChild(version.status);
-
-        this._workerCell.removeChildren();
-        if (version.isRunning() || version.isStarting() || version.isStartable()) {
-            var runningStatusCell = this._workerCell.createChild("div", "service-workers-versions-table-worker-running-status-cell");
-            var runningStatusLeftCell = runningStatusCell.createChild("div", "service-workers-versions-table-running-status-left-cell");
-            var runningStatusRightCell = runningStatusCell.createChild("div", "service-workers-versions-table-running-status-right-cell");
-            if (version.isRunning() || version.isStarting()) {
-                var stopButton = runningStatusLeftCell.createChild("button", "service-workers-button service-workers-stop-button");
-                stopButton.addEventListener("click", this._stopButtonClicked.bind(this, version.id), false);
-                stopButton.title = WebInspector.UIString("Stop");
-            } else if (version.isStartable()) {
-                var startButton = runningStatusLeftCell.createChild("button", "service-workers-button service-workers-start-button");
-                startButton.addEventListener("click", this._startButtonClicked.bind(this), false);
-                startButton.title = WebInspector.UIString("Start");
-            }
-            runningStatusRightCell.createTextChild(version.runningStatus);
-            if (version.isRunning() || version.isStarting()) {
-                var inspectButton = runningStatusRightCell.createChild("div", "service-workers-versions-table-running-status-inspect");
-                inspectButton.createTextChild(WebInspector.UIString("inspect"));
-                inspectButton.addEventListener("click", this._inspectButtonClicked.bind(this, version.id), false);
-            }
-        } else {
-            this._workerCell.createTextChild(version.runningStatus);
-        }
-
-        this._scriptCell.removeChildren();
-        this._scriptCell.createTextChild(version.scriptURL.asParsedURL().path);
-
-        this._updatedCell.removeChildren();
-        if (version.scriptResponseTime)
-            this._updatedCell.createTextChild((new Date(version.scriptResponseTime * 1000)).toConsoleTime());
-        this._scriptLastModifiedCell.removeChildren();
-        if (version.scriptLastModified)
-            this._scriptLastModifiedCell.createTextChild((new Date(version.scriptLastModified * 1000)).toConsoleTime());
-
-        this._messagesPanel.removeChildren();
-        if (version.scriptLastModified) {
-            var scriptLastModifiedLabel = this._messagesPanel.createChild("label", " service-workers-info service-worker-script-last-modified", "dt-icon-label");
-            scriptLastModifiedLabel.type = "info-icon";
-            scriptLastModifiedLabel.createTextChild(WebInspector.UIString("Last-Modified: %s", (new Date(version.scriptLastModified * 1000)).toConsoleTime()));
-        }
-        if (version.scriptResponseTime) {
-            var scriptResponseTimeDiv = this._messagesPanel.createChild("label", " service-workers-info service-worker-script-response-time", "dt-icon-label");
-            scriptResponseTimeDiv.type = "info-icon";
-            scriptResponseTimeDiv.createTextChild(WebInspector.UIString("Server response time: %s", (new Date(version.scriptResponseTime * 1000)).toConsoleTime()));
-        }
-
-        var errorMessages = version.errorMessages;
-        for (var index = 0; index < errorMessages.length; ++index) {
-            var errorDiv = this._messagesPanel.createChild("div", "service-workers-error");
-            errorDiv.createChild("label", "", "dt-icon-label").type = "error-icon";
-            errorDiv.createChild("div", "service-workers-error-message").createTextChild(errorMessages[index].errorMessage);
-            var script_path = errorMessages[index].sourceURL;
-            var script_url;
-            if (script_url = script_path.asParsedURL())
-                script_path = script_url.displayName;
-            if (script_path.length && errorMessages[index].lineNumber != -1)
-                script_path = String.sprintf("(%s:%d)", script_path, errorMessages[index].lineNumber);
-            errorDiv.createChild("div", "service-workers-error-line").createTextChild(script_path);
-        }
-
-        this._clientsTitle.classList.toggle("hidden", version.controlledClients.length == 0);
-
-        this._clientsPanel.removeChildren();
-        for (var i = 0; i < version.controlledClients.length; ++i) {
-            var client = version.controlledClients[i];
-            var clientLabelText = this._clientsPanel.createChild("div", "service-worker-client");
-            if (this._clientInfoCache[client]) {
-                this._updateClientInfo(clientLabelText, this._clientInfoCache[client]);
-            }
-            this._manager.getTargetInfo(client, this._onClientInfo.bind(this, clientLabelText));
-        }
-    },
-
-    /**
-     * @param {!Element} tableElement
+     * @param {!Element} parent
      * @param {string} title
+     * @param {function()} listener
      * @return {!Element}
      */
-    _addTableRow: function(tableElement, title)
-    {
-        var rowElement = tableElement.createChild("div", "service-workers-versions-table-row");
-        rowElement.createChild("div", "service-workers-versions-table-row-title").createTextChild(title);
-        return rowElement.createChild("div", "service-workers-versions-table-row-content");
-    },
+    function createLink(parent, title, listener) {
+      const span = parent.createChild('span', 'link');
+      span.textContent = title;
+      span.addEventListener('click', listener, false);
+      return span;
+    }
+    return Promise.resolve();
+  }
 
-    /**
-     * @param {!Element} element
-     * @param {?WebInspector.TargetInfo} targetInfo
-     */
-    _onClientInfo: function(element, targetInfo)
-    {
-        if (!targetInfo)
-            return;
-        this._clientInfoCache[targetInfo.id] = targetInfo;
-        this._updateClientInfo(element, targetInfo);
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _unregisterButtonClicked(event) {
+    this._manager.deleteRegistration(this._registration.id);
+  }
 
-    /**
-     * @param {!Element} element
-     * @param {!WebInspector.TargetInfo} targetInfo
-     */
-    _updateClientInfo: function(element, targetInfo)
-    {
-        if (!(targetInfo.isWebContents() || targetInfo.isFrame())) {
-            element.createTextChild(WebInspector.UIString("Worker: %s", targetInfo.url));
-            return;
-        }
-        element.removeChildren();
-        element.createTextChild(WebInspector.UIString("Tab: %s", targetInfo.url));
-        var focusLabel = element.createChild("label", "service-worker-client-focus");
-        focusLabel.createTextChild("focus");
-        focusLabel.addEventListener("click", this._activateTarget.bind(this, targetInfo.id), true);
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _updateButtonClicked(event) {
+    this._manager.updateRegistration(this._registration.id);
+  }
 
-    /**
-     * @param {string} targetId
-     */
-    _activateTarget: function(targetId)
-    {
-        this._manager.activateTarget(targetId);
-    },
+  /**
+   * @param {string} data
+   */
+  _push(data) {
+    this._pushNotificationDataSetting.set(data);
+    this._manager.deliverPushMessage(this._registration.id, data);
+  }
 
-    /**
-     * @param {!Event} event
-     */
-    _startButtonClicked: function(event)
-    {
-        this._manager.startWorker(this._scopeURL);
-    },
+  /**
+   * @param {string} tag
+   */
+  _sync(tag) {
+    this._syncTagNameSetting.set(tag);
+    this._manager.dispatchSyncEvent(this._registration.id, tag, true);
+  }
 
-    /**
-     * @param {string} versionId
-     * @param {!Event} event
-     */
-    _stopButtonClicked: function(versionId, event)
-    {
-        this._manager.stopWorker(versionId);
-    },
+  /**
+   * @param {!Element} element
+   * @param {?Protocol.Target.TargetInfo} targetInfo
+   */
+  _onClientInfo(element, targetInfo) {
+    if (!targetInfo)
+      return;
+    this._clientInfoCache.set(targetInfo.targetId, targetInfo);
+    this._updateClientInfo(element, targetInfo);
+  }
 
-    /**
-     * @param {string} versionId
-     * @param {!Event} event
-     */
-    _inspectButtonClicked: function(versionId, event)
-    {
-        this._manager.inspectWorker(versionId);
-    },
-}
+  /**
+   * @param {!Element} element
+   * @param {!Protocol.Target.TargetInfo} targetInfo
+   */
+  _updateClientInfo(element, targetInfo) {
+    if (targetInfo.type !== 'page' && targetInfo.type === 'iframe') {
+      const clientString = element.createChild('span', 'service-worker-client-string');
+      clientString.createTextChild(ls`Worker: ` + targetInfo.url);
+      return;
+    }
+    element.removeChildren();
+    const clientString = element.createChild('span', 'service-worker-client-string');
+    clientString.createTextChild(targetInfo.url);
+    const focusLabel = element.createChild('label', 'link service-worker-client-focus-link');
+    focusLabel.createTextChild('focus');
+    focusLabel.addEventListener('click', this._activateTarget.bind(this, targetInfo.targetId), true);
+  }
+
+  /**
+   * @param {string} targetId
+   */
+  _activateTarget(targetId) {
+    this._manager.target().targetAgent().activateTarget(targetId);
+  }
+
+  _startButtonClicked() {
+    this._manager.startWorker(this._registration.scopeURL);
+  }
+
+  _skipButtonClicked() {
+    this._manager.skipWaiting(this._registration.scopeURL);
+  }
+
+  /**
+   * @param {string} versionId
+   */
+  _stopButtonClicked(versionId) {
+    this._manager.stopWorker(versionId);
+  }
+
+  /**
+   * @param {string} versionId
+   */
+  _inspectButtonClicked(versionId) {
+    this._manager.inspectWorker(versionId);
+  }
+
+  /**
+   * @param {!Element} container
+   * @return {!Element}
+   */
+  _wrapWidget(container) {
+    const shadowRoot = UI.createShadowRootWithCoreStyles(container);
+    UI.appendStyle(shadowRoot, 'resources/serviceWorkersView.css');
+    const contentElement = createElement('div');
+    shadowRoot.appendChild(contentElement);
+    return contentElement;
+  }
+};

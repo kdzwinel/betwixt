@@ -4,296 +4,194 @@
  * found in the LICENSE file.
  */
 
-.service-workers-view {
+.service-worker-error-stack {
+    max-height: 200px;
     overflow: auto;
-}
-
-.service-workers-settings {
-    border-bottom: 1px solid #e1e1e1;
-    min-height: 26px;
-    overflow: hidden;
-    padding: 5px;
-    white-space: nowrap;
-}
-
-.service-workers-root {
-    margin: 0;
-    padding: 5px;
-}
-
-.service-workers-root ol {
-    list-style-type: none;
-    padding-left: 12px;
-}
-
-.service-workers-origin {
-    padding: 5px;
-}
-
-.service-workers-origin-title {
-    font-size: 20px;
-}
-
-.service-workers-registration {
-    border-right: 1px solid #e1e1e1;
-    margin-top: 5px;
-    margin-bottom: 10px;
-    padding: 0;
-}
-
-.service-workers-registration-header {
-    border-left: 1px solid #e1e1e1;
-    border-top: 1px solid #e1e1e1;
     display: flex;
-    flex-wrap: wrap;
-    overflow: hidden;
+    flex-direction: column;
+    border: 1px solid #ccc;
+    background-color: #fff0f0;
+    color: red;
+    line-height: 18px;
+    margin: 10px 2px 0 -14px;
+    white-space: initial;
+}
+
+.service-worker-error-stack > div {
+    flex: none;
+    padding: 3px 4px;
+}
+
+.service-worker-error-stack > div:not(:last-child) {
+    border-bottom: 1px solid #ffd7d7;
+}
+
+.service-worker-error-stack label {
+    flex: auto;
+}
+
+.service-worker-error-stack .devtools-link {
+    float: right;
+    color: rgb(33%, 33%, 33%);
+    cursor: pointer;
+}
+
+.service-worker-version-stack {
     position: relative;
 }
 
-.service-workers-registration-title {
-    flex: none;
-    font-size: 15px;
-    padding: 4px;
+.service-worker-version-stack-bar {
+    position: absolute;
+    top: 10px;
+    bottom: 20px;
+    left: 4px;
+    content: "";
+    border-left: 1px solid #888;
+    z-index: 0;
 }
 
-.service-workers-registration-buttons {
-    flex: 1 1 0;
-    padding: 1px;
+.service-worker-version:not(:last-child) {
+    margin-bottom: 7px;
 }
 
-.service-workers-registration-content {
-    border: 0;
-    padding: 0;
+.service-worker-active-circle,
+.service-worker-redundant-circle,
+.service-worker-waiting-circle,
+.service-worker-installing-circle {
+    position: relative;
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    z-index: 10;
+    margin-right: 5px;
+    border-radius: 50%;
+    border: 1px solid #555;
 }
 
-.service-workers-versions-mode-tab-list {
-    display: flex;
+.service-worker-active-circle {
+    background-color: #50B04F;
+}
+.service-worker-waiting-circle {
+    background-color: #F38E24;
+
+}
+.service-worker-installing-circle {
+    background-color: white;
 }
 
-.service-workers-versions-mode-tab {
-    border-bottom: 1px solid #e1e1e1;
-    border-left: 1px solid #e1e1e1;
-    border-top: 1px solid #e1e1e1;
-    display: flex;
-    flex: 1 1 0;
-    flex-wrap: wrap;
-    overflow: hidden;
-    padding: 3px;
+.service-worker-redundant-circle {
+    background-color: gray;
 }
 
-.service-workers-versions-mode-tab-disabled {
-    background-color: #eee;
-}
-
-.service-workers-versions-mode-tab-selected {
-    border-bottom: 0;
-}
-
-.service-workers-versions-mode-tab-icon {
-    height: 16px;
-    margin: 1px;
-    -webkit-mask-image: url(Images/serviceWorker.svg);
-    -webkit-mask-size: 16px 16px;
-    width: 16px;
-}
-
-.service-workers-versions-mode-tab-text {
-    margin: 2px;
-}
-
-.service-workers-versions-mode-tab-text-disabled {
+.service-worker-subtitle {
+    padding-left: 14px;
+    line-height: 14px;
     color: #888;
 }
 
-.service-workers-versions-mode-tab-text-selected {
-    font-weight: bold;
+.link {
+    margin-left: 10px;
 }
 
-.service-workers-versions-panel {
-    border-bottom: 1px solid #e1e1e1;
-    border-left: 1px solid #e1e1e1;
+.service-worker-editor-with-button {
+    align-items: baseline;
     display: flex;
 }
 
-.service-workers-versions-panel-left {
-    flex: 3 3 0;
-    overflow: hidden;
-    padding: 3px;
-}
-.service-workers-versions-panel-right {
-    flex: 5 5 0;
-    padding: 3px;
-}
-
-.service-workers-versions-table-row {
+.service-worker-notification-editor {
+    border: solid 1px #d8d8d8;
     display: flex;
+    flex: auto;
+    margin-right: 4px;
+    max-width: 400px;
+    min-width: 80px;
 }
 
-.service-workers-versions-table-row-title {
-    color: #888;
-    flex: 1 1 0;
+.report-field-value-filename,
+.service-worker-client-string {
+    max-width: 400px;
     overflow: hidden;
-    padding: 8px;
-}
-
-.service-workers-versions-table-row-content {
-    flex: 2 2 0;
-    padding: 8px;
     text-overflow: ellipsis;
 }
 
-.service-workers-versions-table-messages-title {
-    color: #888;
-    padding: 8px 8px 3px 8px;
-}
-
-.service-workers-versions-table-messages-content {
-    overflow: auto;
-    padding: 3px 3px 3px 10px;
-}
-
-.service-workers-versions-table-clients-title {
-    color: #888;
-    padding: 8px 8px 3px 8px;
-}
-
-.service-workers-versions-table-clients-content {
-    overflow: auto;
-    padding: 3px 3px 3px 10px;
-}
-
-.service-workers-versions-table-worker-running-status-cell {
+.service-worker-client {
     display: flex;
 }
 
-.service-workers-versions-table-running-status-right-cell {
-    padding: 3px;
+.service-worker-client-focus-link {
+    flex: none;
+    margin-right: 5px;
 }
 
-.service-workers-versions-table-running-status-inspect {
-    color: #00e;
+.service-worker-notification-editor.source-code {
+    /** Simulate CodeMirror that is shown above */
+    padding: 4px;
+}
+
+.service-worker-list {
+    background-color: #f9f9f9;
+    overflow: auto;
+}
+
+.service-workers-this-origin {
+    flex-shrink: 0;
+    flex-grow: 0;
+}
+
+.service-worker-has-current .service-workers-other-origin {
+    margin-top: 16px;
+    border-top: 1px solid rgb(230, 230, 230)
+}
+
+.service-worker-list-empty .service-workers-other-origin {
+    display: none;
+}
+
+.service-workers-this-origin,
+.service-worker-filter,
+.service-workers-other-origin {
+    min-width: 400px;
+}
+
+.service-worker-filter {
+    padding: 16px 20px 12px 12px;
+    flex-grow: 0;
+    flex-shrink: 0;
+    background-color: white;
+    border-bottom: solid 1px rgb(230, 230, 230);
+}
+
+.service-worker-filter-label {
     cursor: pointer;
-    text-decoration: underline;
+    margin-left: 4px;
 }
 
-.service-workers-button {
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs.png);
-    -webkit-mask-size: 352px 168px;
-    background-color: rgba(0, 0, 0, 0.75);
-    height: 24px;
-    opacity: 0.8;
-    width: 32px;
-    border: 0;
-    padding: 0;
+.service-worker-filter-label::before {
+    -webkit-user-select: none;
+    -webkit-mask-image: url(Images/treeoutlineTriangles.png);
+    -webkit-mask-size: 32px 24px;
+    content: "aa";
+    color: transparent;
+    background-color: rgb(110, 110, 110);
+    text-shadow: none;
+    height: 12px;
 }
 
-@media (-webkit-min-device-pixel-ratio: 1.5) {
-.service-workers-button {
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs_2x.png);
+@media (-webkit-min-device-pixel-ratio: 1.1) {
+.service-worker-filter-label::before {
+    -webkit-mask-image: url(Images/treeoutlineTriangles_2x.png);
 }
 } /* media */
 
-.service-workers-button:hover {
-    opacity: 1;
+.service-worker-filter[aria-checked="true"] .service-worker-filter-label::before {
+    -webkit-mask-position: -16px 0;
 }
 
-.service-workers-button:active {
-    opacity: 0.8;
+.service-worker-filter-toolbar {
+    margin: 8px 10px 0 12px;
+    max-width: 530px;
 }
 
-.service-workers-button:disabled {
-    opacity: 0.5;
-}
-
-.service-workers-start-button {
-    -webkit-mask-position: -64px -48px;
-}
-
-.service-workers-stop-button {
-    -webkit-mask-position: -96px -48px;
-}
-
-.service-workers-delete-button {
-    float: right;
-    -webkit-mask-position: -128px -24px;
-    position: relative;
-}
-
-.service-workers-update-button {
-    -webkit-mask-image: url(Images/updateServiceWorker.svg);
-    -webkit-mask-position: 7px 3px;
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-size: 18px 18px;
-}
-
-.service-workers-push-button {
-    -webkit-mask-image: url(Images/notifications.svg);
-    -webkit-mask-position: 7px 3px;
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-size: 18px 18px;
-}
-
-.service-workers-versions-option-panel {
-    border-bottom: 1px solid #e1e1e1;
-    border-left: 1px solid #e1e1e1;
-    display: flex;
-}
-
-.service-workers-error {
-    display: flex;
-}
-
-.service-workers-error-message {
-    font-weight: bold;
-}
-
-.service-workers-info {
-    display: flex;
-}
-
-.service-worker-client-focus {
-   color: #00e;
-   cursor: pointer;
-   padding-left: 4px;
-   text-decoration: underline;
-}
-
-.service-workers-color-0 {
-    background-color: #003366;
-}
-
-.service-workers-color-1 {
-    background-color: #663300;
-}
-
-.service-workers-color-2 {
-    background-color: #660066;
-}
-
-.service-workers-color-3 {
-    background-color: #003300;
-}
-
-.service-workers-color-4 {
-    background-color: #993333;
-}
-
-.service-workers-color-5 {
-    background-color: #000066;
-}
-
-.service-workers-color-6 {
-    background-color: #006666;
-}
-
-.service-workers-color-7 {
-    background-color: #996600;
-}
-
-.service-workers-color-8 {
-    background-color: #9900CC;
-}
-
-.service-workers-color-9 {
-    background-color: #336600;
+.service-worker-filter-collapsed .service-worker-filter-toolbar {
+    display: none;
 }

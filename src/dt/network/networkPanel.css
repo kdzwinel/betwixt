@@ -27,17 +27,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-.panel.network > .toolbar {
-    position: relative;
-    border-bottom: 1px solid #dadada;
+.panel.network .toolbar {
+    background-color: var(--toolbar-bg-color);
+    border-bottom: var(--divider-border);
 }
 
 .network-details-view {
     background: rgb(203, 203, 203);
-}
-
-.network-close-button {
-    margin: auto -1px auto 4px;
 }
 
 .network-details-view-tall-header {
@@ -49,126 +45,19 @@
     background: white;
 }
 
+.network-item-preview-toolbar {
+    border-top: 1px solid #ccc;
+    background-color: #eee;
+}
+
 .resource-timing-view {
     display: block;
     margin: 6px;
     color: rgb(30%, 30%, 30%);
 }
 
-/* Network timing is shared between popover and network item view pane */
-
-.network-timing-table {
-    width: 380px;
-    border-spacing: 0;
-    padding-left: 10px;
-    padding-right: 10px;
-}
-
-.network-timing-table-header td {
-    color: #bbb;
-    border-top: 5px solid transparent;
-    border-bottom: 5px solid transparent;
-}
-
-.network-timing-table-header td:last-child {
-    text-align: right;
-}
-
-.network-timing-table col.labels {
-    width: 120px;
-}
-
-.network-timing-table col.duration {
-    width: 80px;
-}
-
-.network-timing-table td {
-    padding: 2px 0;
-}
-
-.network-timing-table td.caution {
-    font-weight: bold;
-    color: rgb(255, 128, 0);
-    padding: 2px 0;
-}
-
-.network-timing-footer td {
-    border-top: 8px solid transparent;
-}
-
-.network-timing-footer td:last-child {
-    font-weight: bold;
-    text-align: right;
-}
-
-.network-timing-row {
-    position: relative;
-    height: 15px;
-}
-
-.network-timing-bar {
-    position: absolute;
-    min-width: 1px;
-    top: 0;
-    bottom: 0;
-}
-
-.network-timing-bar-title {
-    color: #222;
-    white-space: nowrap;
-    text-align: right;
-}
-
-.network-timing-bar.queueing,
-.network-timing-bar.total {
-    border: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-.network-timing-bar.blocking {
-    background-color: #AAAAAA;
-}
-
-.network-timing-bar.proxy {
-    background-color: #A1887F;
-}
-
-.network-timing-bar.dns {
-    background-color: #009688;
-}
-
-.network-timing-bar.connecting,
-.network-timing-bar.serviceworker,
-.network-timing-bar.serviceworker-preparation {
-    background-color: #FF9800;
-}
-
-.network-timing-bar.ssl {
-    background-color: #9C27B0;
-}
-
-.network-timing-bar.sending {
-    background-color: #B0BEC5;
-}
-
-.network-timing-bar.waiting {
-    background-color: #00C853;
-}
-
-.network-timing-bar.receiving {
-    background-color: #03A9F4;
-}
-
-.network-timing-bar.proxy,
-.network-timing-bar.dns,
-.network-timing-bar.ssl,
-.network-timing-bar.connecting,
-.network-timing-bar.blocking {
-    height: 10px;
-    margin: auto;
-}
-
-.resource-timing-view .network-timing-table {
-    width: 100%;
+.resource-timing-table {
+    width: 100% !important;
 }
 
 #network-overview-panel {
@@ -215,10 +104,6 @@
     z-index: 250;
 }
 
-.request-view.json {
-    padding: 5px;
-}
-
 .request-view.html iframe {
     width: 100%;
     height: 100%;
@@ -230,7 +115,34 @@
     flex: none !important;
 }
 
+.network-film-strip-placeholder {
+    flex-shrink: 0;
+}
+
 .network-blocked-urls {
-    border-top: 1px solid #dadada;
+    border-top: var(--divider-border);
     flex: 104px 0 0;
+}
+
+.open-search-view {
+    align-items: center;
+    background-color: hsl(50, 100%, 88%);
+    border-bottom: var(--divider-border);
+    cursor: pointer;
+    flex-grow: 0;
+    padding: 4px;
+}
+
+.open-search-view > * {
+    margin: 0 4px;
+}
+
+.open-search-view .search-suggestion {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.network-tabbed-pane {
+    background-color: var(--toolbar-bg-color);
 }

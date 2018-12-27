@@ -4,16 +4,21 @@
  * found in the LICENSE file.
  */
 
-.blocked-urls-pane {
-    overflow: hidden;
+.list {
+    border: none !important;
+    border-top: var(--divider-border) !important;
 }
 
-.toolbar {
-    border-bottom: 1px solid #dadada;
+.blocking-disabled {
+    pointer-events: none;
+    opacity: 0.8;
 }
 
-.no-blocked-urls, .blocked-urls-list {
-    font-size: 11px;
+.editor-container {
+    padding: 0 4px;
+}
+
+.no-blocked-urls, .blocked-urls {
     overflow-x: hidden;
     overflow-y: auto;
 }
@@ -21,7 +26,7 @@
 .no-blocked-urls {
     display: flex;
     justify-content: center;
-    padding: 3px;
+    padding: 10px;
 }
 
 .no-blocked-urls > span {
@@ -29,62 +34,45 @@
 }
 
 .blocked-url {
-    flex: none;
     display: flex;
+    flex-direction: row;
     align-items: center;
-    padding: 3px 10px 3px 9px;
-    position: relative;
+    flex: auto;
 }
 
-.blocked-url:not(.blocked-url-editing):hover {
-    background-color: #dadada;
+.blocked-url-count {
+    flex: none;
+    padding-right: 9px;
 }
 
-.blocked-url .blocked-count {
-    flex: 30px 0 0;
-    font-size: smaller !important;
-    padding-right: 5px;
+.blocked-url-checkbox {
+    margin-left: 8px;
+    flex: none;
 }
 
-.blocked-url > input {
-    position: absolute;
-    left: 6px;
-    right: 6px;
-    top: 0;
-    bottom: 0;
-    width: calc(100% - 12px);
-}
-
-.blocked-url-text {
+.blocked-url-label {
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
     flex: auto;
-    margin-right: 5px;
+    padding: 0 3px;
 }
 
-.blocked-url .remove-button {
-    width: 13px;
-    height: 13px;
-    background-image: url(Images/toolbarButtonGlyphs.png);
-    background-size: 352px 168px;
-    background-position: -175px -96px;
-    visibility: hidden;
+.blocked-url-edit-row {
     flex: none;
-    opacity: 0.7;
-    cursor: default;
+    display: flex;
+    flex-direction: row;
+    margin: 7px 5px 0 5px;
+    align-items: center;
 }
 
-@media (-webkit-min-device-pixel-ratio: 1.5) {
-.blocked-url .remove-button {
-    background-image: url(Images/toolbarButtonGlyphs_2x.png);
-}
-} /* media */
-
-.blocked-url:hover .remove-button {
-    visibility: visible;
+.blocked-url-edit-value {
+    -webkit-user-select: none;
+    flex: 1 1 0px;
 }
 
-.blocked-url .remove-button:hover {
-    opacity: 1.0;
+.blocked-url-edit-row input {
+    width: 100%;
+    text-align: inherit;
+    height: 22px;
 }

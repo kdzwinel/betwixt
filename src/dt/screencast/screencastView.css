@@ -37,6 +37,10 @@
     display: flex;
     flex: 24px 0 0;
     position: relative;
+    padding-left: 1px;
+    border-bottom: 1px solid rgb(64%, 64%, 64%);
+    background-origin: padding-box;
+    background-clip: padding-box;
 }
 
 .screencast-navigation button {
@@ -80,15 +84,8 @@
 
 .screencast-navigation input {
     -webkit-flex: 1;
-    border: 1px solid #aaa;
-    border-radius: 2px;
-    margin: 1px;
-    padding-left: 5px;
-}
-
-.screencast-navigation input:focus {
-    border: 1px solid #aaa;
-    outline: none !important;
+    margin: 2px;
+    max-height: 19px;
 }
 
 .screencast-navigation .progress {

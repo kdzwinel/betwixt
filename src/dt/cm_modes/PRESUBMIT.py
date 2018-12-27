@@ -8,7 +8,7 @@ def _CheckCodeMirrorChanges(input_api, output_api):
                  "rolls from the upstream (http://codemirror.net). If this is a roll, "
                  "make sure you mention 'roll CodeMirror' (no quotes) in the change description.\n"
                  "CodeMirror rolling instructions:\n"
-                 "    https://sites.google.com/a/chromium.org/devtools-codemirror-rolling")
+                 "    src/third_party/blink/renderer/devtools/front_end/cm/README.md")
     changeDescription = input_api.change.DescriptionText()
     errors = []
     if "roll codemirror" not in changeDescription.lower():

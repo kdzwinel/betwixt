@@ -4,7 +4,7 @@
  * found in the LICENSE file.
  */
 
-.devices-settings-tab .settings-tab.help-content {
+.devices-settings-tab .settings-tab.settings-content {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -51,16 +51,16 @@
     pointer-events: none;
 }
 
+.devices-list-checkbox:focus {
+    outline: auto 5px -webkit-focus-ring-color;
+}
+
 .devices-list-title {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
     flex: auto;
     -webkit-user-select: none;
-    color: #aaa;
-}
-
-.device-list-item-show .devices-list-title {
     color: #222;
 }
 
@@ -75,13 +75,12 @@
 .devices-edit-fields input {
     flex: auto;
     margin: 8px 5px 0 5px;
-    height: 22px;
-    border: 1px solid rgb(213, 213, 213);
-    border-radius: 2px;
-    color: #444444;
-    padding: 3px;
 }
 
-.devices-edit-fields input.device-edit-small {
-    flex: 0 0 80px;
+.devices-edit-fields .device-edit-fixed {
+    flex: 0 0 140px;
+}
+
+.devices-edit-fields select {
+    margin: 8px 5px 0 5px;
 }

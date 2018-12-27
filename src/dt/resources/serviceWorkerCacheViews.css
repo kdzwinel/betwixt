@@ -8,28 +8,16 @@
     position: relative;
     background-color: #eee;
     border-bottom: 1px solid #ccc;
+    padding-right: 10px;
 }
 
 .service-worker-cache-data-view .data-view-toolbar .key-input {
-    font-size: 11px;
     margin: auto 0;
     width: 200px;
 }
 
 .service-worker-cache-data-view .data-grid {
     flex: auto;
-}
-
-.service-worker-cache-data-view .data-grid .data-container tr:nth-child(even) {
-    background-color: white;
-}
-
-.service-worker-cache-data-view .data-grid .data-container tr:nth-child(odd) {
-    background-color: #EAF3FF;
-}
-
-.service-worker-cache-data-view .data-grid .data-container tr:nth-last-child(1) {
-    background-color: white;
 }
 
 .service-worker-cache-data-view .data-grid .data-container tr:nth-last-child(1) td {
@@ -46,7 +34,7 @@
 }
 
 .service-worker-cache-data-view .data-grid:focus .data-container tr.selected {
-    background-color: rgb(56, 121, 217);
+    background-color: var(--selection-bg-color);
     color: white;
 }
 
@@ -66,4 +54,10 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
+}
+
+.cache-preview-panel-resizer {
+    background-color: #eee;
+    height: 4px;
+    border-bottom: 1px solid rgb(64%, 64%, 64%);
 }

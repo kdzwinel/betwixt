@@ -1,0 +1,15 @@
+{
+    "extensions": [
+        {
+            "type": "early-initialization",
+            "className": "WorkerMain.WorkerMain"
+        }
+    ],
+    "dependencies": [
+        "components",
+        "mobile_throttling"
+    ],
+    "scripts": [
+        "WorkerMain.js"
+    ]
+}

@@ -4,13 +4,13 @@
 
 /**
  * @constructor
- * @implements {WebInspector.CodeMirrorMimeMode}
+ * @implements {TextEditor.CodeMirrorMimeMode}
  */
-WebInspector.DefaultCodeMirrorMimeMode = function()
+CmModes.DefaultCodeMirrorMimeMode = function()
 {
 }
 
-WebInspector.DefaultCodeMirrorMimeMode.prototype = {
+CmModes.DefaultCodeMirrorMimeMode.prototype = {
     /**
      * @param {!Runtime.Extension} extension
      * @override

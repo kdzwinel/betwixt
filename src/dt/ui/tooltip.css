@@ -9,7 +9,6 @@
     border-radius: 2px;
     color: hsl(0, 0%, 20%);
     padding: 5px 8px;
-    font-size: 11px;
     line-height: 14px;
     display: flex;
     align-items: center;
@@ -26,6 +25,11 @@
     opacity: 0;
     text-overflow: ellipsis;
     overflow: hidden;
+    pointer-events: none;
+}
+
+.tooltip-breakword {
+    word-break: break-word;
 }
 
 .tooltip.shown {

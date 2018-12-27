@@ -2,760 +2,810 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-
 /**
- * @constructor
- * @extends {WebInspector.SDKModel}
- * @param {!WebInspector.Target} target
+ * @unrestricted
  */
-WebInspector.AnimationModel = function(target)
-{
-    WebInspector.SDKModel.call(this, WebInspector.AnimationModel, target);
+Animation.AnimationModel = class extends SDK.SDKModel {
+  /**
+   * @param {!SDK.Target} target
+   */
+  constructor(target) {
+    super(target);
+    this._runtimeModel = /** @type {!SDK.RuntimeModel} */ (target.model(SDK.RuntimeModel));
     this._agent = target.animationAgent();
-    target.registerAnimationDispatcher(new WebInspector.AnimationDispatcher(this));
-    /** @type {!Map.<string, !WebInspector.AnimationModel.Animation>} */
+    target.registerAnimationDispatcher(new Animation.AnimationDispatcher(this));
+    /** @type {!Map.<string, !Animation.AnimationModel.Animation>} */
     this._animationsById = new Map();
-    /** @type {!Map.<string, !WebInspector.AnimationModel.AnimationGroup>} */
+    /** @type {!Map.<string, !Animation.AnimationModel.AnimationGroup>} */
     this._animationGroups = new Map();
     /** @type {!Array.<string>} */
     this._pendingAnimations = [];
-    target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.MainFrameNavigated, this._mainFrameNavigated, this);
-}
+    this._playbackRate = 1;
+    const resourceTreeModel = /** @type {!SDK.ResourceTreeModel} */ (target.model(SDK.ResourceTreeModel));
+    resourceTreeModel.addEventListener(SDK.ResourceTreeModel.Events.MainFrameNavigated, this._reset, this);
+    const screenCaptureModel = target.model(SDK.ScreenCaptureModel);
+    if (screenCaptureModel)
+      this._screenshotCapture = new Animation.AnimationModel.ScreenshotCapture(this, screenCaptureModel);
+  }
 
-WebInspector.AnimationModel.Events = {
-    AnimationGroupStarted: "AnimationGroupStarted",
-    AnimationCanceled: "AnimationCanceled"
-}
+  _reset() {
+    this._animationsById.clear();
+    this._animationGroups.clear();
+    this._pendingAnimations = [];
+    this.dispatchEventToListeners(Animation.AnimationModel.Events.ModelReset);
+  }
 
-WebInspector.AnimationModel.prototype = {
-    _mainFrameNavigated: function()
-    {
-        this._animationsById.clear();
-        this._animationGroups.clear();
-        this._pendingAnimations = [];
-    },
+  /**
+   * @param {string} id
+   */
+  animationCreated(id) {
+    this._pendingAnimations.push(id);
+  }
 
-    /**
-     * @param {string} id
-     */
-    animationCreated: function(id)
-    {
-        this._pendingAnimations.push(id);
-    },
+  /**
+   * @param {string} id
+   */
+  _animationCanceled(id) {
+    this._pendingAnimations.remove(id);
+    this._flushPendingAnimationsIfNeeded();
+  }
 
-    /**
-     * @param {!AnimationAgent.Animation} payload
-     */
-    animationStarted: function(payload)
-    {
-        var animation = WebInspector.AnimationModel.Animation.parsePayload(this.target(), payload);
-        this._animationsById.set(animation.id(), animation);
+  /**
+   * @param {!Protocol.Animation.Animation} payload
+   */
+  animationStarted(payload) {
+    // We are not interested in animations without effect or target.
+    if (!payload.source || !payload.source.backendNodeId)
+      return;
 
-        for (var id of this._pendingAnimations) {
-            if (!this._animationsById.get(id))
-                return;
-        }
+    const animation = Animation.AnimationModel.Animation.parsePayload(this, payload);
 
-        while (this._pendingAnimations.length)
-            this._matchExistingGroups(this._createGroupFromPendingAnimations());
-    },
+    // Ignore Web Animations custom effects & groups.
+    if (animation.type() === 'WebAnimation' && animation.source().keyframesRule().keyframes().length === 0) {
+      this._pendingAnimations.remove(animation.id());
+    } else {
+      this._animationsById.set(animation.id(), animation);
+      if (this._pendingAnimations.indexOf(animation.id()) === -1)
+        this._pendingAnimations.push(animation.id());
+    }
 
-    /**
-     * @param {!WebInspector.AnimationModel.AnimationGroup} incomingGroup
-     * @return {boolean}
-     */
-    _matchExistingGroups: function(incomingGroup)
-    {
-        var matchedGroup = null;
-        for (var group of this._animationGroups.values()) {
-            if (group._matches(incomingGroup)) {
-                matchedGroup = group;
-                group._update(incomingGroup);
-                break;
-            }
-        }
+    this._flushPendingAnimationsIfNeeded();
+  }
 
-        if (!matchedGroup)
-            this._animationGroups.set(incomingGroup.id(), incomingGroup);
-        this.dispatchEventToListeners(WebInspector.AnimationModel.Events.AnimationGroupStarted, matchedGroup || incomingGroup);
-        return !!matchedGroup;
-    },
+  _flushPendingAnimationsIfNeeded() {
+    for (const id of this._pendingAnimations) {
+      if (!this._animationsById.get(id))
+        return;
+    }
 
-    /**
-     * @return {!WebInspector.AnimationModel.AnimationGroup}
-     */
-    _createGroupFromPendingAnimations: function()
-    {
-        console.assert(this._pendingAnimations.length);
-        var groupedAnimations = [this._animationsById.get(this._pendingAnimations.shift())];
-        var remainingAnimations = [];
-        for (var id of this._pendingAnimations) {
-            var anim = this._animationsById.get(id);
-            if (anim.startTime() === groupedAnimations[0].startTime())
-                groupedAnimations.push(anim);
-            else
-                remainingAnimations.push(id);
-        }
-        this._pendingAnimations = remainingAnimations;
-        return new WebInspector.AnimationModel.AnimationGroup(this.target(), groupedAnimations[0].id(), groupedAnimations);
-    },
+    while (this._pendingAnimations.length)
+      this._matchExistingGroups(this._createGroupFromPendingAnimations());
+  }
 
-    /**
-     * @return {!Promise.<number>}
-     */
-    playbackRatePromise: function()
-    {
-        /**
-         * @param {?Protocol.Error} error
-         * @param {number} playbackRate
-         * @return {number}
-         */
-        function callback(error, playbackRate)
-        {
-            if (error)
-                return 1;
-            return playbackRate;
-        }
+  /**
+   * @param {!Animation.AnimationModel.AnimationGroup} incomingGroup
+   * @return {boolean}
+   */
+  _matchExistingGroups(incomingGroup) {
+    let matchedGroup = null;
+    for (const group of this._animationGroups.values()) {
+      if (group._matches(incomingGroup)) {
+        matchedGroup = group;
+        group._update(incomingGroup);
+        break;
+      }
+    }
 
-        return this._agent.getPlaybackRate(callback).catchException(1);
-    },
+    if (!matchedGroup) {
+      this._animationGroups.set(incomingGroup.id(), incomingGroup);
+      if (this._screenshotCapture)
+        this._screenshotCapture.captureScreenshots(incomingGroup.finiteDuration(), incomingGroup._screenshots);
+    }
+    this.dispatchEventToListeners(Animation.AnimationModel.Events.AnimationGroupStarted, matchedGroup || incomingGroup);
+    return !!matchedGroup;
+  }
 
-    /**
-     * @param {number} playbackRate
-     */
-    setPlaybackRate: function(playbackRate)
-    {
-        this._agent.setPlaybackRate(playbackRate);
-    },
+  /**
+   * @return {!Animation.AnimationModel.AnimationGroup}
+   */
+  _createGroupFromPendingAnimations() {
+    console.assert(this._pendingAnimations.length);
+    const groupedAnimations = [this._animationsById.get(this._pendingAnimations.shift())];
+    const remainingAnimations = [];
+    for (const id of this._pendingAnimations) {
+      const anim = this._animationsById.get(id);
+      if (anim.startTime() === groupedAnimations[0].startTime())
+        groupedAnimations.push(anim);
+      else
+        remainingAnimations.push(id);
+    }
+    this._pendingAnimations = remainingAnimations;
+    return new Animation.AnimationModel.AnimationGroup(this, groupedAnimations[0].id(), groupedAnimations);
+  }
 
-    ensureEnabled: function()
-    {
-        if (this._enabled)
-            return;
-        this._agent.enable();
-        this._enabled = true;
-    },
+  /**
+   * @param {number} playbackRate
+   */
+  setPlaybackRate(playbackRate) {
+    this._playbackRate = playbackRate;
+    this._agent.setPlaybackRate(playbackRate);
+  }
 
-    __proto__: WebInspector.SDKModel.prototype
-}
+  /**
+   * @param {!Array.<string>} animations
+   */
+  _releaseAnimations(animations) {
+    this._agent.releaseAnimations(animations);
+  }
 
-WebInspector.AnimationModel._symbol = Symbol("AnimationModel");
+  /**
+   * @override
+   * @return {!Promise}
+   */
+  suspendModel() {
+    this._reset();
+    return this._agent.disable();
+  }
+
+  /**
+   * @override
+   * @return {!Promise}
+   */
+  resumeModel() {
+    if (!this._enabled)
+      return Promise.resolve();
+    return this._agent.enable();
+  }
+
+  ensureEnabled() {
+    if (this._enabled)
+      return;
+    this._agent.enable();
+    this._enabled = true;
+  }
+};
+
+SDK.SDKModel.register(Animation.AnimationModel, SDK.Target.Capability.DOM, false);
+
+/** @enum {symbol} */
+Animation.AnimationModel.Events = {
+  AnimationGroupStarted: Symbol('AnimationGroupStarted'),
+  ModelReset: Symbol('ModelReset')
+};
+
 
 /**
- * @param {!WebInspector.Target} target
- * @return {!WebInspector.AnimationModel}
+ * @unrestricted
  */
-WebInspector.AnimationModel.fromTarget = function(target)
-{
-    if (!target[WebInspector.AnimationModel._symbol])
-        target[WebInspector.AnimationModel._symbol] = new WebInspector.AnimationModel(target);
-
-    return target[WebInspector.AnimationModel._symbol];
-}
-
-/**
- * @constructor
- * @extends {WebInspector.SDKObject}
- * @param {!WebInspector.Target} target
- * @param {!AnimationAgent.Animation} payload
- */
-WebInspector.AnimationModel.Animation = function(target, payload)
-{
-    WebInspector.SDKObject.call(this, target);
+Animation.AnimationModel.Animation = class {
+  /**
+   * @param {!Animation.AnimationModel} animationModel
+   * @param {!Protocol.Animation.Animation} payload
+   */
+  constructor(animationModel, payload) {
+    this._animationModel = animationModel;
     this._payload = payload;
-    this._source = new WebInspector.AnimationModel.AnimationEffect(this.target(), this._payload.source);
-}
+    this._source = new Animation.AnimationModel.AnimationEffect(
+        animationModel, /** @type {!Protocol.Animation.AnimationEffect} */ (this._payload.source));
+  }
 
-/**
- * @param {!WebInspector.Target} target
- * @param {!AnimationAgent.Animation} payload
- * @return {!WebInspector.AnimationModel.Animation}
- */
-WebInspector.AnimationModel.Animation.parsePayload = function(target, payload)
-{
-    return new WebInspector.AnimationModel.Animation(target, payload);
-}
+  /**
+   * @param {!Animation.AnimationModel} animationModel
+   * @param {!Protocol.Animation.Animation} payload
+   * @return {!Animation.AnimationModel.Animation}
+   */
+  static parsePayload(animationModel, payload) {
+    return new Animation.AnimationModel.Animation(animationModel, payload);
+  }
+
+  /**
+   * @return {!Protocol.Animation.Animation}
+   */
+  payload() {
+    return this._payload;
+  }
+
+  /**
+   * @return {string}
+   */
+  id() {
+    return this._payload.id;
+  }
+
+  /**
+   * @return {string}
+   */
+  name() {
+    return this._payload.name;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  paused() {
+    return this._payload.pausedState;
+  }
+
+  /**
+   * @return {string}
+   */
+  playState() {
+    return this._playState || this._payload.playState;
+  }
+
+  /**
+   * @param {string} playState
+   */
+  setPlayState(playState) {
+    this._playState = playState;
+  }
+
+  /**
+   * @return {number}
+   */
+  playbackRate() {
+    return this._payload.playbackRate;
+  }
+
+  /**
+   * @return {number}
+   */
+  startTime() {
+    return this._payload.startTime;
+  }
+
+  /**
+   * @return {number}
+   */
+  endTime() {
+    if (!this.source().iterations)
+      return Infinity;
+    return this.startTime() + this.source().delay() + this.source().duration() * this.source().iterations() +
+        this.source().endDelay();
+  }
+
+  /**
+   * @return {number}
+   */
+  _finiteDuration() {
+    const iterations = Math.min(this.source().iterations(), 3);
+    return this.source().delay() + this.source().duration() * iterations;
+  }
+
+  /**
+   * @return {number}
+   */
+  currentTime() {
+    return this._payload.currentTime;
+  }
+
+  /**
+   * @return {!Animation.AnimationModel.AnimationEffect}
+   */
+  source() {
+    return this._source;
+  }
+
+  /**
+   * @return {!Animation.AnimationModel.Animation.Type}
+   */
+  type() {
+    return /** @type {!Animation.AnimationModel.Animation.Type} */ (this._payload.type);
+  }
+
+  /**
+   * @param {!Animation.AnimationModel.Animation} animation
+   * @return {boolean}
+   */
+  overlaps(animation) {
+    // Infinite animations
+    if (!this.source().iterations() || !animation.source().iterations())
+      return true;
+
+    const firstAnimation = this.startTime() < animation.startTime() ? this : animation;
+    const secondAnimation = firstAnimation === this ? animation : this;
+    return firstAnimation.endTime() >= secondAnimation.startTime();
+  }
+
+  /**
+   * @param {number} duration
+   * @param {number} delay
+   */
+  setTiming(duration, delay) {
+    this._source.node().then(this._updateNodeStyle.bind(this, duration, delay));
+    this._source._duration = duration;
+    this._source._delay = delay;
+    this._animationModel._agent.setTiming(this.id(), duration, delay);
+  }
+
+  /**
+   * @param {number} duration
+   * @param {number} delay
+   * @param {!SDK.DOMNode} node
+   */
+  _updateNodeStyle(duration, delay, node) {
+    let animationPrefix;
+    if (this.type() === Animation.AnimationModel.Animation.Type.CSSTransition)
+      animationPrefix = 'transition-';
+    else if (this.type() === Animation.AnimationModel.Animation.Type.CSSAnimation)
+      animationPrefix = 'animation-';
+    else
+      return;
+
+    const cssModel = node.domModel().cssModel();
+    cssModel.setEffectivePropertyValueForNode(node.id, animationPrefix + 'duration', duration + 'ms');
+    cssModel.setEffectivePropertyValueForNode(node.id, animationPrefix + 'delay', delay + 'ms');
+  }
+
+  /**
+   * @return {!Promise<?SDK.RemoteObject>}
+   */
+  remoteObjectPromise() {
+    return this._animationModel._agent.resolveAnimation(this.id()).then(
+        payload => payload && this._animationModel._runtimeModel.createRemoteObject(payload));
+  }
+
+  /**
+   * @return {string}
+   */
+  _cssId() {
+    return this._payload.cssId || '';
+  }
+};
+
 
 /** @enum {string} */
-WebInspector.AnimationModel.Animation.Type = {
-    CSSTransition: "CSSTransition",
-    CSSAnimation: "CSSAnimation",
-    WebAnimation: "WebAnimation"
-}
-
-WebInspector.AnimationModel.Animation.prototype = {
-    /**
-     * @return {!AnimationAgent.Animation}
-     */
-    payload: function()
-    {
-        return this._payload;
-    },
-
-    /**
-     * @return {string}
-     */
-    id: function()
-    {
-        return this._payload.id;
-    },
-
-    /**
-     * @return {string}
-     */
-    name: function()
-    {
-        return this.source().name();
-    },
-
-    /**
-     * @return {boolean}
-     */
-    paused: function()
-    {
-        return this._payload.pausedState;
-    },
-
-    /**
-     * @return {string}
-     */
-    playState: function()
-    {
-        return this._playState || this._payload.playState;
-    },
-
-    /**
-     * @param {string} playState
-     */
-    setPlayState: function(playState)
-    {
-        this._playState = playState;
-    },
-
-    /**
-     * @return {number}
-     */
-    playbackRate: function()
-    {
-        return this._payload.playbackRate;
-    },
-
-    /**
-     * @return {number}
-     */
-    startTime: function()
-    {
-        return this._payload.startTime;
-    },
-
-    /**
-     * @return {number}
-     */
-    endTime: function()
-    {
-        if (!this.source().iterations)
-            return Infinity;
-        return this.startTime() + this.source().delay() + this.source().duration() * this.source().iterations() + this.source().endDelay();
-    },
-
-    /**
-     * @return {number}
-     */
-    currentTime: function()
-    {
-        return this._payload.currentTime;
-    },
-
-    /**
-     * @return {!WebInspector.AnimationModel.AnimationEffect}
-     */
-    source: function()
-    {
-        return this._source;
-    },
-
-    /**
-     * @return {!WebInspector.AnimationModel.Animation.Type}
-     */
-    type: function()
-    {
-        return /** @type {!WebInspector.AnimationModel.Animation.Type} */(this._payload.type);
-    },
-
-    /**
-     * @param {!WebInspector.AnimationModel.Animation} animation
-     * @return {boolean}
-     */
-    overlaps: function(animation)
-    {
-        // Infinite animations
-        if (!this.source().iterations() || !animation.source().iterations())
-            return true;
-
-        var firstAnimation = this.startTime() < animation.startTime() ? this : animation;
-        var secondAnimation = firstAnimation === this ? animation : this;
-        return firstAnimation.endTime() >= secondAnimation.startTime();
-    },
-
-    /**
-     * @param {number} duration
-     * @param {number} delay
-     */
-    setTiming: function(duration, delay)
-    {
-        this._source.node().then(this._updateNodeStyle.bind(this, duration, delay));
-        this._source._duration = duration;
-        this._source._delay = delay;
-        if (this.type() !== WebInspector.AnimationModel.Animation.Type.CSSAnimation)
-            this.target().animationAgent().setTiming(this.id(), duration, delay);
-    },
-
-    /**
-     * @param {number} duration
-     * @param {number} delay
-     * @param {!WebInspector.DOMNode} node
-     */
-    _updateNodeStyle: function(duration, delay, node)
-    {
-        var animationPrefix;
-        if (this.type() == WebInspector.AnimationModel.Animation.Type.CSSTransition)
-            animationPrefix = "transition-";
-        else if (this.type() == WebInspector.AnimationModel.Animation.Type.CSSAnimation)
-            animationPrefix = "animation-";
-        else
-            return;
-
-        var cssModel = WebInspector.CSSStyleModel.fromTarget(node.target());
-        if (!cssModel)
-            return;
-        cssModel.setEffectivePropertyValueForNode(node.id, animationPrefix + "duration", duration + "ms");
-        cssModel.setEffectivePropertyValueForNode(node.id, animationPrefix + "delay", delay + "ms");
-    },
-
-    /**
-     * @return {!Promise.<?WebInspector.RemoteObject>}
-     */
-    remoteObjectPromise: function()
-    {
-        /**
-         * @param {?Protocol.Error} error
-         * @param {!RuntimeAgent.RemoteObject} payload
-         * @return {?WebInspector.RemoteObject}
-         * @this {!WebInspector.AnimationModel.Animation}
-         */
-        function callback(error, payload)
-        {
-            return !error ? this.target().runtimeModel.createRemoteObject(payload) : null;
-        }
-
-        return this.target().animationAgent().resolveAnimation(this.id(), callback.bind(this));
-    },
-
-    /**
-     * @return {string}
-     */
-    _cssId: function()
-    {
-        return this._payload.cssId || "";
-    },
-
-    __proto__: WebInspector.SDKObject.prototype
-}
+Animation.AnimationModel.Animation.Type = {
+  CSSTransition: 'CSSTransition',
+  CSSAnimation: 'CSSAnimation',
+  WebAnimation: 'WebAnimation'
+};
 
 /**
- * @constructor
- * @extends {WebInspector.SDKObject}
- * @param {!WebInspector.Target} target
- * @param {!AnimationAgent.AnimationEffect} payload
+ * @unrestricted
  */
-WebInspector.AnimationModel.AnimationEffect = function(target, payload)
-{
-    WebInspector.SDKObject.call(this, target);
+Animation.AnimationModel.AnimationEffect = class {
+  /**
+   * @param {!Animation.AnimationModel} animationModel
+   * @param {!Protocol.Animation.AnimationEffect} payload
+   */
+  constructor(animationModel, payload) {
+    this._animationModel = animationModel;
     this._payload = payload;
     if (payload.keyframesRule)
-        this._keyframesRule = new WebInspector.AnimationModel.KeyframesRule(target, payload.keyframesRule);
+      this._keyframesRule = new Animation.AnimationModel.KeyframesRule(payload.keyframesRule);
     this._delay = this._payload.delay;
     this._duration = this._payload.duration;
-}
+  }
 
-WebInspector.AnimationModel.AnimationEffect.prototype = {
-    /**
-     * @return {number}
-     */
-    delay: function()
-    {
-        return this._delay;
-    },
+  /**
+   * @return {number}
+   */
+  delay() {
+    return this._delay;
+  }
 
-    /**
-     * @return {number}
-     */
-    endDelay: function()
-    {
-        return this._payload.endDelay;
-    },
+  /**
+   * @return {number}
+   */
+  endDelay() {
+    return this._payload.endDelay;
+  }
 
-    /**
-     * @return {number}
-     */
-    playbackRate: function()
-    {
-        return this._payload.playbackRate;
-    },
+  /**
+   * @return {number}
+   */
+  iterationStart() {
+    return this._payload.iterationStart;
+  }
 
-    /**
-     * @return {number}
-     */
-    iterationStart: function()
-    {
-        return this._payload.iterationStart;
-    },
+  /**
+   * @return {number}
+   */
+  iterations() {
+    // Animations with zero duration, zero delays and infinite iterations can't be shown.
+    if (!this.delay() && !this.endDelay() && !this.duration())
+      return 0;
+    return this._payload.iterations || Infinity;
+  }
 
-    /**
-     * @return {number}
-     */
-    iterations: function()
-    {
-        return this._payload.iterations || Infinity;
-    },
+  /**
+   * @return {number}
+   */
+  duration() {
+    return this._duration;
+  }
 
-    /**
-     * @return {number}
-     */
-    duration: function()
-    {
-        return this._duration;
-    },
+  /**
+   * @return {string}
+   */
+  direction() {
+    return this._payload.direction;
+  }
 
-    /**
-     * @return {string}
-     */
-    direction: function()
-    {
-        return this._payload.direction;
-    },
+  /**
+   * @return {string}
+   */
+  fill() {
+    return this._payload.fill;
+  }
 
-    /**
-     * @return {string}
-     */
-    fill: function()
-    {
-        return this._payload.fill;
-    },
+  /**
+   * @return {!Promise.<!SDK.DOMNode>}
+   */
+  node() {
+    if (!this._deferredNode)
+      this._deferredNode = new SDK.DeferredDOMNode(this._animationModel.target(), this.backendNodeId());
+    return this._deferredNode.resolvePromise();
+  }
 
-    /**
-     * @return {string}
-     */
-    name: function()
-    {
-        return this._payload.name;
-    },
+  /**
+   * @return {!SDK.DeferredDOMNode}
+   */
+  deferredNode() {
+    return new SDK.DeferredDOMNode(this._animationModel.target(), this.backendNodeId());
+  }
 
-    /**
-     * @return {!Promise.<!WebInspector.DOMNode>}
-     */
-    node: function()
-    {
-        if (!this._deferredNode)
-            this._deferredNode = new WebInspector.DeferredDOMNode(this.target(), this.backendNodeId());
-        return this._deferredNode.resolvePromise();
-    },
+  /**
+   * @return {number}
+   */
+  backendNodeId() {
+    return /** @type {number} */ (this._payload.backendNodeId);
+  }
 
-    /**
-     * @return {!WebInspector.DeferredDOMNode}
-     */
-    deferredNode: function()
-    {
-        return new WebInspector.DeferredDOMNode(this.target(), this.backendNodeId());
-    },
+  /**
+   * @return {?Animation.AnimationModel.KeyframesRule}
+   */
+  keyframesRule() {
+    return this._keyframesRule;
+  }
 
-    /**
-     * @return {number}
-     */
-    backendNodeId: function()
-    {
-        return this._payload.backendNodeId;
-    },
-
-    /**
-     * @return {?WebInspector.AnimationModel.KeyframesRule}
-     */
-    keyframesRule: function()
-    {
-        return this._keyframesRule;
-    },
-
-    /**
-     * @return {string}
-     */
-    easing: function()
-    {
-        return this._payload.easing;
-    },
-
-    __proto__: WebInspector.SDKObject.prototype
-}
+  /**
+   * @return {string}
+   */
+  easing() {
+    return this._payload.easing;
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.SDKObject}
- * @param {!WebInspector.Target} target
- * @param {!AnimationAgent.KeyframesRule} payload
+ * @unrestricted
  */
-WebInspector.AnimationModel.KeyframesRule = function(target, payload)
-{
-    WebInspector.SDKObject.call(this, target);
+Animation.AnimationModel.KeyframesRule = class {
+  /**
+   * @param {!Protocol.Animation.KeyframesRule} payload
+   */
+  constructor(payload) {
     this._payload = payload;
-    this._keyframes = this._payload.keyframes.map(function (keyframeStyle) {
-        return new WebInspector.AnimationModel.KeyframeStyle(target, keyframeStyle);
+    this._keyframes = this._payload.keyframes.map(function(keyframeStyle) {
+      return new Animation.AnimationModel.KeyframeStyle(keyframeStyle);
     });
-}
+  }
 
-WebInspector.AnimationModel.KeyframesRule.prototype = {
-    /**
-     * @param {!Array.<!AnimationAgent.KeyframeStyle>} payload
-     */
-    _setKeyframesPayload: function(payload)
-    {
-        this._keyframes = payload.map(function (keyframeStyle) {
-            return new WebInspector.AnimationModel.KeyframeStyle(this._target, keyframeStyle);
-        });
-    },
+  /**
+   * @param {!Array.<!Protocol.Animation.KeyframeStyle>} payload
+   */
+  _setKeyframesPayload(payload) {
+    this._keyframes = payload.map(function(keyframeStyle) {
+      return new Animation.AnimationModel.KeyframeStyle(keyframeStyle);
+    });
+  }
 
-    /**
-     * @return {string|undefined}
-     */
-    name: function()
-    {
-        return this._payload.name;
-    },
+  /**
+   * @return {string|undefined}
+   */
+  name() {
+    return this._payload.name;
+  }
 
-    /**
-     * @return {!Array.<!WebInspector.AnimationModel.KeyframeStyle>}
-     */
-    keyframes: function()
-    {
-        return this._keyframes;
-    },
-
-    __proto__: WebInspector.SDKObject.prototype
-}
+  /**
+   * @return {!Array.<!Animation.AnimationModel.KeyframeStyle>}
+   */
+  keyframes() {
+    return this._keyframes;
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.SDKObject}
- * @param {!WebInspector.Target} target
- * @param {!AnimationAgent.KeyframeStyle} payload
+ * @unrestricted
  */
-WebInspector.AnimationModel.KeyframeStyle = function(target, payload)
-{
-    WebInspector.SDKObject.call(this, target);
+Animation.AnimationModel.KeyframeStyle = class {
+  /**
+   * @param {!Protocol.Animation.KeyframeStyle} payload
+   */
+  constructor(payload) {
     this._payload = payload;
     this._offset = this._payload.offset;
-}
+  }
 
-WebInspector.AnimationModel.KeyframeStyle.prototype = {
-    /**
-     * @return {string}
-     */
-    offset: function()
-    {
-        return this._offset;
-    },
+  /**
+   * @return {string}
+   */
+  offset() {
+    return this._offset;
+  }
 
-    /**
-     * @param {number} offset
-     */
-    setOffset: function(offset)
-    {
-        this._offset = offset * 100 + "%";
-    },
+  /**
+   * @param {number} offset
+   */
+  setOffset(offset) {
+    this._offset = offset * 100 + '%';
+  }
 
-    /**
-     * @return {number}
-     */
-    offsetAsNumber: function()
-    {
-        return parseFloat(this._offset) / 100;
-    },
+  /**
+   * @return {number}
+   */
+  offsetAsNumber() {
+    return parseFloat(this._offset) / 100;
+  }
 
-    /**
-     * @return {string}
-     */
-    easing: function()
-    {
-        return this._payload.easing;
-    },
-
-    __proto__: WebInspector.SDKObject.prototype
-}
+  /**
+   * @return {string}
+   */
+  easing() {
+    return this._payload.easing;
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.SDKObject}
- * @param {!WebInspector.Target} target
- * @param {string} id
- * @param {!Array.<!WebInspector.AnimationModel.Animation>} animations
+ * @unrestricted
  */
-WebInspector.AnimationModel.AnimationGroup = function(target, id, animations)
-{
-    WebInspector.SDKObject.call(this, target);
+Animation.AnimationModel.AnimationGroup = class {
+  /**
+   * @param {!Animation.AnimationModel} animationModel
+   * @param {string} id
+   * @param {!Array.<!Animation.AnimationModel.Animation>} animations
+   */
+  constructor(animationModel, id, animations) {
+    this._animationModel = animationModel;
     this._id = id;
     this._animations = animations;
     this._paused = false;
-}
+    this._screenshots = [];
+    this._screenshotImages = [];
+  }
 
-WebInspector.AnimationModel.AnimationGroup.prototype = {
+  /**
+   * @return {string}
+   */
+  id() {
+    return this._id;
+  }
+
+  /**
+   * @return {!Array.<!Animation.AnimationModel.Animation>}
+   */
+  animations() {
+    return this._animations;
+  }
+
+  release() {
+    this._animationModel._animationGroups.remove(this.id());
+    this._animationModel._releaseAnimations(this._animationIds());
+  }
+
+  /**
+   * @return {!Array.<string>}
+   */
+  _animationIds() {
     /**
+     * @param {!Animation.AnimationModel.Animation} animation
      * @return {string}
      */
-    id: function()
-    {
-        return this._id;
-    },
+    function extractId(animation) {
+      return animation.id();
+    }
 
+    return this._animations.map(extractId);
+  }
+
+  /**
+   * @return {number}
+   */
+  startTime() {
+    return this._animations[0].startTime();
+  }
+
+  /**
+   * @return {number}
+   */
+  finiteDuration() {
+    let maxDuration = 0;
+    for (let i = 0; i < this._animations.length; ++i)
+      maxDuration = Math.max(maxDuration, this._animations[i]._finiteDuration());
+    return maxDuration;
+  }
+
+  /**
+   * @param {number} currentTime
+   */
+  seekTo(currentTime) {
+    this._animationModel._agent.seekAnimations(this._animationIds(), currentTime);
+  }
+
+  /**
+   * @return {boolean}
+   */
+  paused() {
+    return this._paused;
+  }
+
+  /**
+   * @param {boolean} paused
+   */
+  togglePause(paused) {
+    if (paused === this._paused)
+      return;
+    this._paused = paused;
+    this._animationModel._agent.setPaused(this._animationIds(), paused);
+  }
+
+  /**
+   * @return {!Promise<number>}
+   */
+  currentTimePromise() {
+    let longestAnim = null;
+    for (const anim of this._animations) {
+      if (!longestAnim || anim.endTime() > longestAnim.endTime())
+        longestAnim = anim;
+    }
+    return this._animationModel._agent.getCurrentTime(longestAnim.id()).then(currentTime => currentTime || 0);
+  }
+
+  /**
+   * @param {!Animation.AnimationModel.AnimationGroup} group
+   * @return {boolean}
+   */
+  _matches(group) {
     /**
-     * @return {!Array.<!WebInspector.AnimationModel.Animation>}
+     * @param {!Animation.AnimationModel.Animation} anim
+     * @return {string}
      */
-    animations: function()
-    {
-        return this._animations;
-    },
+    function extractId(anim) {
+      if (anim.type() === Animation.AnimationModel.Animation.Type.WebAnimation)
+        return anim.type() + anim.id();
+      else
+        return anim._cssId();
+    }
 
-    /**
-     * @return {!Array.<string>}
-     */
-    _animationIds: function()
-    {
-        /**
-         * @param {!WebInspector.AnimationModel.Animation} animation
-         * @return {string}
-         */
-        function extractId(animation)
-        {
-            return animation.id();
-        }
+    if (this._animations.length !== group._animations.length)
+      return false;
+    const left = this._animations.map(extractId).sort();
+    const right = group._animations.map(extractId).sort();
+    for (let i = 0; i < left.length; i++) {
+      if (left[i] !== right[i])
+        return false;
+    }
+    return true;
+  }
 
-        return this._animations.map(extractId);
-    },
+  /**
+   * @param {!Animation.AnimationModel.AnimationGroup} group
+   */
+  _update(group) {
+    this._animationModel._releaseAnimations(this._animationIds());
+    this._animations = group._animations;
+  }
 
-    /**
-     * @return {number}
-     */
-    startTime: function()
-    {
-        return this._animations[0].startTime();
-    },
-
-    /**
-     * @param {number} currentTime
-     */
-    seekTo: function(currentTime)
-    {
-        this.target().animationAgent().seekAnimations(this._animationIds(), currentTime);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    paused: function()
-    {
-        return this._paused;
-    },
-
-    /**
-     * @param {boolean} paused
-     */
-    togglePause: function(paused)
-    {
-        this._paused = paused;
-        this.target().animationAgent().setPaused(this._animationIds(), paused);
-    },
-
-    /**
-     * @return {!Promise.<number>}
-     */
-    currentTimePromise: function()
-    {
-        /**
-         * @param {?Protocol.Error} error
-         * @param {number} currentTime
-         * @return {number}
-         */
-        function callback(error, currentTime)
-        {
-            return !error ? currentTime : 0;
-        }
-
-        return this.target().animationAgent().getCurrentTime(this._animations[0].id(), callback).catchException(0);
-    },
-
-    /**
-     * @param {!WebInspector.AnimationModel.AnimationGroup} group
-     * @return {boolean}
-     */
-    _matches: function(group)
-    {
-        /**
-         * @param {!WebInspector.AnimationModel.Animation} anim
-         * @return {string}
-         */
-        function extractId(anim)
-        {
-            if (anim.type() === WebInspector.AnimationModel.Animation.Type.WebAnimation)
-                return anim.type() + anim.id();
-            else
-                return anim._cssId();
-        }
-
-        if (this._animations.length !== group._animations.length)
-            return false;
-        var left = this._animations.map(extractId).sort();
-        var right = group._animations.map(extractId).sort();
-        for (var i = 0; i < left.length; i++) {
-            if (left[i] !== right[i])
-                return false;
-        }
-        return true;
-    },
-
-    /**
-     * @param {!WebInspector.AnimationModel.AnimationGroup} group
-     */
-    _update: function(group)
-    {
-        this._animations = group._animations;
-    },
-
-    __proto__: WebInspector.SDKObject.prototype
-}
-
+  /**
+   * @return {!Array.<!Image>}
+   */
+  screenshots() {
+    for (let i = 0; i < this._screenshots.length; ++i) {
+      const image = new Image();
+      image.src = 'data:image/jpeg;base64,' + this._screenshots[i];
+      this._screenshotImages.push(image);
+    }
+    this._screenshots = [];
+    return this._screenshotImages;
+  }
+};
 
 /**
- * @constructor
- * @implements {AnimationAgent.Dispatcher}
+ * @implements {Protocol.AnimationDispatcher}
+ * @unrestricted
  */
-WebInspector.AnimationDispatcher = function(animationModel)
-{
+Animation.AnimationDispatcher = class {
+  constructor(animationModel) {
     this._animationModel = animationModel;
-}
+  }
 
-WebInspector.AnimationDispatcher.prototype = {
-    /**
-     * @override
-     * @param {string} id
-     */
-    animationCreated: function(id)
-    {
-        this._animationModel.animationCreated(id);
-    },
+  /**
+   * @override
+   * @param {string} id
+   */
+  animationCreated(id) {
+    this._animationModel.animationCreated(id);
+  }
 
-    /**
-     * @override
-     * @param {!AnimationAgent.Animation} payload
-     */
-    animationStarted: function(payload)
-    {
-        this._animationModel.animationStarted(payload);
+  /**
+   * @override
+   * @param {string} id
+   */
+  animationCanceled(id) {
+    this._animationModel._animationCanceled(id);
+  }
+
+  /**
+   * @override
+   * @param {!Protocol.Animation.Animation} payload
+   */
+  animationStarted(payload) {
+    this._animationModel.animationStarted(payload);
+  }
+};
+
+/**
+ * @unrestricted
+ */
+Animation.AnimationModel.ScreenshotCapture = class {
+  /**
+   * @param {!Animation.AnimationModel} animationModel
+   * @param {!SDK.ScreenCaptureModel} screenCaptureModel
+   */
+  constructor(animationModel, screenCaptureModel) {
+    /** @type {!Array<!Animation.AnimationModel.ScreenshotCapture.Request>} */
+    this._requests = [];
+    this._screenCaptureModel = screenCaptureModel;
+    this._animationModel = animationModel;
+    this._animationModel.addEventListener(Animation.AnimationModel.Events.ModelReset, this._stopScreencast, this);
+  }
+
+  /**
+   * @param {number} duration
+   * @param {!Array<string>} screenshots
+   */
+  captureScreenshots(duration, screenshots) {
+    const screencastDuration = Math.min(duration / this._animationModel._playbackRate, 3000);
+    const endTime = screencastDuration + window.performance.now();
+    this._requests.push({endTime: endTime, screenshots: screenshots});
+
+    if (!this._endTime || endTime > this._endTime) {
+      clearTimeout(this._stopTimer);
+      this._stopTimer = setTimeout(this._stopScreencast.bind(this), screencastDuration);
+      this._endTime = endTime;
     }
-}
+
+    if (this._capturing)
+      return;
+    this._capturing = true;
+    this._screenCaptureModel.startScreencast(
+        'jpeg', 80, undefined, 300, 2, this._screencastFrame.bind(this), visible => {});
+  }
+
+  /**
+   * @param {string} base64Data
+   * @param {!Protocol.Page.ScreencastFrameMetadata} metadata
+   */
+  _screencastFrame(base64Data, metadata) {
+    /**
+     * @param {!Animation.AnimationModel.ScreenshotCapture.Request} request
+     * @return {boolean}
+     */
+    function isAnimating(request) {
+      return request.endTime >= now;
+    }
+
+    if (!this._capturing)
+      return;
+
+    const now = window.performance.now();
+    this._requests = this._requests.filter(isAnimating);
+    for (const request of this._requests)
+      request.screenshots.push(base64Data);
+  }
+
+  _stopScreencast() {
+    if (!this._capturing)
+      return;
+
+    delete this._stopTimer;
+    delete this._endTime;
+    this._requests = [];
+    this._capturing = false;
+    this._screenCaptureModel.stopScreencast();
+  }
+};
+
+/** @typedef {{ endTime: number, screenshots: !Array.<string>}} */
+Animation.AnimationModel.ScreenshotCapture.Request;

@@ -1,76 +1,74 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 /**
- * @constructor
- * @implements {WebInspector.ContentProvider}
- * @param {!WebInspector.ResourceType} contentType
- * @param {string} content
- * @param {string=} contentURL
+ * @implements {Common.ContentProvider}
+ * @unrestricted
  */
-WebInspector.StaticContentProvider = function(contentType, content, contentURL)
-{
-    this._content = content;
+Common.StaticContentProvider = class {
+  /**
+   * @param {string} contentURL
+   * @param {!Common.ResourceType} contentType
+   * @param {function():!Promise<?string>} lazyContent
+   */
+  constructor(contentURL, contentType, lazyContent) {
+    this._contentURL = contentURL;
     this._contentType = contentType;
-    this._contentURL = contentURL || "";
-}
+    this._lazyContent = lazyContent;
+  }
 
-/**
- * @param {string} content
- * @param {string} query
- * @param {boolean} caseSensitive
- * @param {boolean} isRegex
- * @param {function(!Array.<!WebInspector.ContentProvider.SearchMatch>)} callback
- */
-WebInspector.StaticContentProvider.searchInContent = function(content, query, caseSensitive, isRegex, callback)
-{
-    function performSearch()
-    {
-        callback(WebInspector.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex));
-    }
+  /**
+   * @param {string} contentURL
+   * @param {!Common.ResourceType} contentType
+   * @param {string} content
+   * @return {!Common.StaticContentProvider}
+   */
+  static fromString(contentURL, contentType, content) {
+    const lazyContent = () => Promise.resolve(content);
+    return new Common.StaticContentProvider(contentURL, contentType, lazyContent);
+  }
 
-    // searchInContent should call back later.
-    setTimeout(performSearch.bind(null), 0);
-}
+  /**
+   * @override
+   * @return {string}
+   */
+  contentURL() {
+    return this._contentURL;
+  }
 
-WebInspector.StaticContentProvider.prototype = {
-    /**
-     * @override
-     * @return {string}
-     */
-    contentURL: function()
-    {
-        return this._contentURL;
-    },
+  /**
+   * @override
+   * @return {!Common.ResourceType}
+   */
+  contentType() {
+    return this._contentType;
+  }
 
-    /**
-     * @override
-     * @return {!WebInspector.ResourceType}
-     */
-    contentType: function()
-    {
-        return this._contentType;
-    },
+  /**
+   * @override
+   * @return {!Promise<boolean>}
+   */
+  contentEncoded() {
+    return Promise.resolve(false);
+  }
 
-    /**
-     * @override
-     * @param {function(?string)} callback
-     */
-    requestContent: function(callback)
-    {
-        callback(this._content);
-    },
+  /**
+   * @override
+   * @return {!Promise<?string>}
+   */
+  requestContent() {
+    return this._lazyContent();
+  }
 
-    /**
-     * @override
-     * @param {string} query
-     * @param {boolean} caseSensitive
-     * @param {boolean} isRegex
-     * @param {function(!Array.<!WebInspector.ContentProvider.SearchMatch>)} callback
-     */
-    searchInContent: function(query, caseSensitive, isRegex, callback)
-    {
-        WebInspector.StaticContentProvider.searchInContent(this._content, query, caseSensitive, isRegex, callback);
-    }
-}
+  /**
+   * @override
+   * @param {string} query
+   * @param {boolean} caseSensitive
+   * @param {boolean} isRegex
+   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   */
+  async searchInContent(query, caseSensitive, isRegex) {
+    const content = await this._lazyContent();
+    return content ? Common.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex) : [];
+  }
+};

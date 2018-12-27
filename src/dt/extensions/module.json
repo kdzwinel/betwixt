@@ -1,11 +1,13 @@
 {
     "dependencies": [
-        "components"
+        "components",
+        "browser_sdk",
+        "common"
     ],
     "scripts": [
         "ExtensionAPI.js",
-        "ExtensionAuditCategory.js",
         "ExtensionRegistryStub.js",
+        "ExtensionTraceProvider.js",
         "ExtensionServer.js",
         "ExtensionPanel.js",
         "ExtensionView.js"

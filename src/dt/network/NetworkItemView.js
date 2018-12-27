@@ -28,137 +28,132 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/**
- * @constructor
- * @extends {WebInspector.TabbedPane}
- * @param {!WebInspector.NetworkRequest} request
- * @param {!WebInspector.NetworkTimeCalculator} calculator
- */
-WebInspector.NetworkItemView = function(request, calculator)
-{
-    WebInspector.TabbedPane.call(this);
-    this.renderWithNoHeaderBackground();
-    this.element.classList.add("network-item-view");
+Network.NetworkItemView = class extends UI.TabbedPane {
+  /**
+   * @param {!SDK.NetworkRequest} request
+   * @param {!Network.NetworkTimeCalculator} calculator
+   */
+  constructor(request, calculator) {
+    super();
+    this.element.classList.add('network-item-view');
 
-    this._resourceViewTabSetting = WebInspector.settings.createSetting("resourceViewTab", "preview");
+    this._resourceViewTabSetting = Common.settings.createSetting('resourceViewTab', 'preview');
 
-    var headersView = new WebInspector.RequestHeadersView(request);
-    this.appendTab("headers", WebInspector.UIString("Headers"), headersView);
+    this._headersView = new Network.RequestHeadersView(request);
+    this.appendTab(
+        Network.NetworkItemView.Tabs.Headers, Common.UIString('Headers'), this._headersView,
+        Common.UIString('Headers and request body'));
 
-    this.addEventListener(WebInspector.TabbedPane.EventTypes.TabSelected, this._tabSelected, this);
+    this.addEventListener(UI.TabbedPane.Events.TabSelected, this._tabSelected, this);
 
-    if (request.resourceType() === WebInspector.resourceTypes.WebSocket) {
-        var frameView = new WebInspector.ResourceWebSocketFrameView(request);
-        this.appendTab("webSocketFrames", WebInspector.UIString("Frames"), frameView);
-    } else if (request.mimeType ===  "text/event-stream") {
-        this.appendTab("eventSource", WebInspector.UIString("EventStream"), new WebInspector.EventSourceMessagesView(request));
+    if (request.resourceType() === Common.resourceTypes.WebSocket) {
+      const frameView = new Network.ResourceWebSocketFrameView(request);
+      this.appendTab(
+          Network.NetworkItemView.Tabs.WsFrames, Common.UIString('Messages'), frameView,
+          Common.UIString('WebSocket messages'));
+    } else if (request.mimeType === 'text/event-stream') {
+      this.appendTab(
+          Network.NetworkItemView.Tabs.EventSource, Common.UIString('EventStream'),
+          new Network.EventSourceMessagesView(request));
     } else {
-        var responseView = new WebInspector.RequestResponseView(request);
-        var previewView = new WebInspector.RequestPreviewView(request, responseView);
-        this.appendTab("preview", WebInspector.UIString("Preview"), previewView);
-        this.appendTab("response", WebInspector.UIString("Response"), responseView);
+      this._responseView = new Network.RequestResponseView(request);
+      const previewView = new Network.RequestPreviewView(request);
+      this.appendTab(
+          Network.NetworkItemView.Tabs.Preview, Common.UIString('Preview'), previewView,
+          Common.UIString('Response preview'));
+      if (request.signedExchangeInfo() && request.signedExchangeInfo().errors &&
+          request.signedExchangeInfo().errors.length) {
+        const icon = UI.Icon.create('smallicon-error');
+        icon.title = Common.UIString('SignedExchange error');
+        this.setTabIcon(Network.NetworkItemView.Tabs.Preview, icon);
+      }
+      this.appendTab(
+          Network.NetworkItemView.Tabs.Response, Common.UIString('Response'), this._responseView,
+          Common.UIString('Raw response data'));
     }
 
     if (request.requestCookies || request.responseCookies) {
-        this._cookiesView = new WebInspector.RequestCookiesView(request);
-        this.appendTab("cookies", WebInspector.UIString("Cookies"), this._cookiesView);
+      this._cookiesView = new Network.RequestCookiesView(request);
+      this.appendTab(
+          Network.NetworkItemView.Tabs.Cookies, Common.UIString('Cookies'), this._cookiesView,
+          Common.UIString('Request and response cookies'));
     }
 
-    this.appendTab("timing", WebInspector.UIString("Timing"), new WebInspector.RequestTimingView(request, calculator));
+    this.appendTab(
+        Network.NetworkItemView.Tabs.Timing, Common.UIString('Timing'),
+        new Network.RequestTimingView(request, calculator), Common.UIString('Request and response timeline'));
 
     this._request = request;
-}
+  }
 
-WebInspector.NetworkItemView.prototype = {
-    wasShown: function()
-    {
-        WebInspector.TabbedPane.prototype.wasShown.call(this);
-        this._selectTab();
-    },
+  /**
+   * @override
+   */
+  wasShown() {
+    super.wasShown();
+    this._selectTab();
+  }
 
-    /**
-     * @param {string=} tabId
-     */
-    _selectTab: function(tabId)
-    {
-        if (!tabId)
-            tabId = this._resourceViewTabSetting.get();
+  /**
+   * @param {string=} tabId
+   */
+  _selectTab(tabId) {
+    if (!tabId)
+      tabId = this._resourceViewTabSetting.get();
 
-        if (!this.selectTab(tabId))
-            this.selectTab("headers");
-    },
+    if (!this.selectTab(tabId))
+      this.selectTab('headers');
+  }
 
-    _tabSelected: function(event)
-    {
-        if (!event.data.isUserGesture)
-            return;
+  _tabSelected(event) {
+    if (!event.data.isUserGesture)
+      return;
+    this._resourceViewTabSetting.set(event.data.tabId);
+  }
 
-        this._resourceViewTabSetting.set(event.data.tabId);
-    },
+  /**
+   * @return {!SDK.NetworkRequest}
+   */
+  request() {
+    return this._request;
+  }
 
-    /**
-      * @return {!WebInspector.NetworkRequest}
-      */
-    request: function()
-    {
-        return this._request;
-    },
+  /**
+   * @param {number=} line
+   * @return {!Promise}
+   */
+  async revealResponseBody(line) {
+    this._selectTab(Network.NetworkItemView.Tabs.Response);
+    if (this._responseView && typeof line === 'number')
+      await this._responseView.revealLine(/** @type {number} */ (line));
+  }
 
-    __proto__: WebInspector.TabbedPane.prototype
-}
+  /**
+   * @param {string} header
+   */
+  revealRequestHeader(header) {
+    this._selectTab(Network.NetworkItemView.Tabs.Headers);
+    this._headersView.revealRequestHeader(header);
+  }
+
+  /**
+   * @param {string} header
+   */
+  revealResponseHeader(header) {
+    this._selectTab(Network.NetworkItemView.Tabs.Headers);
+    this._headersView.revealResponseHeader(header);
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.RequestView}
- * @param {!WebInspector.NetworkRequest} request
+ * @enum {string}
  */
-WebInspector.RequestContentView = function(request)
-{
-    WebInspector.RequestView.call(this, request);
-}
-
-WebInspector.RequestContentView.prototype = {
-    /**
-     * @return {!WebInspector.Widget}
-     */
-    get innerView()
-    {
-        return this._innerView;
-    },
-
-    set innerView(innerView)
-    {
-        this._innerView = innerView;
-    },
-
-    wasShown: function()
-    {
-        this._ensureInnerViewShown();
-    },
-
-    _ensureInnerViewShown: function()
-    {
-        if (this._innerViewShowRequested)
-            return;
-        this._innerViewShowRequested = true;
-
-        /**
-         * @param {?string} content
-         * @this {WebInspector.RequestContentView}
-         */
-        function callback(content)
-        {
-            this._innerViewShowRequested = false;
-            this.contentLoaded();
-        }
-
-        this.request.requestContent(callback.bind(this));
-    },
-
-    contentLoaded: function()
-    {
-        // Should be implemented by subclasses.
-    },
-
-    __proto__: WebInspector.RequestView.prototype
-}
+Network.NetworkItemView.Tabs = {
+  Cookies: 'cookies',
+  EventSource: 'eventSource',
+  Headers: 'headers',
+  Preview: 'preview',
+  Response: 'response',
+  Timing: 'timing',
+  WsFrames: 'webSocketFrames'
+};

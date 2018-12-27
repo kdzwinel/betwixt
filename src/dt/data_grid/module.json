@@ -1,0 +1,14 @@
+{
+    "dependencies": [
+        "ui"
+    ],
+    "scripts": [
+        "DataGrid.js",
+        "ViewportDataGrid.js",
+        "SortableDataGrid.js",
+        "ShowMoreDataGridNode.js"
+    ],
+    "resources": [
+        "dataGrid.css"
+    ]
+}

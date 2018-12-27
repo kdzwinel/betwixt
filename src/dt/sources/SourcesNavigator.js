@@ -27,178 +27,256 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.Object}
- * @param {!WebInspector.Workspace} workspace
+ * @unrestricted
  */
-WebInspector.SourcesNavigator = function(workspace)
-{
-    WebInspector.Object.call(this);
-    this._workspace = workspace;
+Sources.NetworkNavigatorView = class extends Sources.NavigatorView {
+  constructor() {
+    super();
+    SDK.targetManager.addEventListener(SDK.TargetManager.Events.InspectedURLChanged, this._inspectedURLChanged, this);
+  }
 
-    this._tabbedPane = new WebInspector.TabbedPane();
-    this._tabbedPane.setShrinkableTabs(true);
-    this._tabbedPane.element.classList.add("navigator-tabbed-pane");
-    this._tabbedPaneController = new WebInspector.ExtensibleTabbedPaneController(this._tabbedPane, "navigator-view", this._navigatorViewCreated.bind(this));
-    /** @type {!Map.<string, ?WebInspector.NavigatorView>} */
-    this._navigatorViews = new Map();
-}
+  /**
+   * @override
+   * @param {!Workspace.Project} project
+   * @return {boolean}
+   */
+  acceptProject(project) {
+    return project.type() === Workspace.projectTypes.Network;
+  }
 
-WebInspector.SourcesNavigator.Events = {
-    SourceSelected: "SourceSelected",
-    SourceRenamed: "SourceRenamed"
-}
+  /**
+   * @param {!Common.Event} event
+   */
+  _inspectedURLChanged(event) {
+    const mainTarget = SDK.targetManager.mainTarget();
+    if (event.data !== mainTarget)
+      return;
+    const inspectedURL = mainTarget && mainTarget.inspectedURL();
+    if (!inspectedURL)
+      return;
+    for (const uiSourceCode of this.workspace().uiSourceCodes()) {
+      if (this.acceptProject(uiSourceCode.project()) && uiSourceCode.url() === inspectedURL)
+        this.revealUISourceCode(uiSourceCode, true);
+    }
+  }
 
-WebInspector.SourcesNavigator.prototype = {
-    /**
-     * @param {string} id
-     * @param {!WebInspector.Widget} view
-     */
-    _navigatorViewCreated: function(id, view)
-    {
-        var navigatorView = /** @type {!WebInspector.NavigatorView} */ (view);
-        navigatorView.addEventListener(WebInspector.NavigatorView.Events.ItemSelected, this._sourceSelected, this);
-        navigatorView.addEventListener(WebInspector.NavigatorView.Events.ItemRenamed, this._sourceRenamed, this);
-        this._navigatorViews.set(id, navigatorView);
-        navigatorView.setWorkspace(this._workspace);
-    },
-
-    /**
-     * @return {!WebInspector.Widget}
-     */
-    get view()
-    {
-        return this._tabbedPane;
-    },
-
-    /**
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     */
-    revealUISourceCode: function(uiSourceCode)
-    {
-        var ids = this._tabbedPaneController.viewIds();
-        var promises = [];
-        for (var i = 0; i < ids.length; ++i)
-            promises.push(this._tabbedPaneController.viewForId(ids[i]));
-        Promise.all(promises).then(filterNavigators.bind(this));
-
-        /**
-         * @param {!Array.<!Object>} objects
-         * @this {WebInspector.SourcesNavigator}
-         */
-        function filterNavigators(objects)
-        {
-            for (var i = 0; i < objects.length; ++i) {
-                var navigatorView = /** @type {!WebInspector.NavigatorView} */ (objects[i]);
-                if (navigatorView.accept(uiSourceCode)) {
-                    this._tabbedPane.selectTab(ids[i]);
-                    navigatorView.revealUISourceCode(uiSourceCode, true);
-                }
-            }
-        }
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _sourceSelected: function(event)
-    {
-        this.dispatchEventToListeners(WebInspector.SourcesNavigator.Events.SourceSelected, event.data);
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _sourceRenamed: function(event)
-    {
-        this.dispatchEventToListeners(WebInspector.SourcesNavigator.Events.SourceRenamed, event.data);
-    },
-
-    __proto__: WebInspector.Object.prototype
-}
+  /**
+   * @override
+   * @param {!Workspace.UISourceCode} uiSourceCode
+   */
+  uiSourceCodeAdded(uiSourceCode) {
+    const mainTarget = SDK.targetManager.mainTarget();
+    const inspectedURL = mainTarget && mainTarget.inspectedURL();
+    if (!inspectedURL)
+      return;
+    if (uiSourceCode.url() === inspectedURL)
+      this.revealUISourceCode(uiSourceCode, true);
+  }
+};
 
 /**
- * @constructor
- * @extends {WebInspector.NavigatorView}
+ * @unrestricted
  */
-WebInspector.SnippetsNavigatorView = function()
-{
-    WebInspector.NavigatorView.call(this);
-}
+Sources.FilesNavigatorView = class extends Sources.NavigatorView {
+  constructor() {
+    super();
+    const toolbar = new UI.Toolbar('navigator-toolbar');
+    toolbar.appendItemsAtLocation('files-navigator-toolbar').then(() => {
+      if (!toolbar.empty())
+        this.contentElement.insertBefore(toolbar.element, this.contentElement.firstChild);
+    });
+  }
 
-WebInspector.SnippetsNavigatorView.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     * @return {boolean}
-     */
-    accept: function(uiSourceCode)
-    {
-        if (!WebInspector.NavigatorView.prototype.accept(uiSourceCode))
-            return false;
-        return uiSourceCode.project().type() === WebInspector.projectTypes.Snippets;
-    },
+  /**
+   * @override
+   * @param {!Workspace.Project} project
+   * @return {boolean}
+   */
+  acceptProject(project) {
+    return project.type() === Workspace.projectTypes.FileSystem &&
+        Persistence.FileSystemWorkspaceBinding.fileSystemType(project) !== 'overrides' &&
+        !Snippets.isSnippetsProject(project);
+  }
 
-    /**
-     * @override
-     * @param {!Event} event
-     */
-    handleContextMenu: function(event)
-    {
-        var contextMenu = new WebInspector.ContextMenu(event);
-        contextMenu.appendItem(WebInspector.UIString("New"), this._handleCreateSnippet.bind(this));
-        contextMenu.show();
-    },
+  /**
+   * @override
+   * @param {!Event} event
+   */
+  handleContextMenu(event) {
+    const contextMenu = new UI.ContextMenu(event);
+    contextMenu.defaultSection().appendAction('sources.add-folder-to-workspace', undefined, true);
+    contextMenu.show();
+  }
+};
 
-    /**
-     * @override
-     * @param {!Event} event
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     */
-    handleFileContextMenu: function(event, uiSourceCode)
-    {
-        var contextMenu = new WebInspector.ContextMenu(event);
-        contextMenu.appendItem(WebInspector.UIString("Run"), this._handleEvaluateSnippet.bind(this, uiSourceCode));
-        contextMenu.appendItem(WebInspector.UIString("Rename"), this.rename.bind(this, uiSourceCode));
-        contextMenu.appendItem(WebInspector.UIString("Remove"), this._handleRemoveSnippet.bind(this, uiSourceCode));
-        contextMenu.appendSeparator();
-        contextMenu.appendItem(WebInspector.UIString("New"), this._handleCreateSnippet.bind(this));
-        contextMenu.show();
-    },
+Sources.OverridesNavigatorView = class extends Sources.NavigatorView {
+  constructor() {
+    super();
+    this._toolbar = new UI.Toolbar('navigator-toolbar');
 
-    /**
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     */
-    _handleEvaluateSnippet: function(uiSourceCode)
-    {
-        var executionContext = WebInspector.context.flavor(WebInspector.ExecutionContext);
-        if (uiSourceCode.project().type() !== WebInspector.projectTypes.Snippets || !executionContext)
-            return;
-        WebInspector.scriptSnippetModel.evaluateScriptSnippet(executionContext, uiSourceCode);
-    },
+    this.contentElement.insertBefore(this._toolbar.element, this.contentElement.lastChild);
 
-    /**
-     * @param {!WebInspector.UISourceCode} uiSourceCode
-     */
-    _handleRemoveSnippet: function(uiSourceCode)
-    {
-        if (uiSourceCode.project().type() !== WebInspector.projectTypes.Snippets)
-            return;
-        uiSourceCode.remove();
-    },
+    Persistence.networkPersistenceManager.addEventListener(
+        Persistence.NetworkPersistenceManager.Events.ProjectChanged, this._updateProjectAndUI, this);
+    this.workspace().addEventListener(Workspace.Workspace.Events.ProjectAdded, this._onProjectAddOrRemoved, this);
+    this.workspace().addEventListener(Workspace.Workspace.Events.ProjectRemoved, this._onProjectAddOrRemoved, this);
+    this._updateProjectAndUI();
+  }
 
-    _handleCreateSnippet: function()
-    {
-        this.create(WebInspector.scriptSnippetModel.project(), "");
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _onProjectAddOrRemoved(event) {
+    const project = /** @type {!Workspace.Project} */ (event.data);
+    if (project && project.type() === Workspace.projectTypes.FileSystem &&
+        Persistence.FileSystemWorkspaceBinding.fileSystemType(project) !== 'overrides')
+      return;
+    this._updateUI();
+  }
 
-    /**
-     * @override
-     */
-    sourceDeleted: function(uiSourceCode)
-    {
-        this._handleRemoveSnippet(uiSourceCode);
-    },
+  _updateProjectAndUI() {
+    this.reset();
+    const project = Persistence.networkPersistenceManager.project();
+    if (project)
+      this.tryAddProject(project);
+    this._updateUI();
+  }
 
-    __proto__: WebInspector.NavigatorView.prototype
-}
+  _updateUI() {
+    this._toolbar.removeToolbarItems();
+    const project = Persistence.networkPersistenceManager.project();
+    if (project) {
+      const enableCheckbox =
+          new UI.ToolbarSettingCheckbox(Common.settings.moduleSetting('persistenceNetworkOverridesEnabled'));
+      this._toolbar.appendToolbarItem(enableCheckbox);
+
+      this._toolbar.appendToolbarItem(new UI.ToolbarSeparator(true));
+      const clearButton = new UI.ToolbarButton(Common.UIString('Clear configuration'), 'largeicon-clear');
+      clearButton.addEventListener(UI.ToolbarButton.Events.Click, () => {
+        project.remove();
+      });
+      this._toolbar.appendToolbarItem(clearButton);
+      return;
+    }
+    const title = Common.UIString('Select folder for overrides');
+    const setupButton = new UI.ToolbarButton(title, 'largeicon-add', title);
+    setupButton.addEventListener(UI.ToolbarButton.Events.Click, this._setupNewWorkspace, this);
+    this._toolbar.appendToolbarItem(setupButton);
+  }
+
+  async _setupNewWorkspace() {
+    const fileSystem = await Persistence.isolatedFileSystemManager.addFileSystem('overrides');
+    if (!fileSystem)
+      return;
+    Common.settings.moduleSetting('persistenceNetworkOverridesEnabled').set(true);
+  }
+
+  /**
+   * @override
+   * @param {!Workspace.Project} project
+   * @return {boolean}
+   */
+  acceptProject(project) {
+    return project === Persistence.networkPersistenceManager.project();
+  }
+};
+
+/**
+ * @unrestricted
+ */
+Sources.ContentScriptsNavigatorView = class extends Sources.NavigatorView {
+  constructor() {
+    super();
+  }
+
+  /**
+   * @override
+   * @param {!Workspace.Project} project
+   * @return {boolean}
+   */
+  acceptProject(project) {
+    return project.type() === Workspace.projectTypes.ContentScripts;
+  }
+};
+
+/**
+ * @unrestricted
+ */
+Sources.SnippetsNavigatorView = class extends Sources.NavigatorView {
+  constructor() {
+    super();
+    const toolbar = new UI.Toolbar('navigator-toolbar');
+    const newButton = new UI.ToolbarButton('', 'largeicon-add', Common.UIString('New snippet'));
+    newButton.addEventListener(UI.ToolbarButton.Events.Click, () => this.create(Snippets.project, ''));
+    toolbar.appendToolbarItem(newButton);
+    this.contentElement.insertBefore(toolbar.element, this.contentElement.firstChild);
+  }
+
+  /**
+   * @override
+   * @param {!Workspace.Project} project
+   * @return {boolean}
+   */
+  acceptProject(project) {
+    return Snippets.isSnippetsProject(project);
+  }
+
+  /**
+   * @override
+   * @param {!Event} event
+   */
+  handleContextMenu(event) {
+    const contextMenu = new UI.ContextMenu(event);
+    contextMenu.headerSection().appendItem(Common.UIString('New'), () => this.create(Snippets.project, ''));
+    contextMenu.show();
+  }
+
+  /**
+   * @override
+   * @param {!Event} event
+   * @param {!Sources.NavigatorUISourceCodeTreeNode} node
+   */
+  handleFileContextMenu(event, node) {
+    const uiSourceCode = node.uiSourceCode();
+    const contextMenu = new UI.ContextMenu(event);
+    contextMenu.headerSection().appendItem(Common.UIString('Run'), () => Snippets.evaluateScriptSnippet(uiSourceCode));
+    contextMenu.editSection().appendItem(Common.UIString('Rename\u2026'), () => this.rename(node, false));
+    contextMenu.editSection().appendItem(
+        Common.UIString('Remove'), () => uiSourceCode.project().deleteFile(uiSourceCode));
+    contextMenu.saveSection().appendItem(Common.UIString('Save as...'), this._handleSaveAs.bind(this, uiSourceCode));
+    contextMenu.show();
+  }
+
+  /**
+   * @param {!Workspace.UISourceCode} uiSourceCode
+   */
+  async _handleSaveAs(uiSourceCode) {
+    uiSourceCode.commitWorkingCopy();
+    const content = await uiSourceCode.requestContent();
+    Workspace.fileManager.save(uiSourceCode.url(), content, true);
+    Workspace.fileManager.close(uiSourceCode.url());
+  }
+};
+
+/**
+ * @implements {UI.ActionDelegate}
+ */
+Sources.ActionDelegate = class {
+  /**
+   * @override
+   * @param {!UI.Context} context
+   * @param {string} actionId
+   * @return {boolean}
+   */
+  handleAction(context, actionId) {
+    switch (actionId) {
+      case 'sources.create-snippet':
+        Snippets.project.createFile('', null, '').then(uiSourceCode => Common.Revealer.reveal(uiSourceCode));
+        return true;
+      case 'sources.add-folder-to-workspace':
+        Persistence.isolatedFileSystemManager.addFileSystem();
+        return true;
+    }
+    return false;
+  }
+};

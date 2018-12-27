@@ -28,138 +28,70 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/**
- * @constructor
- * @extends {WebInspector.RequestContentView}
- * @param {!WebInspector.NetworkRequest} request
- * @param {!WebInspector.Widget} responseView
- */
-WebInspector.RequestPreviewView = function(request, responseView)
-{
-    WebInspector.RequestContentView.call(this, request);
-    this._responseView = responseView;
-}
+Network.RequestPreviewView = class extends Network.RequestResponseView {
+  /**
+   * @param {!SDK.NetworkRequest} request
+   */
+  constructor(request) {
+    super(request);
+  }
 
-WebInspector.RequestPreviewView.prototype = {
-    contentLoaded: function()
-    {
-        if (!this.request.content && !this.request.contentError()) {
-            if (!this._emptyWidget) {
-                this._emptyWidget = this._createEmptyWidget();
-                this._emptyWidget.show(this.element);
-                this.innerView = this._emptyWidget;
-            }
-        } else {
-            if (this._emptyWidget) {
-                this._emptyWidget.detach();
-                delete this._emptyWidget;
-            }
+  /**
+   * @override
+   * @protected
+   * @return {!Promise<!UI.Widget>}
+   */
+  async showPreview() {
+    const view = await super.showPreview();
+    if (!(view instanceof UI.SimpleView))
+      return view;
+    const toolbar = new UI.Toolbar('network-item-preview-toolbar', this.element);
+    for (const item of view.syncToolbarItems())
+      toolbar.appendToolbarItem(item);
+    return view;
+  }
 
-            if (!this._previewView)
-                this._previewView = this._createPreviewView();
-            this._previewView.show(this.element);
-            this.innerView = this._previewView;
-        }
-    },
+  /**
+   * @return {!Promise<?UI.Widget>}
+   */
+  async _htmlPreview() {
+    const contentData = await this.request.contentData();
+    if (contentData.error)
+      return new UI.EmptyWidget(Common.UIString('Failed to load response data'));
 
-    _createEmptyWidget: function()
-    {
-        return this._createMessageView(WebInspector.UIString("This request has no preview available."));
-    },
+    const whitelist = new Set(['text/html', 'text/plain', 'application/xhtml+xml']);
+    if (!whitelist.has(this.request.mimeType))
+      return null;
 
-    /**
-     * @param {string} message
-     * @return {!WebInspector.EmptyWidget}
-     */
-    _createMessageView: function(message)
-    {
-        return new WebInspector.EmptyWidget(message);
-    },
+    const content = contentData.encoded ? window.atob(contentData.content) : contentData.content;
 
-    /**
-     * @return {string}
-     */
-    _requestContent: function()
-    {
-        var content = this.request.content;
-        return this.request.contentEncoded ? window.atob(content || "") : (content || "");
-    },
+    // http://crbug.com/767393 - DevTools should recognize JSON regardless of the content type
+    const jsonView = await SourceFrame.JSONView.createView(content);
+    if (jsonView)
+      return jsonView;
 
-    /**
-     * @return {?WebInspector.RequestJSONView}
-     */
-    _jsonView: function()
-    {
-        var content = this._requestContent();
-        var parsedJSON = WebInspector.RequestJSONView.parseJSON(content);
-        return parsedJSON ? new WebInspector.RequestJSONView(this.request, parsedJSON) : null;
-    },
+    const dataURL = Common.ContentProvider.contentAsDataURL(
+        contentData.content, this.request.mimeType, contentData.encoded, this.request.charset());
+    return dataURL ? new Network.RequestHTMLView(dataURL) : null;
+  }
 
-    /**
-     * @return {?WebInspector.XMLView}
-     */
-    _xmlView: function()
-    {
-        var content = this._requestContent();
-        var parsedXML = WebInspector.XMLView.parseXML(content, this.request.mimeType);
-        return parsedXML ? new WebInspector.XMLView(parsedXML) : null;
-    },
+  /**
+   * @override
+   * @protected
+   * @return {!Promise<!UI.Widget>}
+   */
+  async createPreview() {
+    if (this.request.signedExchangeInfo())
+      return new Network.SignedExchangeInfoView(this.request);
 
-    /**
-     * @return {?WebInspector.RequestHTMLView}
-     */
-    _htmlErrorPreview: function()
-    {
-        var whitelist = ["text/html", "text/plain", "application/xhtml+xml"];
-        if (whitelist.indexOf(this.request.mimeType) === -1)
-            return null;
+    const htmlErrorPreview = await this._htmlPreview();
+    if (htmlErrorPreview)
+      return htmlErrorPreview;
 
-        var dataURL = this.request.asDataURL();
-        if (dataURL === null)
-            return null;
+    const provided = await SourceFrame.PreviewFactory.createPreview(this.request, this.request.mimeType);
+    if (provided)
+      return provided;
 
-        return new WebInspector.RequestHTMLView(this.request, dataURL);
-    },
-
-    _createPreviewView: function()
-    {
-        if (this.request.contentError())
-            return this._createMessageView(WebInspector.UIString("Failed to load response data"));
-
-        var mimeType = this.request.mimeType || "";
-        if (mimeType.endsWith("json") || mimeType.endsWith("javascript")) {
-            var jsonView = this._jsonView();
-            if (jsonView)
-                return jsonView;
-        }
-
-        if (this.request.hasErrorStatusCode()) {
-            var htmlErrorPreview = this._htmlErrorPreview();
-            if (htmlErrorPreview)
-                return htmlErrorPreview;
-        }
-
-        var xmlView = this._xmlView();
-        if (xmlView)
-            return xmlView;
-
-        if (this.request.resourceType() === WebInspector.resourceTypes.XHR) {
-            var jsonView = this._jsonView();
-            if (jsonView)
-                return jsonView;
-            var htmlErrorPreview = this._htmlErrorPreview();
-            if (htmlErrorPreview)
-                return htmlErrorPreview;
-        }
-
-        if (this._responseView.sourceView)
-            return this._responseView.sourceView;
-
-        if (this.request.resourceType() === WebInspector.resourceTypes.Other)
-            return this._createEmptyWidget();
-
-        return WebInspector.RequestView.nonSourceViewForRequest(this.request);
-    },
-
-    __proto__: WebInspector.RequestContentView.prototype
-}
+    return new UI.EmptyWidget(Common.UIString('Preview not available'));
+  }
+};

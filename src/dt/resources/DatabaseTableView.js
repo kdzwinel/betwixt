@@ -24,123 +24,121 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.DataGridContainerWidget}
+ * @unrestricted
  */
-WebInspector.DatabaseTableView = function(database, tableName)
-{
-    WebInspector.DataGridContainerWidget.call(this);
+Resources.DatabaseTableView = class extends UI.SimpleView {
+  constructor(database, tableName) {
+    super(Common.UIString('Database'));
 
     this.database = database;
     this.tableName = tableName;
 
-    this.element.classList.add("storage-view", "table");
+    this.element.classList.add('storage-view', 'table');
 
-    this._visibleColumnsSetting = WebInspector.settings.createSetting("databaseTableViewVisibleColumns", {});
+    this._visibleColumnsSetting = Common.settings.createSetting('databaseTableViewVisibleColumns', {});
 
-    this.refreshButton = new WebInspector.ToolbarButton(WebInspector.UIString("Refresh"), "refresh-toolbar-item");
-    this.refreshButton.addEventListener("click", this._refreshButtonClicked, this);
-    this._visibleColumnsInput = new WebInspector.ToolbarInput(WebInspector.UIString("Visible columns"), 1);
-    this._visibleColumnsInput.addEventListener(WebInspector.ToolbarInput.Event.TextChanged, this._onVisibleColumnsChanged, this);
-}
+    this.refreshButton = new UI.ToolbarButton(Common.UIString('Refresh'), 'largeicon-refresh');
+    this.refreshButton.addEventListener(UI.ToolbarButton.Events.Click, this._refreshButtonClicked, this);
+    this._visibleColumnsInput = new UI.ToolbarInput(Common.UIString('Visible columns'), 1);
+    this._visibleColumnsInput.addEventListener(UI.ToolbarInput.Event.TextChanged, this._onVisibleColumnsChanged, this);
+  }
 
-WebInspector.DatabaseTableView.prototype = {
-    wasShown: function()
-    {
-        this.update();
-    },
+  /**
+   * @override
+   */
+  wasShown() {
+    this.update();
+  }
 
-    /**
-     * @return {!Array.<!WebInspector.ToolbarItem>}
-     */
-    toolbarItems: function()
-    {
-        return [this.refreshButton, this._visibleColumnsInput];
-    },
+  /**
+   * @override
+   * @return {!Array.<!UI.ToolbarItem>}
+   */
+  syncToolbarItems() {
+    return [this.refreshButton, this._visibleColumnsInput];
+  }
 
-    /**
-     * @param {string} tableName
-     * @return {string}
-     */
-    _escapeTableName: function(tableName)
-    {
-        return tableName.replace(/\"/g, "\"\"");
-    },
+  /**
+   * @param {string} tableName
+   * @return {string}
+   */
+  _escapeTableName(tableName) {
+    return tableName.replace(/\"/g, '""');
+  }
 
-    update: function()
-    {
-        this.database.executeSql("SELECT rowid, * FROM \"" + this._escapeTableName(this.tableName) + "\"", this._queryFinished.bind(this), this._queryError.bind(this));
-    },
+  update() {
+    this.database.executeSql(
+        'SELECT rowid, * FROM "' + this._escapeTableName(this.tableName) + '"', this._queryFinished.bind(this),
+        this._queryError.bind(this));
+  }
 
-    _queryFinished: function(columnNames, values)
-    {
-        this.detachChildWidgets();
-        this.element.removeChildren();
+  _queryFinished(columnNames, values) {
+    this.detachChildWidgets();
+    this.element.removeChildren();
 
-        this._dataGrid = WebInspector.SortableDataGrid.create(columnNames, values);
-        this._visibleColumnsInput.setVisible(!!this._dataGrid);
-        if (!this._dataGrid) {
-            this._emptyWidget = new WebInspector.EmptyWidget(WebInspector.UIString("The “%s”\ntable is empty.", this.tableName));
-            this._emptyWidget.show(this.element);
-            return;
-        }
-        this.appendDataGrid(this._dataGrid);
-        this._dataGrid.autoSizeColumns(5);
+    this._dataGrid = DataGrid.SortableDataGrid.create(columnNames, values);
+    this._visibleColumnsInput.setVisible(!!this._dataGrid);
+    if (!this._dataGrid) {
+      this._emptyWidget = new UI.EmptyWidget(Common.UIString('The “%s”\ntable is empty.', this.tableName));
+      this._emptyWidget.show(this.element);
+      return;
+    }
+    this._dataGrid.setStriped(true);
+    this._dataGrid.asWidget().show(this.element);
+    this._dataGrid.autoSizeColumns(5);
 
-        this._columnsMap = new Map();
-        for (var i = 1; i < columnNames.length; ++i)
-            this._columnsMap.set(columnNames[i], String(i));
-        this._lastVisibleColumns = "";
-        var visibleColumnsText = this._visibleColumnsSetting.get()[this.tableName] || "";
-        this._visibleColumnsInput.setValue(visibleColumnsText);
-        this._onVisibleColumnsChanged();
-    },
+    this._columnsMap = new Map();
+    for (let i = 1; i < columnNames.length; ++i)
+      this._columnsMap.set(columnNames[i], String(i));
+    this._lastVisibleColumns = '';
+    const visibleColumnsText = this._visibleColumnsSetting.get()[this.tableName] || '';
+    this._visibleColumnsInput.setValue(visibleColumnsText);
+    this._onVisibleColumnsChanged();
+  }
 
-    _onVisibleColumnsChanged: function()
-    {
-        if (!this._dataGrid)
-            return;
-        var text = this._visibleColumnsInput.value();
-        var parts = text.split(/[\s,]+/);
-        var matches = new Set();
-        var columnsVisibility = {};
-        columnsVisibility["0"] = true;
-        for (var i = 0; i < parts.length; ++i) {
-            var part = parts[i];
-            if (this._columnsMap.has(part)) {
-                matches.add(part);
-                columnsVisibility[this._columnsMap.get(part)] = true;
-            }
-        }
-        var newVisibleColumns = matches.valuesArray().sort().join(", ");
-        if (newVisibleColumns.length === 0) {
-            for (var v of this._columnsMap.values())
-                columnsVisibility[v] = true;
-        }
-        if (newVisibleColumns === this._lastVisibleColumns)
-            return;
-        var visibleColumnsRegistry = this._visibleColumnsSetting.get();
-        visibleColumnsRegistry[this.tableName] = text;
-        this._visibleColumnsSetting.set(visibleColumnsRegistry);
-        this._dataGrid.setColumnsVisiblity(columnsVisibility);
-        this._lastVisibleColumns = newVisibleColumns;
-    },
+  _onVisibleColumnsChanged() {
+    if (!this._dataGrid)
+      return;
+    const text = this._visibleColumnsInput.value();
+    const parts = text.split(/[\s,]+/);
+    const matches = new Set();
+    const columnsVisibility = {};
+    columnsVisibility['0'] = true;
+    for (let i = 0; i < parts.length; ++i) {
+      const part = parts[i];
+      if (this._columnsMap.has(part)) {
+        matches.add(part);
+        columnsVisibility[this._columnsMap.get(part)] = true;
+      }
+    }
+    const newVisibleColumns = matches.valuesArray().sort().join(', ');
+    if (newVisibleColumns.length === 0) {
+      for (const v of this._columnsMap.values())
+        columnsVisibility[v] = true;
+    }
+    if (newVisibleColumns === this._lastVisibleColumns)
+      return;
+    const visibleColumnsRegistry = this._visibleColumnsSetting.get();
+    visibleColumnsRegistry[this.tableName] = text;
+    this._visibleColumnsSetting.set(visibleColumnsRegistry);
+    this._dataGrid.setColumnsVisiblity(columnsVisibility);
+    this._lastVisibleColumns = newVisibleColumns;
+  }
 
-    _queryError: function(error)
-    {
-        this.detachChildWidgets();
-        this.element.removeChildren();
+  _queryError(error) {
+    this.detachChildWidgets();
+    this.element.removeChildren();
 
-        var errorMsgElement = createElement("div");
-        errorMsgElement.className = "storage-table-error";
-        errorMsgElement.textContent = WebInspector.UIString("An error occurred trying to\nread the “%s” table.", this.tableName);
-        this.element.appendChild(errorMsgElement);
-    },
+    const errorMsgElement = createElement('div');
+    errorMsgElement.className = 'storage-table-error';
+    errorMsgElement.textContent = Common.UIString('An error occurred trying to\nread the “%s” table.', this.tableName);
+    this.element.appendChild(errorMsgElement);
+  }
 
-    _refreshButtonClicked: function(event)
-    {
-        this.update();
-    },
-
-    __proto__: WebInspector.DataGridContainerWidget.prototype
-}
+  /**
+   * @param {!Common.Event} event
+   */
+  _refreshButtonClicked(event) {
+    this.update();
+  }
+};

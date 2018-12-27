@@ -29,116 +29,85 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.Object}
+ * @unrestricted
  */
-WebInspector.FileManager = function()
-{
-    this._savedURLsSetting = WebInspector.settings.createLocalSetting("savedURLs", {});
-
-    /** @type {!Object.<string, ?function(boolean)>} */
-    this._saveCallbacks = {};
+Workspace.FileManager = class extends Common.Object {
+  constructor() {
+    super();
+    /** @type {!Map<string, function(?{fileSystemPath: (string|undefined)})>} */
+    this._saveCallbacks = new Map();
     InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.SavedURL, this._savedURL, this);
-    InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.CanceledSaveURL, this._canceledSaveURL, this);
-    InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.AppendedToURL, this._appendedToURL, this);
-}
+    InspectorFrontendHost.events.addEventListener(
+        InspectorFrontendHostAPI.Events.CanceledSaveURL, this._canceledSavedURL, this);
+    InspectorFrontendHost.events.addEventListener(
+        InspectorFrontendHostAPI.Events.AppendedToURL, this._appendedToURL, this);
+  }
 
-WebInspector.FileManager.EventTypes = {
-    SavedURL: "SavedURL",
-    AppendedToURL: "AppendedToURL"
-}
+  /**
+   * @param {string} url
+   * @param {string} content
+   * @param {boolean} forceSaveAs
+   * @return {!Promise<?{fileSystemPath: (string|undefined)}>}
+   */
+  save(url, content, forceSaveAs) {
+    // Remove this url from the saved URLs while it is being saved.
+    const result = new Promise(resolve => this._saveCallbacks.set(url, resolve));
+    InspectorFrontendHost.save(url, content, forceSaveAs);
+    return result;
+  }
 
-WebInspector.FileManager.prototype = {
-    /**
-     * @param {string} url
-     * @param {string} content
-     * @param {boolean} forceSaveAs
-     * @param {function(boolean)=} callback
-     */
-    save: function(url, content, forceSaveAs, callback)
-    {
-        // Remove this url from the saved URLs while it is being saved.
-        var savedURLs = this._savedURLsSetting.get();
-        delete savedURLs[url];
-        this._savedURLsSetting.set(savedURLs);
-        this._saveCallbacks[url] = callback || null;
-        InspectorFrontendHost.save(url, content, forceSaveAs);
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _savedURL(event) {
+    const url = /** @type {string} */ (event.data.url);
+    const callback = this._saveCallbacks.get(url);
+    this._saveCallbacks.delete(url);
+    if (callback)
+      callback({fileSystemPath: /** @type {string} */ (event.data.fileSystemPath)});
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _savedURL: function(event)
-    {
-        var url = /** @type {string} */ (event.data);
-        var savedURLs = this._savedURLsSetting.get();
-        savedURLs[url] = true;
-        this._savedURLsSetting.set(savedURLs);
-        this.dispatchEventToListeners(WebInspector.FileManager.EventTypes.SavedURL, url);
-        this._invokeSaveCallback(url, true);
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _canceledSavedURL(event) {
+    const url = /** @type {string} */ (event.data);
+    const callback = this._saveCallbacks.get(url);
+    this._saveCallbacks.delete(url);
+    if (callback)
+      callback(null);
+  }
 
-    /**
-     * @param {string} url
-     * @param {boolean} accepted
-     */
-    _invokeSaveCallback: function(url, accepted)
-    {
-        var callback = this._saveCallbacks[url];
-        delete this._saveCallbacks[url];
-        if (callback)
-            callback(accepted);
-    },
+  /**
+   * @param {string} url
+   * @param {string} content
+   */
+  append(url, content) {
+    InspectorFrontendHost.append(url, content);
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _canceledSaveURL: function(event)
-    {
-        var url = /** @type {string} */ (event.data);
-        this._invokeSaveCallback(url, false);
-    },
+  /**
+   * @param {string} url
+   */
+  close(url) {
+    InspectorFrontendHost.close(url);
+  }
 
-    /**
-     * @param {string} url
-     * @return {boolean}
-     */
-    isURLSaved: function(url)
-    {
-        var savedURLs = this._savedURLsSetting.get();
-        return savedURLs[url];
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _appendedToURL(event) {
+    const url = /** @type {string} */ (event.data);
+    this.dispatchEventToListeners(Workspace.FileManager.Events.AppendedToURL, url);
+  }
+};
 
-    /**
-     * @param {string} url
-     * @param {string} content
-     */
-    append: function(url, content)
-    {
-        InspectorFrontendHost.append(url, content);
-    },
-
-    /**
-     * @param {string} url
-     */
-    close: function(url)
-    {
-        // Currently a no-op.
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _appendedToURL: function(event)
-    {
-        var url = /** @type {string} */ (event.data);
-        this.dispatchEventToListeners(WebInspector.FileManager.EventTypes.AppendedToURL, url);
-    },
-
-    __proto__: WebInspector.Object.prototype
-}
+/** @enum {symbol} */
+Workspace.FileManager.Events = {
+  AppendedToURL: Symbol('AppendedToURL')
+};
 
 /**
- * @type {?WebInspector.FileManager}
+ * @type {?Workspace.FileManager}
  */
-WebInspector.fileManager = null;
+Workspace.fileManager;

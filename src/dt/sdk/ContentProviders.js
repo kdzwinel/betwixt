@@ -27,86 +27,84 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
- * @constructor
- * @implements {WebInspector.ContentProvider}
- * @param {string} sourceURL
- * @param {!WebInspector.ResourceType} contentType
+ * @implements {Common.ContentProvider}
+ * @unrestricted
  */
-WebInspector.CompilerSourceMappingContentProvider = function(sourceURL, contentType)
-{
+SDK.CompilerSourceMappingContentProvider = class {
+  /**
+   * @param {string} sourceURL
+   * @param {!Common.ResourceType} contentType
+   */
+  constructor(sourceURL, contentType) {
     this._sourceURL = sourceURL;
     this._contentType = contentType;
-}
+  }
 
-WebInspector.CompilerSourceMappingContentProvider.prototype = {
-    /**
-     * @override
-     * @return {string}
-     */
-    contentURL: function()
-    {
-        return this._sourceURL;
-    },
+  /**
+   * @override
+   * @return {string}
+   */
+  contentURL() {
+    return this._sourceURL;
+  }
 
-    /**
-     * @override
-     * @return {!WebInspector.ResourceType}
-     */
-    contentType: function()
-    {
-        return this._contentType;
-    },
+  /**
+   * @override
+   * @return {!Common.ResourceType}
+   */
+  contentType() {
+    return this._contentType;
+  }
 
-    /**
-     * @override
-     * @param {function(?string)} callback
-     */
-    requestContent: function(callback)
-    {
-        WebInspector.ResourceLoader.loadUsingTargetUA(this._sourceURL, {}, contentLoaded.bind(this));
+  /**
+   * @override
+   * @return {!Promise<boolean>}
+   */
+  contentEncoded() {
+    return Promise.resolve(false);
+  }
 
-        /**
-         * @param {number} statusCode
-         * @param {!Object.<string, string>} headers
-         * @param {string} content
-         * @this {WebInspector.CompilerSourceMappingContentProvider}
-         */
-        function contentLoaded(statusCode, headers, content)
-        {
-            if (statusCode >= 400) {
-                console.error("Could not load content for " + this._sourceURL + " : " + "HTTP status code: " + statusCode);
-                callback(null);
-                return;
-            }
-
-            callback(content);
-        }
-    },
+  /**
+   * @override
+   * @return {!Promise<?string>}
+   */
+  requestContent() {
+    let callback;
+    const promise = new Promise(fulfill => callback = fulfill);
+    SDK.multitargetNetworkManager.loadResource(this._sourceURL, contentLoaded.bind(this));
+    return promise;
 
     /**
-     * @override
-     * @param {string} query
-     * @param {boolean} caseSensitive
-     * @param {boolean} isRegex
-     * @param {function(!Array.<!WebInspector.ContentProvider.SearchMatch>)} callback
+     * @param {number} statusCode
+     * @param {!Object.<string, string>} headers
+     * @param {string} content
+     * @this {SDK.CompilerSourceMappingContentProvider}
      */
-    searchInContent: function(query, caseSensitive, isRegex, callback)
-    {
-        this.requestContent(contentLoaded);
+    function contentLoaded(statusCode, headers, content) {
+      if (statusCode >= 400) {
+        console.error(
+            'Could not load content for ' + this._sourceURL + ' : ' +
+            'HTTP status code: ' + statusCode);
+        callback(null);
+        return;
+      }
 
-        /**
-         * @param {?string} content
-         */
-        function contentLoaded(content)
-        {
-            if (typeof content !== "string") {
-                callback([]);
-                return;
-            }
-
-            callback(WebInspector.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex));
-        }
+      callback(content);
     }
-}
+  }
+
+  /**
+   * @override
+   * @param {string} query
+   * @param {boolean} caseSensitive
+   * @param {boolean} isRegex
+   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   */
+  async searchInContent(query, caseSensitive, isRegex) {
+    const content = await this.requestContent();
+    if (typeof content !== 'string')
+      return [];
+    return Common.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex);
+  }
+};

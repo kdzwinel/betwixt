@@ -1,20 +1,32 @@
 {
     "extensions": [
         {
+            "type": "view",
+            "location": "elements-sidebar",
+            "id": "accessibility.view",
             "title": "Accessibility",
-            "type": "@WebInspector.Widget",
-            "location": "elements-panel",
-            "className": "WebInspector.AccessibilitySidebarView"
+            "order": 10,
+            "persistence": "permanent",
+            "className": "Accessibility.AccessibilitySidebarView"
         }
     ],
     "dependencies": ["elements"],
-    "experiment": "accessibilityInspection",
     "scripts": [
         "AccessibilityModel.js",
         "AccessibilitySidebarView.js",
-        "AccessibilityStrings.js"
+        "AccessibilityNodeView.js",
+        "AccessibilityStrings.js",
+        "ARIAAttributesView.js",
+        "ARIAMetadata.js",
+        "ARIAProperties.js",
+        "AXBreadcrumbsPane.js"
+    ],
+    "skip_compilation": [
+        "ARIAProperties.js"
     ],
     "resources": [
-        "accessibilityNode.css"
+        "accessibilityNode.css",
+        "accessibilityProperties.css",
+        "axBreadcrumbs.css"
     ]
 }

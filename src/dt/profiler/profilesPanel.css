@@ -56,7 +56,7 @@
 
 .profile-view .data-grid span.percent-column {
     color: #999;
-    width: 48px;
+    width: 50px;
     display: inline-block;
 }
 
@@ -65,66 +65,32 @@
 }
 
 .profiles-toolbar {
-    display: flex;
-    background-color: #f3f3f3;
-    flex: 0 0 25px;
-    flex-direction: row;
-    border-bottom: 1px solid rgb(202, 202, 202);
+    background-color: var(--toolbar-bg-color);
+    border-bottom: 1px solid #ccc;
+    flex-shrink: 0;
 }
 
-.material .profiles-toolbar {
-    flex: 0 0 29px;
-}
-
-.profile-launcher-view-tree-item > .icon {
-    width: 4px !important;
-    visibility: hidden;
+.profiles-tree-sidebar {
+    flex: auto;
+    overflow: hidden;
 }
 
 .profiles-sidebar-tree-box {
-    overflow: auto;
-    flex: auto;
+    overflow-y: auto;
 }
 
-.profiles-sidebar-tree-box > ol {
-    overflow: auto;
-    flex: auto;
-}
-
-.profile-sidebar-tree-item .icon {
-    content: url(Images/profileIcon.png);
-}
-
-.profile-sidebar-tree-item.small .icon {
-    content: url(Images/profileSmallIcon.png);
-}
-
-.profile-group-sidebar-tree-item .icon {
-    content: url(Images/profileGroupIcon.png);
-}
-
-.sidebar-tree-item .title-container > .save-link {
-    text-decoration: underline;
-    margin-left: auto;
-    display: none;
-}
-
-.sidebar-tree-item.selected .title-container > .save-link {
-    display: block;
-}
-
-.cpu-profile-view {
+.profile-view {
     display: flex;
     overflow: hidden;
 }
 
-.cpu-profile-view .data-grid {
+.profile-view .data-grid {
     border: none;
     flex: auto;
 }
 
-.cpu-profile-view .data-grid th.self-column,
-.cpu-profile-view .data-grid th.total-column {
+.profile-view .data-grid th.self-column,
+.profile-view .data-grid th.total-column {
     text-align: center;
 }
 
@@ -134,14 +100,8 @@
 }
 
 .profile-warn-marker {
-    background-image: url(Images/toolbarButtonGlyphs.png);
-    background-size: 352px 168px;
-    background-position: -202px -107px;
-    width: 10px;
-    height: 10px;
     vertical-align: -1px;
     margin-right: 2px;
-    display: inline-block;
 }
 
 .data-grid tr.selected .profile-node-file {
@@ -152,34 +112,61 @@
     color: white;
 }
 
-.profile-launcher-view-content {
-    padding: 0 16px;
-    text-align: left;
+
+.profile-launcher-view {
+    overflow: auto;
 }
 
-.control-profiling {
-    -webkit-align-self: flex-start;
-    margin-right: 50px;
+.profile-launcher-view-content {
+    padding: 10px 16px;
 }
 
 .profile-launcher-view-content h1 {
-    padding: 15px 0 10px;
+    font-size: 15px;
+    font-weight: normal;
+    padding: 6px 0;
+    margin: 0 0 5px 0;
 }
 
-.panel-enabler-view.profile-launcher-view form {
-    padding: 0;
+.profile-launcher-view-content label {
     font-size: 13px;
-    width: 100%;
 }
 
-.panel-enabler-view.profile-launcher-view label {
-    margin: 0;
+.profile-launcher-control {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    margin-right: 6px;
+}
+
+.profile-launcher-control button {
+    min-width: 110px;
+}
+
+.profile-launcher-target-list {
+    width: 100%;
+    height: 150px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+}
+
+.profile-launcher-target {
+    align-items: baseline;
+}
+
+.profile-launcher-target > * {
+    flex: 0 0 auto;
+    margin-right: 8px;
 }
 
 .profile-launcher-view-content p {
     color: grey;
     margin-top: 1px;
     margin-left: 22px;
+}
+
+.profile-launcher-view-content p label {
+    display: flex;
 }
 
 .profile-launcher-view-content button.running {
@@ -217,21 +204,10 @@ body.inactive .profile-launcher-view-content button.running:not(.toolbar-item) {
     margin: 0 0 0 10px !important;
 }
 
-.profiles.panel select.chrome-select {
-    font-size: 12px;
-    width: 150px;
-    margin-left: 10px;
-    margin-right: 10px;
-}
-
-button.load-profile {
-    margin-left: 20px;
-}
-
-button.load-profile.multi-target {
-    display: block;
-    margin-top: 14px;
-    margin-left: 0;
+.profile-launcher-button {
+    min-width: 120px;
+    height: 28px;
+    margin: 8px 16px 8px 0;
 }
 
 .cpu-profile-flame-chart-overview-container {
@@ -260,4 +236,12 @@ button.load-profile.multi-target {
 
 .cpu-profile-flame-chart-overview-pane {
     flex: 0 0 80px !important;
+}
+
+.profile-text-view {
+    padding: 10px;
+    overflow: auto;
+    margin: 0;
+    user-select: text;
+    cursor: text;
 }

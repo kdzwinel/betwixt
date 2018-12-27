@@ -33,49 +33,14 @@
     margin-top: 5px;
 }
 
-.indexed-db-database-view .outline-disclosure {
-    padding-left: 0;
-}
-
-.indexed-db-database-view .outline-disclosure li {
-    white-space: nowrap;
-}
-
-.indexed-db-database-view .outline-disclosure .attribute-name {
-    color: rgb(33%, 33%, 33%);
-    display: inline-block;
-    margin-right: 0.5em;
-    font-weight: bold;
-    vertical-align: top;
-}
-
-.indexed-db-database-view .outline-disclosure .attribute-value {
-    display: inline;
-    margin-top: 1px;
-}
-
 .indexed-db-data-view .data-view-toolbar {
     position: relative;
     background-color: #eee;
     border-bottom: 1px solid #ccc;
 }
 
-.indexed-db-data-view .data-view-toolbar .key-input {
-    font-size: 11px;
-    margin: auto 0;
-    width: 200px;
-}
-
 .indexed-db-data-view .data-grid {
     flex: auto;
-}
-
-.indexed-db-data-view .data-grid .data-container tr:nth-child(even) {
-    background-color: white;
-}
-
-.indexed-db-data-view .data-grid .data-container tr:nth-child(odd) {
-    background-color: #EAF3FF;
 }
 
 .indexed-db-data-view .data-grid .data-container tr:nth-last-child(1) {
@@ -88,6 +53,11 @@
 
 .indexed-db-data-view .data-grid .data-container tr:nth-last-child(2) td {
     border-bottom: 1px solid #aaa;
+}
+
+.indexed-db-data-view .data-grid:focus .data-container tr.selected {
+    background-color: #cdddf5;
+    color: inherit;
 }
 
 .indexed-db-data-view .section,
@@ -112,4 +82,12 @@
     color: rgb(196, 26, 22);
     white-space: pre-wrap;
     unicode-bidi: -webkit-isolate;
+}
+
+.source-code.indexed-db-key-path {
+    font-size: unset !important;
+}
+
+.resources-toolbar {
+    padding-right: 10px;
 }

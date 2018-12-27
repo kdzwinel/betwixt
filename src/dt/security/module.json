@@ -1,15 +1,15 @@
 {
     "extensions": [
         {
-            "type": "@WebInspector.PanelFactory",
-            "name": "security",
+            "type": "view",
+            "location": "panel",
+            "id": "security",
             "title": "Security",
             "order": 80,
-            "className": "WebInspector.SecurityPanelFactory"
+            "className": "Security.SecurityPanel"
         }
     ],
     "dependencies": ["network", "platform", "ui", "sdk"],
-    "experiment": "securityPanel",
     "scripts": [
         "SecurityModel.js",
         "SecurityPanel.js"

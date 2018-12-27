@@ -29,39 +29,42 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.RequestView}
- * @param {!WebInspector.NetworkRequest} request
- * @param {string} dataURL
+ * @unrestricted
  */
-WebInspector.RequestHTMLView = function(request, dataURL)
-{
-    WebInspector.RequestView.call(this, request);
+Network.RequestHTMLView = class extends UI.VBox {
+  /**
+   * @param {string} dataURL
+   */
+  constructor(dataURL) {
+    super(true);
+    this.registerRequiredCSS('network/requestHTMLView.css');
     this._dataURL = dataURL;
-    this.element.classList.add("html");
-}
+    this.contentElement.classList.add('html', 'request-view');
+  }
 
-WebInspector.RequestHTMLView.prototype = {
-    wasShown: function()
-    {
-        this._createIFrame();
-    },
+  /**
+   * @override
+   */
+  wasShown() {
+    this._createIFrame();
+  }
 
-    willHide: function(parentElement)
-    {
-        this.element.removeChildren();
-    },
+  /**
+   * @override
+   */
+  willHide() {
+    this.contentElement.removeChildren();
+  }
 
-    _createIFrame: function()
-    {
-        // We need to create iframe again each time because contentDocument
-        // is deleted when iframe is removed from its parent.
-        this.element.removeChildren();
-        var iframe = createElement("iframe");
-        iframe.setAttribute("sandbox", ""); // Forbid to run JavaScript and set unique origin.
-        iframe.setAttribute("src", this._dataURL);
-        this.element.appendChild(iframe);
-    },
-
-    __proto__: WebInspector.RequestView.prototype
-}
+  _createIFrame() {
+    // We need to create iframe again each time because contentDocument
+    // is deleted when iframe is removed from its parent.
+    this.contentElement.removeChildren();
+    const iframe = createElement('iframe');
+    iframe.className = 'html-preview-frame';
+    iframe.setAttribute('sandbox', '');  // Forbid to run JavaScript and set unique origin.
+    iframe.setAttribute('src', encodeURI(this._dataURL));
+    iframe.setAttribute('tabIndex', -1);
+    this.contentElement.appendChild(iframe);
+  }
+};

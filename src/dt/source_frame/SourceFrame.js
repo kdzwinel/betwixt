@@ -27,660 +27,743 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
- * @extends {WebInspector.VBox}
- * @constructor
- * @implements {WebInspector.Replaceable}
- * @param {!WebInspector.ContentProvider} contentProvider
+ * @implements {UI.Searchable}
+ * @implements {UI.Replaceable}
+ * @implements {SourceFrame.SourcesTextEditorDelegate}
+ * @unrestricted
  */
-WebInspector.SourceFrame = function(contentProvider)
-{
-    WebInspector.VBox.call(this);
+SourceFrame.SourceFrame = class extends UI.SimpleView {
+  /**
+   * @param {function(): !Promise<?string>} lazyContent
+   */
+  constructor(lazyContent) {
+    super(Common.UIString('Source'));
 
-    this._url = contentProvider.contentURL();
-    this._contentProvider = contentProvider;
+    this._lazyContent = lazyContent;
 
-    var textEditorDelegate = new WebInspector.TextEditorDelegateForSourceFrame(this);
+    this._pretty = false;
+    /** @type {?string} */
+    this._rawContent = null;
+    /** @type {?Promise<{content: string, map: !Formatter.FormatterSourceMapping}>} */
+    this._formattedContentPromise = null;
+    /** @type {?Formatter.FormatterSourceMapping} */
+    this._formattedMap = null;
+    this._prettyToggle = new UI.ToolbarToggle(ls`Pretty print`, 'largeicon-pretty-print');
+    this._prettyToggle.addEventListener(UI.ToolbarButton.Events.Click, () => {
+      this._setPretty(!this._prettyToggle.toggled());
+    });
+    this._shouldAutoPrettyPrint = false;
+    this._prettyToggle.setVisible(false);
 
-    this._textEditor = new WebInspector.CodeMirrorTextEditor(this._url, textEditorDelegate);
+    this._textEditor = new SourceFrame.SourcesTextEditor(this);
+    this._textEditor.show(this.element);
 
+    /** @type {?number} */
+    this._prettyCleanGeneration = null;
+    this._cleanGeneration = 0;
+
+    this._searchConfig = null;
+    this._delayedFindSearchMatches = null;
+    this._currentSearchResultIndex = -1;
+    this._searchResults = [];
+    this._searchRegex = null;
+
+    this._textEditor.addEventListener(
+        SourceFrame.SourcesTextEditor.Events.EditorFocused, this._resetCurrentSearchResultIndex, this);
+    this._textEditor.addEventListener(
+        SourceFrame.SourcesTextEditor.Events.SelectionChanged, this._updateSourcePosition, this);
+    this._textEditor.addEventListener(UI.TextEditor.Events.TextChanged, event => {
+      if (!this._muteChangeEventsForSetContent)
+        this.onTextChanged(event.data.oldRange, event.data.newRange);
+    });
+    /** @type {boolean} */
+    this._muteChangeEventsForSetContent = false;
+
+    this._sourcePosition = new UI.ToolbarText();
+
+    /**
+     * @type {?UI.SearchableView}
+     */
+    this._searchableView = null;
+    this._editable = false;
+    this._textEditor.setReadOnly(true);
+
+    /** @type {?{line: number, column: (number|undefined), shouldHighlight: (boolean|undefined)}} */
+    this._positionToReveal = null;
+    this._lineToScrollTo = null;
+    this._selectionToSet = null;
+    this._loaded = false;
+    this._contentRequested = false;
+    this._highlighterType = '';
+    /** @type {!SourceFrame.Transformer} */
+    this._transformer = {
+      /**
+       * @param {number} editorLineNumber
+       * @param {number=} editorColumnNumber
+       * @return {!Array<number>}
+       */
+      editorToRawLocation: (editorLineNumber, editorColumnNumber = 0) => {
+        if (!this._pretty)
+          return [editorLineNumber, editorColumnNumber];
+        return this._prettyToRawLocation(editorLineNumber, editorColumnNumber);
+      },
+
+      /**
+       * @param {number} lineNumber
+       * @param {number=} columnNumber
+       * @return {!Array<number>}
+       */
+      rawToEditorLocation: (lineNumber, columnNumber = 0) => {
+        if (!this._pretty)
+          return [lineNumber, columnNumber];
+        return this._rawToPrettyLocation(lineNumber, columnNumber);
+      }
+    };
+  }
+
+  /**
+   * @param {boolean} canPrettyPrint
+   * @param {boolean=} autoPrettyPrint
+   */
+  setCanPrettyPrint(canPrettyPrint, autoPrettyPrint) {
+    this._shouldAutoPrettyPrint = canPrettyPrint && !!autoPrettyPrint;
+    this._prettyToggle.setVisible(canPrettyPrint);
+  }
+
+  /**
+   * @param {boolean} value
+   * @return {!Promise}
+   */
+  async _setPretty(value) {
+    this._pretty = value;
+    this._prettyToggle.setEnabled(false);
+
+    const wasLoaded = this.loaded;
+    const selection = this.selection();
+    let newSelection;
+    if (this._pretty) {
+      const formatInfo = await this._requestFormattedContent();
+      this._formattedMap = formatInfo.map;
+      this.setContent(formatInfo.content);
+      this._prettyCleanGeneration = this._textEditor.markClean();
+      const start = this._rawToPrettyLocation(selection.startLine, selection.startColumn);
+      const end = this._rawToPrettyLocation(selection.endLine, selection.endColumn);
+      newSelection = new TextUtils.TextRange(start[0], start[1], end[0], end[1]);
+    } else {
+      this.setContent(this._rawContent);
+      this._cleanGeneration = this._textEditor.markClean();
+      const start = this._prettyToRawLocation(selection.startLine, selection.startColumn);
+      const end = this._prettyToRawLocation(selection.endLine, selection.endColumn);
+      newSelection = new TextUtils.TextRange(start[0], start[1], end[0], end[1]);
+    }
+    if (wasLoaded) {
+      this.textEditor.revealPosition(newSelection.endLine, newSelection.endColumn, this._editable);
+      this.textEditor.setSelection(newSelection);
+    }
+    this._prettyToggle.setEnabled(true);
+    this._updatePrettyPrintState();
+  }
+
+  _updatePrettyPrintState() {
+    this._prettyToggle.setToggled(this._pretty);
+    this._textEditor.element.classList.toggle('pretty-printed', this._pretty);
+    if (this._pretty) {
+      this._textEditor.setLineNumberFormatter(lineNumber => {
+        const line = this._prettyToRawLocation(lineNumber - 1, 0)[0] + 1;
+        if (lineNumber === 1)
+          return String(line);
+        if (line !== this._prettyToRawLocation(lineNumber - 2, 0)[0] + 1)
+          return String(line);
+        return '-';
+      });
+    } else {
+      this._textEditor.setLineNumberFormatter(lineNumber => {
+        return String(lineNumber);
+      });
+    }
+  }
+
+  /**
+   * @return {!SourceFrame.Transformer}
+   */
+  transformer() {
+    return this._transformer;
+  }
+
+
+  /**
+   * @param {number} line
+   * @param {number} column
+   * @return {!Array<number>}
+   */
+  _prettyToRawLocation(line, column) {
+    if (!this._formattedMap)
+      return [line, column];
+    return this._formattedMap.formattedToOriginal(line, column);
+  }
+
+  /**
+   * @param {number} line
+   * @param {number} column
+   * @return {!Array<number>}
+   */
+  _rawToPrettyLocation(line, column) {
+    if (!this._formattedMap)
+      return [line, column];
+    return this._formattedMap.originalToFormatted(line, column);
+  }
+
+  /**
+   * @param {boolean} editable
+   * @protected
+   */
+  setEditable(editable) {
+    this._editable = editable;
+    if (this._loaded)
+      this._textEditor.setReadOnly(!editable);
+  }
+
+  /**
+   * @override
+   */
+  wasShown() {
+    this._ensureContentLoaded();
+    this._wasShownOrLoaded();
+  }
+
+  /**
+   * @override
+   */
+  willHide() {
+    super.willHide();
+
+    this._clearPositionToReveal();
+  }
+
+  /**
+   * @override
+   * @return {!Array<!UI.ToolbarItem>}
+   */
+  syncToolbarItems() {
+    return [this._prettyToggle, this._sourcePosition];
+  }
+
+  get loaded() {
+    return this._loaded;
+  }
+
+  get textEditor() {
+    return this._textEditor;
+  }
+
+  /**
+   * @protected
+   */
+  get pretty() {
+    return this._pretty;
+  }
+
+  async _ensureContentLoaded() {
+    if (!this._contentRequested) {
+      this._contentRequested = true;
+      const content = await this._lazyContent();
+      this._rawContent = content || '';
+      this._formattedContentPromise = null;
+      this._formattedMap = null;
+      this._prettyToggle.setEnabled(true);
+      if (this._shouldAutoPrettyPrint && TextUtils.isMinified(content))
+        await this._setPretty(true);
+      else
+        this.setContent(this._rawContent);
+    }
+  }
+
+  /**
+   * @return {!Promise<{content: string, map: !Formatter.FormatterSourceMapping}>}
+   */
+  _requestFormattedContent() {
+    if (this._formattedContentPromise)
+      return this._formattedContentPromise;
+    let fulfill;
+    this._formattedContentPromise = new Promise(x => fulfill = x);
+    new Formatter.ScriptFormatter(this._highlighterType, this._rawContent || '', (content, map) => {
+      fulfill({content, map});
+    });
+    return this._formattedContentPromise;
+  }
+
+  /**
+   * @param {number} line 0-based
+   * @param {number=} column
+   * @param {boolean=} shouldHighlight
+   */
+  revealPosition(line, column, shouldHighlight) {
+    this._lineToScrollTo = null;
+    this._selectionToSet = null;
+    this._positionToReveal = {line: line, column: column, shouldHighlight: shouldHighlight};
+    this._innerRevealPositionIfNeeded();
+  }
+
+  _innerRevealPositionIfNeeded() {
+    if (!this._positionToReveal)
+      return;
+
+    if (!this.loaded || !this.isShowing())
+      return;
+
+    const [line, column] =
+        this._transformer.rawToEditorLocation(this._positionToReveal.line, this._positionToReveal.column);
+
+    this._textEditor.revealPosition(line, column, this._positionToReveal.shouldHighlight);
+    this._positionToReveal = null;
+  }
+
+  _clearPositionToReveal() {
+    this._textEditor.clearPositionHighlight();
+    this._positionToReveal = null;
+  }
+
+  /**
+   * @param {number} line
+   */
+  scrollToLine(line) {
+    this._clearPositionToReveal();
+    this._lineToScrollTo = line;
+    this._innerScrollToLineIfNeeded();
+  }
+
+  _innerScrollToLineIfNeeded() {
+    if (this._lineToScrollTo !== null) {
+      if (this.loaded && this.isShowing()) {
+        this._textEditor.scrollToLine(this._lineToScrollTo);
+        this._lineToScrollTo = null;
+      }
+    }
+  }
+
+  /**
+   * @return {!TextUtils.TextRange}
+   */
+  selection() {
+    return this.textEditor.selection();
+  }
+
+  /**
+   * @param {!TextUtils.TextRange} textRange
+   */
+  setSelection(textRange) {
+    this._selectionToSet = textRange;
+    this._innerSetSelectionIfNeeded();
+  }
+
+  _innerSetSelectionIfNeeded() {
+    if (this._selectionToSet && this.loaded && this.isShowing()) {
+      this._textEditor.setSelection(this._selectionToSet, true);
+      this._selectionToSet = null;
+    }
+  }
+
+  _wasShownOrLoaded() {
+    this._innerRevealPositionIfNeeded();
+    this._innerSetSelectionIfNeeded();
+    this._innerScrollToLineIfNeeded();
+  }
+
+  /**
+   * @param {!TextUtils.TextRange} oldRange
+   * @param {!TextUtils.TextRange} newRange
+   */
+  onTextChanged(oldRange, newRange) {
+    const wasPretty = this.pretty;
+    this._pretty = this._prettyCleanGeneration !== null && this.textEditor.isClean(this._prettyCleanGeneration);
+    if (this._pretty !== wasPretty)
+      this._updatePrettyPrintState();
+    this._prettyToggle.setEnabled(this.isClean());
+
+    if (this._searchConfig && this._searchableView)
+      this.performSearch(this._searchConfig, false, false);
+  }
+
+  /**
+   * @return {boolean}
+   */
+  isClean() {
+    return this.textEditor.isClean(this._cleanGeneration) ||
+        (this._prettyCleanGeneration !== null && this.textEditor.isClean(this._prettyCleanGeneration));
+  }
+
+  contentCommitted() {
+    this._cleanGeneration = this._textEditor.markClean();
+    this._prettyCleanGeneration = null;
+    this._rawContent = this.textEditor.text();
+    this._formattedMap = null;
+    this._formattedContentPromise = null;
+    if (this._pretty) {
+      this._pretty = false;
+      this._updatePrettyPrintState();
+    }
+    this._prettyToggle.setEnabled(true);
+  }
+
+  /**
+   * @param {string} content
+   * @param {string} mimeType
+   * @return {string}
+   */
+  _simplifyMimeType(content, mimeType) {
+    if (!mimeType)
+      return '';
+    if (mimeType.indexOf('javascript') >= 0 || mimeType.indexOf('jscript') >= 0 || mimeType.indexOf('ecmascript') >= 0)
+      return 'text/javascript';
+    // A hack around the fact that files with "php" extension might be either standalone or html embedded php scripts.
+    if (mimeType === 'text/x-php' && content.match(/\<\?.*\?\>/g))
+      return 'application/x-httpd-php';
+    return mimeType;
+  }
+
+  /**
+   * @param {string} highlighterType
+   */
+  setHighlighterType(highlighterType) {
+    this._highlighterType = highlighterType;
+    this._updateHighlighterType('');
+  }
+
+  /**
+   * @protected
+   * @return {string}
+   */
+  highlighterType() {
+    return this._highlighterType;
+  }
+
+  /**
+   * @param {string} content
+   */
+  _updateHighlighterType(content) {
+    this._textEditor.setMimeType(this._simplifyMimeType(content, this._highlighterType));
+  }
+
+  /**
+   * @param {?string} content
+   */
+  setContent(content) {
+    this._muteChangeEventsForSetContent = true;
+    if (!this._loaded) {
+      this._loaded = true;
+      this._textEditor.setText(content || '');
+      this._cleanGeneration = this._textEditor.markClean();
+      this._textEditor.setReadOnly(!this._editable);
+    } else {
+      const scrollTop = this._textEditor.scrollTop();
+      const selection = this._textEditor.selection();
+      this._textEditor.setText(content || '');
+      this._textEditor.setScrollTop(scrollTop);
+      this._textEditor.setSelection(selection);
+    }
+
+    this._updateHighlighterType(content || '');
+    this._wasShownOrLoaded();
+
+    if (this._delayedFindSearchMatches) {
+      this._delayedFindSearchMatches();
+      this._delayedFindSearchMatches = null;
+    }
+    this._muteChangeEventsForSetContent = false;
+  }
+
+  /**
+   * @param {?UI.SearchableView} view
+   */
+  setSearchableView(view) {
+    this._searchableView = view;
+  }
+
+  /**
+   * @param {!UI.SearchableView.SearchConfig} searchConfig
+   * @param {boolean} shouldJump
+   * @param {boolean} jumpBackwards
+   */
+  _doFindSearchMatches(searchConfig, shouldJump, jumpBackwards) {
     this._currentSearchResultIndex = -1;
     this._searchResults = [];
 
-    this._textEditor.setReadOnly(!this.canEditSource());
+    const regex = searchConfig.toSearchRegex();
+    this._searchRegex = regex;
+    this._searchResults = this._collectRegexMatches(regex);
 
-    this._shortcuts = {};
-    this.element.addEventListener("keydown", this._handleKeyDown.bind(this), false);
+    if (this._searchableView)
+      this._searchableView.updateSearchMatchesCount(this._searchResults.length);
 
-    this._sourcePosition = new WebInspector.ToolbarText("", "source-frame-cursor-position");
-}
+    if (!this._searchResults.length)
+      this._textEditor.cancelSearchResultsHighlight();
+    else if (shouldJump && jumpBackwards)
+      this.jumpToPreviousSearchResult();
+    else if (shouldJump)
+      this.jumpToNextSearchResult();
+    else
+      this._textEditor.highlightSearchResults(regex, null);
+  }
 
-WebInspector.SourceFrame.Events = {
-    ScrollChanged: "ScrollChanged",
-    SelectionChanged: "SelectionChanged",
-    JumpHappened: "JumpHappened"
-}
+  /**
+   * @override
+   * @param {!UI.SearchableView.SearchConfig} searchConfig
+   * @param {boolean} shouldJump
+   * @param {boolean=} jumpBackwards
+   */
+  performSearch(searchConfig, shouldJump, jumpBackwards) {
+    if (this._searchableView)
+      this._searchableView.updateSearchMatchesCount(0);
 
-WebInspector.SourceFrame.prototype = {
-    /**
-     * @param {number} key
-     * @param {function():boolean} handler
-     */
-    addShortcut: function(key, handler)
-    {
-        this._shortcuts[key] = handler;
-    },
+    this._resetSearch();
+    this._searchConfig = searchConfig;
+    if (this.loaded)
+      this._doFindSearchMatches(searchConfig, shouldJump, !!jumpBackwards);
+    else
+      this._delayedFindSearchMatches = this._doFindSearchMatches.bind(this, searchConfig, shouldJump, !!jumpBackwards);
 
-    wasShown: function()
-    {
-        this._ensureContentLoaded();
-        this._textEditor.show(this.element);
-        this._editorAttached = true;
-        this._wasShownOrLoaded();
-    },
+    this._ensureContentLoaded();
+  }
 
-    /**
-     * @return {boolean}
-     */
-    isEditorShowing: function()
-    {
-        return this.isShowing() && this._editorAttached;
-    },
+  _resetCurrentSearchResultIndex() {
+    if (!this._searchResults.length)
+      return;
+    this._currentSearchResultIndex = -1;
+    if (this._searchableView)
+      this._searchableView.updateCurrentMatchIndex(this._currentSearchResultIndex);
+    this._textEditor.highlightSearchResults(/** @type {!RegExp} */ (this._searchRegex), null);
+  }
 
-    willHide: function()
-    {
-        WebInspector.Widget.prototype.willHide.call(this);
+  _resetSearch() {
+    this._searchConfig = null;
+    this._delayedFindSearchMatches = null;
+    this._currentSearchResultIndex = -1;
+    this._searchResults = [];
+    this._searchRegex = null;
+  }
 
-        this._clearPositionToReveal();
-    },
+  /**
+   * @override
+   */
+  searchCanceled() {
+    const range = this._currentSearchResultIndex !== -1 ? this._searchResults[this._currentSearchResultIndex] : null;
+    this._resetSearch();
+    if (!this.loaded)
+      return;
+    this._textEditor.cancelSearchResultsHighlight();
+    if (range)
+      this.setSelection(range);
+  }
 
-    /**
-     * @return {!WebInspector.ToolbarText}
-     */
-    toolbarText: function()
-    {
-        return this._sourcePosition;
-    },
+  jumpToLastSearchResult() {
+    this.jumpToSearchResult(this._searchResults.length - 1);
+  }
 
-    /**
-     * @override
-     * @return {!Element}
-     */
-    defaultFocusedElement: function()
-    {
-        return this._textEditor.defaultFocusedElement();
-    },
+  /**
+   * @return {number}
+   */
+  _searchResultIndexForCurrentSelection() {
+    return this._searchResults.lowerBound(this._textEditor.selection().collapseToEnd(), TextUtils.TextRange.comparator);
+  }
 
-    get loaded()
-    {
-        return this._loaded;
-    },
+  /**
+   * @override
+   */
+  jumpToNextSearchResult() {
+    const currentIndex = this._searchResultIndexForCurrentSelection();
+    const nextIndex = this._currentSearchResultIndex === -1 ? currentIndex : currentIndex + 1;
+    this.jumpToSearchResult(nextIndex);
+  }
 
-    get textEditor()
-    {
-        return this._textEditor;
-    },
+  /**
+   * @override
+   */
+  jumpToPreviousSearchResult() {
+    const currentIndex = this._searchResultIndexForCurrentSelection();
+    this.jumpToSearchResult(currentIndex - 1);
+  }
 
-    _ensureContentLoaded: function()
-    {
-        if (!this._contentRequested) {
-            this._contentRequested = true;
-            this._contentProvider.requestContent(this.setContent.bind(this));
+  /**
+   * @override
+   * @return {boolean}
+   */
+  supportsCaseSensitiveSearch() {
+    return true;
+  }
+
+  /**
+   * @override
+   * @return {boolean}
+   */
+  supportsRegexSearch() {
+    return true;
+  }
+
+  jumpToSearchResult(index) {
+    if (!this.loaded || !this._searchResults.length)
+      return;
+    this._currentSearchResultIndex = (index + this._searchResults.length) % this._searchResults.length;
+    if (this._searchableView)
+      this._searchableView.updateCurrentMatchIndex(this._currentSearchResultIndex);
+    this._textEditor.highlightSearchResults(
+        /** @type {!RegExp} */ (this._searchRegex), this._searchResults[this._currentSearchResultIndex]);
+  }
+
+  /**
+   * @override
+   * @param {!UI.SearchableView.SearchConfig} searchConfig
+   * @param {string} replacement
+   */
+  replaceSelectionWith(searchConfig, replacement) {
+    const range = this._searchResults[this._currentSearchResultIndex];
+    if (!range)
+      return;
+    this._textEditor.highlightSearchResults(/** @type {!RegExp} */ (this._searchRegex), null);
+
+    const oldText = this._textEditor.text(range);
+    const regex = searchConfig.toSearchRegex();
+    let text;
+    if (regex.__fromRegExpQuery) {
+      text = oldText.replace(regex, replacement);
+    } else {
+      text = oldText.replace(regex, function() {
+        return replacement;
+      });
+    }
+
+    const newRange = this._textEditor.editRange(range, text);
+    this._textEditor.setSelection(newRange.collapseToEnd());
+  }
+
+  /**
+   * @override
+   * @param {!UI.SearchableView.SearchConfig} searchConfig
+   * @param {string} replacement
+   */
+  replaceAllWith(searchConfig, replacement) {
+    this._resetCurrentSearchResultIndex();
+
+    let text = this._textEditor.text();
+    const range = this._textEditor.fullRange();
+
+    const regex = searchConfig.toSearchRegex(true);
+    if (regex.__fromRegExpQuery) {
+      text = text.replace(regex, replacement);
+    } else {
+      text = text.replace(regex, function() {
+        return replacement;
+      });
+    }
+
+    const ranges = this._collectRegexMatches(regex);
+    if (!ranges.length)
+      return;
+
+    // Calculate the position of the end of the last range to be edited.
+    const currentRangeIndex = ranges.lowerBound(this._textEditor.selection(), TextUtils.TextRange.comparator);
+    const lastRangeIndex = mod(currentRangeIndex - 1, ranges.length);
+    const lastRange = ranges[lastRangeIndex];
+    const replacementLineEndings = replacement.computeLineEndings();
+    const replacementLineCount = replacementLineEndings.length;
+    const lastLineNumber = lastRange.startLine + replacementLineEndings.length - 1;
+    let lastColumnNumber = lastRange.startColumn;
+    if (replacementLineEndings.length > 1) {
+      lastColumnNumber =
+          replacementLineEndings[replacementLineCount - 1] - replacementLineEndings[replacementLineCount - 2] - 1;
+    }
+
+    this._textEditor.editRange(range, text);
+    this._textEditor.revealPosition(lastLineNumber, lastColumnNumber);
+    this._textEditor.setSelection(TextUtils.TextRange.createFromLocation(lastLineNumber, lastColumnNumber));
+  }
+
+  _collectRegexMatches(regexObject) {
+    const ranges = [];
+    for (let i = 0; i < this._textEditor.linesCount; ++i) {
+      let line = this._textEditor.line(i);
+      let offset = 0;
+      let match;
+      do {
+        match = regexObject.exec(line);
+        if (match) {
+          const matchEndIndex = match.index + Math.max(match[0].length, 1);
+          if (match[0].length)
+            ranges.push(new TextUtils.TextRange(i, offset + match.index, i, offset + matchEndIndex));
+          offset += matchEndIndex;
+          line = line.substring(matchEndIndex);
         }
-    },
+      } while (match && line);
+    }
+    return ranges;
+  }
 
-    /**
-     * @param {number} line 0-based
-     * @param {number=} column
-     * @param {boolean=} shouldHighlight
-     */
-    revealPosition: function(line, column, shouldHighlight)
-    {
-        this._clearLineToScrollTo();
-        this._clearSelectionToSet();
-        this._positionToReveal = { line: line, column: column, shouldHighlight: shouldHighlight };
-        this._innerRevealPositionIfNeeded();
-    },
+  /**
+   * @override
+   * @return {!Promise}
+   */
+  populateLineGutterContextMenu(contextMenu, editorLineNumber) {
+    return Promise.resolve();
+  }
 
-    _innerRevealPositionIfNeeded: function()
-    {
-        if (!this._positionToReveal)
-            return;
+  /**
+   * @override
+   * @return {!Promise}
+   */
+  populateTextAreaContextMenu(contextMenu, editorLineNumber, editorColumnNumber) {
+    return Promise.resolve();
+  }
 
-        if (!this.loaded || !this.isEditorShowing())
-            return;
+  /**
+   * @return {boolean}
+   */
+  canEditSource() {
+    return this._editable;
+  }
 
-        this._textEditor.revealPosition(this._positionToReveal.line, this._positionToReveal.column, this._positionToReveal.shouldHighlight);
-        delete this._positionToReveal;
-    },
+  _updateSourcePosition() {
+    const selections = this._textEditor.selections();
+    if (!selections.length)
+      return;
+    if (selections.length > 1) {
+      this._sourcePosition.setText(Common.UIString('%d selection regions', selections.length));
+      return;
+    }
+    let textRange = selections[0];
+    if (textRange.isEmpty()) {
+      const location = this._prettyToRawLocation(textRange.endLine, textRange.endColumn);
+      this._sourcePosition.setText(`Line ${location[0] + 1}, Column ${location[1] + 1}`);
+      return;
+    }
+    textRange = textRange.normalize();
 
-    _clearPositionToReveal: function()
-    {
-        this._textEditor.clearPositionHighlight();
-        delete this._positionToReveal;
-    },
-
-    /**
-     * @param {number} line
-     */
-    scrollToLine: function(line)
-    {
-        this._clearPositionToReveal();
-        this._lineToScrollTo = line;
-        this._innerScrollToLineIfNeeded();
-    },
-
-    _innerScrollToLineIfNeeded: function()
-    {
-        if (typeof this._lineToScrollTo === "number") {
-            if (this.loaded && this.isEditorShowing()) {
-                this._textEditor.scrollToLine(this._lineToScrollTo);
-                delete this._lineToScrollTo;
-            }
-        }
-    },
-
-    _clearLineToScrollTo: function()
-    {
-        delete this._lineToScrollTo;
-    },
-
-    /**
-     * @return {!WebInspector.TextRange}
-     */
-    selection: function()
-    {
-        return this.textEditor.selection();
-    },
-
-    /**
-     * @param {!WebInspector.TextRange} textRange
-     */
-    setSelection: function(textRange)
-    {
-        this._selectionToSet = textRange;
-        this._innerSetSelectionIfNeeded();
-    },
-
-    _innerSetSelectionIfNeeded: function()
-    {
-        if (this._selectionToSet && this.loaded && this.isEditorShowing()) {
-            this._textEditor.setSelection(this._selectionToSet);
-            delete this._selectionToSet;
-        }
-    },
-
-    _clearSelectionToSet: function()
-    {
-        delete this._selectionToSet;
-    },
-
-    _wasShownOrLoaded: function()
-    {
-        this._innerRevealPositionIfNeeded();
-        this._innerSetSelectionIfNeeded();
-        this._innerScrollToLineIfNeeded();
-    },
-
-    /**
-     * @param {!WebInspector.TextRange} oldRange
-     * @param {!WebInspector.TextRange} newRange
-     */
-    onTextChanged: function(oldRange, newRange)
-    {
-        if (this._searchResultsChangedCallback)
-            this._searchResultsChangedCallback();
-    },
-
-    /**
-     * @param {string} content
-     * @param {string} mimeType
-     * @return {string}
-     */
-    _simplifyMimeType: function(content, mimeType)
-    {
-        if (!mimeType)
-            return "";
-        if (mimeType.indexOf("javascript") >= 0 ||
-            mimeType.indexOf("jscript") >= 0 ||
-            mimeType.indexOf("ecmascript") >= 0)
-            return "text/javascript";
-        // A hack around the fact that files with "php" extension might be either standalone or html embedded php scripts.
-        if (mimeType === "text/x-php" && content.match(/\<\?.*\?\>/g))
-            return "application/x-httpd-php";
-        return mimeType;
-    },
-
-    /**
-     * @param {string} highlighterType
-     */
-    setHighlighterType: function(highlighterType)
-    {
-        this._highlighterType = highlighterType;
-        this._updateHighlighterType("");
-    },
-
-    /**
-     * @param {string} content
-     */
-    _updateHighlighterType: function(content)
-    {
-        this._textEditor.setMimeType(this._simplifyMimeType(content, this._highlighterType));
-    },
-
-    /**
-     * @param {?string} content
-     */
-    setContent: function(content)
-    {
-        if (!this._loaded) {
-            this._loaded = true;
-            this._textEditor.setText(content || "");
-            this._textEditor.markClean();
-        } else {
-            var firstLine = this._textEditor.firstVisibleLine();
-            var selection = this._textEditor.selection();
-            this._textEditor.setText(content || "");
-            this._textEditor.scrollToLine(firstLine);
-            this._textEditor.setSelection(selection);
-        }
-
-        this._updateHighlighterType(content || "");
-        this._wasShownOrLoaded();
-
-        if (this._delayedFindSearchMatches) {
-            this._delayedFindSearchMatches();
-            delete this._delayedFindSearchMatches;
-        }
-        this.onTextEditorContentLoaded();
-    },
-
-    onTextEditorContentLoaded: function() {},
-
-    /**
-     * @param {!WebInspector.SearchableView.SearchConfig} searchConfig
-     * @param {boolean} shouldJump
-     * @param {boolean} jumpBackwards
-     * @param {function(!WebInspector.Widget, number)} searchFinishedCallback
-     */
-    _doFindSearchMatches: function(searchConfig, shouldJump, jumpBackwards, searchFinishedCallback)
-    {
-        this._currentSearchResultIndex = -1;
-        this._searchResults = [];
-
-        var regex = searchConfig.toSearchRegex();
-        this._searchRegex = regex;
-        this._searchResults = this._collectRegexMatches(regex);
-        searchFinishedCallback(this, this._searchResults.length);
-        if (!this._searchResults.length)
-            this._textEditor.cancelSearchResultsHighlight();
-        else if (shouldJump && jumpBackwards)
-            this.jumpToPreviousSearchResult();
-        else if (shouldJump)
-            this.jumpToNextSearchResult();
-        else
-            this._textEditor.highlightSearchResults(regex, null);
-    },
-
-    /**
-     * @param {!WebInspector.SearchableView.SearchConfig} searchConfig
-     * @param {boolean} shouldJump
-     * @param {boolean} jumpBackwards
-     * @param {function(!WebInspector.Widget, number)} searchFinishedCallback
-     * @param {function(number)} currentMatchChangedCallback
-     * @param {function()} searchResultsChangedCallback
-     */
-    performSearch: function(searchConfig, shouldJump, jumpBackwards, searchFinishedCallback, currentMatchChangedCallback, searchResultsChangedCallback)
-    {
-        this._resetSearch();
-        this._currentSearchMatchChangedCallback = currentMatchChangedCallback;
-        this._searchResultsChangedCallback = searchResultsChangedCallback;
-        var searchFunction = this._doFindSearchMatches.bind(this, searchConfig, shouldJump, jumpBackwards, searchFinishedCallback);
-        if (this.loaded)
-            searchFunction.call(this);
-        else
-            this._delayedFindSearchMatches = searchFunction;
-
-        this._ensureContentLoaded();
-    },
-
-    _editorFocused: function()
-    {
-        this._resetCurrentSearchResultIndex();
-    },
-
-    _resetCurrentSearchResultIndex: function()
-    {
-        if (!this._searchResults.length)
-            return;
-        this._currentSearchResultIndex = -1;
-        if (this._currentSearchMatchChangedCallback)
-            this._currentSearchMatchChangedCallback(this._currentSearchResultIndex);
-        this._textEditor.highlightSearchResults(this._searchRegex, null);
-    },
-
-    _resetSearch: function()
-    {
-        delete this._delayedFindSearchMatches;
-        delete this._currentSearchMatchChangedCallback;
-        delete this._searchResultsChangedCallback;
-        this._currentSearchResultIndex = -1;
-        this._searchResults = [];
-        delete this._searchRegex;
-    },
-
-    searchCanceled: function()
-    {
-        var range = this._currentSearchResultIndex !== -1 ? this._searchResults[this._currentSearchResultIndex] : null;
-        this._resetSearch();
-        if (!this.loaded)
-            return;
-        this._textEditor.cancelSearchResultsHighlight();
-        if (range)
-            this.setSelection(range);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    hasSearchResults: function()
-    {
-        return this._searchResults.length > 0;
-    },
-
-    jumpToFirstSearchResult: function()
-    {
-        this.jumpToSearchResult(0);
-    },
-
-    jumpToLastSearchResult: function()
-    {
-        this.jumpToSearchResult(this._searchResults.length - 1);
-    },
-
-    /**
-     * @return {number}
-     */
-    _searchResultIndexForCurrentSelection: function()
-    {
-        return insertionIndexForObjectInListSortedByFunction(this._textEditor.selection().collapseToEnd(), this._searchResults, WebInspector.TextRange.comparator);
-    },
-
-    jumpToNextSearchResult: function()
-    {
-        var currentIndex = this._searchResultIndexForCurrentSelection();
-        var nextIndex = this._currentSearchResultIndex === -1 ? currentIndex : currentIndex + 1;
-        this.jumpToSearchResult(nextIndex);
-    },
-
-    jumpToPreviousSearchResult: function()
-    {
-        var currentIndex = this._searchResultIndexForCurrentSelection();
-        this.jumpToSearchResult(currentIndex - 1);
-    },
-
-    get currentSearchResultIndex()
-    {
-        return this._currentSearchResultIndex;
-    },
-
-    jumpToSearchResult: function(index)
-    {
-        if (!this.loaded || !this._searchResults.length)
-            return;
-        this._currentSearchResultIndex = (index + this._searchResults.length) % this._searchResults.length;
-        if (this._currentSearchMatchChangedCallback)
-            this._currentSearchMatchChangedCallback(this._currentSearchResultIndex);
-        this._textEditor.highlightSearchResults(this._searchRegex, this._searchResults[this._currentSearchResultIndex]);
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.SearchableView.SearchConfig} searchConfig
-     * @param {string} replacement
-     */
-    replaceSelectionWith: function(searchConfig, replacement)
-    {
-        var range = this._searchResults[this._currentSearchResultIndex];
-        if (!range)
-            return;
-        this._textEditor.highlightSearchResults(this._searchRegex, null);
-
-        var oldText = this._textEditor.copyRange(range);
-        var regex = searchConfig.toSearchRegex();
-        var text;
-        if (regex.__fromRegExpQuery)
-            text = oldText.replace(regex, replacement);
-        else
-            text = oldText.replace(regex, function() { return replacement; });
-
-        var newRange = this._textEditor.editRange(range, text);
-        this._textEditor.setSelection(newRange.collapseToEnd());
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.SearchableView.SearchConfig} searchConfig
-     * @param {string} replacement
-     */
-    replaceAllWith: function(searchConfig, replacement)
-    {
-        this._resetCurrentSearchResultIndex();
-
-        var text = this._textEditor.text();
-        var range = this._textEditor.range();
-
-        var regex = searchConfig.toSearchRegex(true);
-        if (regex.__fromRegExpQuery)
-            text = text.replace(regex, replacement);
-        else
-            text = text.replace(regex, function() { return replacement; });
-
-        var ranges = this._collectRegexMatches(regex);
-        if (!ranges.length)
-            return;
-
-        // Calculate the position of the end of the last range to be edited.
-        var currentRangeIndex = insertionIndexForObjectInListSortedByFunction(this._textEditor.selection(), ranges, WebInspector.TextRange.comparator);
-        var lastRangeIndex = mod(currentRangeIndex - 1, ranges.length);
-        var lastRange = ranges[lastRangeIndex];
-        var replacementLineEndings = replacement.lineEndings();
-        var replacementLineCount = replacementLineEndings.length;
-        var lastLineNumber = lastRange.startLine + replacementLineEndings.length - 1;
-        var lastColumnNumber = lastRange.startColumn;
-        if (replacementLineEndings.length > 1)
-            lastColumnNumber = replacementLineEndings[replacementLineCount - 1] - replacementLineEndings[replacementLineCount - 2] - 1;
-
-        this._textEditor.editRange(range, text);
-        this._textEditor.revealPosition(lastLineNumber, lastColumnNumber);
-        this._textEditor.setSelection(WebInspector.TextRange.createFromLocation(lastLineNumber, lastColumnNumber));
-    },
-
-    _collectRegexMatches: function(regexObject)
-    {
-        var ranges = [];
-        for (var i = 0; i < this._textEditor.linesCount; ++i) {
-            var line = this._textEditor.line(i);
-            var offset = 0;
-            do {
-                var match = regexObject.exec(line);
-                if (match) {
-                    var matchEndIndex = match.index + Math.max(match[0].length, 1);
-                    if (match[0].length)
-                        ranges.push(new WebInspector.TextRange(i, offset + match.index, i, offset + matchEndIndex));
-                    offset += matchEndIndex;
-                    line = line.substring(matchEndIndex);
-                }
-            } while (match && line);
-        }
-        return ranges;
-    },
-
-    /**
-     * @return {!Promise}
-     */
-    populateLineGutterContextMenu: function(contextMenu, lineNumber)
-    {
-        return Promise.resolve();
-    },
-
-    /**
-     * @return {!Promise}
-     */
-    populateTextAreaContextMenu: function(contextMenu, lineNumber, columnNumber)
-    {
-        return Promise.resolve();
-    },
-
-    /**
-     * @param {?WebInspector.TextRange} from
-     * @param {?WebInspector.TextRange} to
-     */
-    onJumpToPosition: function(from, to)
-    {
-        this.dispatchEventToListeners(WebInspector.SourceFrame.Events.JumpHappened, {
-            from: from,
-            to: to
-        });
-    },
-
-    /**
-     * @return {boolean}
-     */
-    canEditSource: function()
-    {
-        return false;
-    },
-
-    /**
-     * @param {!WebInspector.TextRange} textRange
-     */
-    selectionChanged: function(textRange)
-    {
-        this._updateSourcePosition();
-        this.dispatchEventToListeners(WebInspector.SourceFrame.Events.SelectionChanged, textRange);
-        WebInspector.notifications.dispatchEventToListeners(WebInspector.SourceFrame.Events.SelectionChanged, textRange);
-    },
-
-    _updateSourcePosition: function()
-    {
-        var selections = this._textEditor.selections();
-        if (!selections.length)
-            return;
-        if (selections.length > 1) {
-            this._sourcePosition.setText(WebInspector.UIString("%d selection regions", selections.length));
-            return;
-        }
-        var textRange = selections[0];
-        if (textRange.isEmpty()) {
-            this._sourcePosition.setText(WebInspector.UIString("Line %d, Column %d", textRange.endLine + 1, textRange.endColumn + 1));
-            return;
-        }
-        textRange = textRange.normalize();
-
-        var selectedText = this._textEditor.copyRange(textRange);
-        if (textRange.startLine === textRange.endLine)
-            this._sourcePosition.setText(WebInspector.UIString("%d characters selected", selectedText.length));
-        else
-            this._sourcePosition.setText(WebInspector.UIString("%d lines, %d characters selected", textRange.endLine - textRange.startLine + 1, selectedText.length));
-    },
-
-    /**
-     * @param {number} lineNumber
-     */
-    scrollChanged: function(lineNumber)
-    {
-        this.dispatchEventToListeners(WebInspector.SourceFrame.Events.ScrollChanged, lineNumber);
-    },
-
-    _handleKeyDown: function(e)
-    {
-        var shortcutKey = WebInspector.KeyboardShortcut.makeKeyFromEvent(e);
-        var handler = this._shortcuts[shortcutKey];
-        if (handler && handler())
-            e.consume(true);
-    },
-
-    __proto__: WebInspector.VBox.prototype
-}
+    const selectedText = this._textEditor.text(textRange);
+    if (textRange.startLine === textRange.endLine) {
+      this._sourcePosition.setText(Common.UIString('%d characters selected', selectedText.length));
+    } else {
+      this._sourcePosition.setText(Common.UIString(
+          '%d lines, %d characters selected', textRange.endLine - textRange.startLine + 1, selectedText.length));
+    }
+  }
+};
 
 /**
- * @implements {WebInspector.TextEditorDelegate}
- * @constructor
+ * @interface
  */
-WebInspector.TextEditorDelegateForSourceFrame = function(sourceFrame)
-{
-    this._sourceFrame = sourceFrame;
-}
+SourceFrame.LineDecorator = function() {};
 
-WebInspector.TextEditorDelegateForSourceFrame.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.TextRange} oldRange
-     * @param {!WebInspector.TextRange} newRange
-     */
-    onTextChanged: function(oldRange, newRange)
-    {
-        this._sourceFrame.onTextChanged(oldRange, newRange);
-    },
+SourceFrame.LineDecorator.prototype = {
+  /**
+   * @param {!Workspace.UISourceCode} uiSourceCode
+   * @param {!TextEditor.CodeMirrorTextEditor} textEditor
+   */
+  decorate(uiSourceCode, textEditor) {}
+};
 
-    /**
-     * @override
-     * @param {!WebInspector.TextRange} textRange
-     */
-    selectionChanged: function(textRange)
-    {
-        this._sourceFrame.selectionChanged(textRange);
-    },
-
-    /**
-     * @override
-     * @param {number} lineNumber
-     */
-    scrollChanged: function(lineNumber)
-    {
-        this._sourceFrame.scrollChanged(lineNumber);
-    },
-
-    /**
-     * @override
-     */
-    editorFocused: function()
-    {
-        this._sourceFrame._editorFocused();
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.ContextMenu} contextMenu
-     * @param {number} lineNumber
-     * @return {!Promise}
-     */
-    populateLineGutterContextMenu: function(contextMenu, lineNumber)
-    {
-        return this._sourceFrame.populateLineGutterContextMenu(contextMenu, lineNumber);
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.ContextMenu} contextMenu
-     * @param {number} lineNumber
-     * @param {number} columnNumber
-     * @return {!Promise}
-     */
-    populateTextAreaContextMenu: function(contextMenu, lineNumber, columnNumber)
-    {
-        return this._sourceFrame.populateTextAreaContextMenu(contextMenu, lineNumber, columnNumber);
-    },
-
-    /**
-     * @override
-     * @param {?WebInspector.TextRange} from
-     * @param {?WebInspector.TextRange} to
-     */
-    onJumpToPosition: function(from, to)
-    {
-        this._sourceFrame.onJumpToPosition(from, to);
-    }
-}
+/**
+ * @typedef {{
+ *  editorToRawLocation: function(number, number=):!Array<number>,
+ *  rawToEditorLocation: function(number, number=):!Array<number>
+ * }}
+ */
+SourceFrame.Transformer;

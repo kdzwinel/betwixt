@@ -27,141 +27,132 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
  * @interface
  */
-WebInspector.HistoryEntry = function() { }
+Sources.HistoryEntry = function() {};
 
-WebInspector.HistoryEntry.prototype = {
-    /**
-     * @return {boolean}
-     */
-    valid: function() { },
+Sources.HistoryEntry.prototype = {
+  /**
+   * @return {boolean}
+   */
+  valid() {},
 
-    reveal: function() { }
+  reveal() {}
 };
 
 /**
- * @constructor
- * @param {number} historyDepth
+ * @unrestricted
  */
-WebInspector.SimpleHistoryManager = function(historyDepth)
-{
+Sources.SimpleHistoryManager = class {
+  /**
+   * @param {number} historyDepth
+   */
+  constructor(historyDepth) {
     this._entries = [];
     this._activeEntryIndex = -1;
     this._coalescingReadonly = 0;
     this._historyDepth = historyDepth;
-}
+  }
 
-WebInspector.SimpleHistoryManager.prototype = {
-    readOnlyLock: function()
-    {
-        ++this._coalescingReadonly;
-    },
+  readOnlyLock() {
+    ++this._coalescingReadonly;
+  }
 
-    releaseReadOnlyLock: function()
-    {
-        --this._coalescingReadonly;
-    },
+  releaseReadOnlyLock() {
+    --this._coalescingReadonly;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    readOnly: function()
-    {
-        return !!this._coalescingReadonly;
-    },
+  /**
+   * @return {boolean}
+   */
+  readOnly() {
+    return !!this._coalescingReadonly;
+  }
 
-    /**
-     * @param {function(!WebInspector.HistoryEntry):boolean} filterOutCallback
-     */
-    filterOut: function(filterOutCallback)
-    {
-        if (this.readOnly())
-            return;
-        var filteredEntries = [];
-        var removedBeforeActiveEntry = 0;
-        for (var i = 0; i < this._entries.length; ++i) {
-            if (!filterOutCallback(this._entries[i])) {
-                filteredEntries.push(this._entries[i]);
-            } else if (i <= this._activeEntryIndex)
-                ++removedBeforeActiveEntry;
-        }
-        this._entries = filteredEntries;
-        this._activeEntryIndex = Math.max(0, this._activeEntryIndex - removedBeforeActiveEntry);
-    },
+  /**
+   * @param {function(!Sources.HistoryEntry):boolean} filterOutCallback
+   */
+  filterOut(filterOutCallback) {
+    if (this.readOnly())
+      return;
+    const filteredEntries = [];
+    let removedBeforeActiveEntry = 0;
+    for (let i = 0; i < this._entries.length; ++i) {
+      if (!filterOutCallback(this._entries[i]))
+        filteredEntries.push(this._entries[i]);
+      else if (i <= this._activeEntryIndex)
+        ++removedBeforeActiveEntry;
+    }
+    this._entries = filteredEntries;
+    this._activeEntryIndex = Math.max(0, this._activeEntryIndex - removedBeforeActiveEntry);
+  }
 
-    /**
-     * @return {boolean}
-     */
-    empty: function()
-    {
-        return !this._entries.length;
-    },
+  /**
+   * @return {boolean}
+   */
+  empty() {
+    return !this._entries.length;
+  }
 
-    /**
-     * @return {?WebInspector.HistoryEntry}
-     */
-    active: function()
-    {
-        return this.empty() ? null : this._entries[this._activeEntryIndex];
-    },
+  /**
+   * @return {?Sources.HistoryEntry}
+   */
+  active() {
+    return this.empty() ? null : this._entries[this._activeEntryIndex];
+  }
 
-    /**
-     * @param {!WebInspector.HistoryEntry} entry
-     */
-    push: function(entry)
-    {
-        if (this.readOnly())
-            return;
-        if (!this.empty())
-            this._entries.splice(this._activeEntryIndex + 1);
-        this._entries.push(entry);
-        if (this._entries.length > this._historyDepth)
-            this._entries.shift();
-        this._activeEntryIndex = this._entries.length - 1;
-    },
+  /**
+   * @param {!Sources.HistoryEntry} entry
+   */
+  push(entry) {
+    if (this.readOnly())
+      return;
+    if (!this.empty())
+      this._entries.splice(this._activeEntryIndex + 1);
+    this._entries.push(entry);
+    if (this._entries.length > this._historyDepth)
+      this._entries.shift();
+    this._activeEntryIndex = this._entries.length - 1;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    rollback: function()
-    {
-        if (this.empty())
-            return false;
+  /**
+   * @return {boolean}
+   */
+  rollback() {
+    if (this.empty())
+      return false;
 
-        var revealIndex = this._activeEntryIndex - 1;
-        while (revealIndex >= 0 && !this._entries[revealIndex].valid())
-            --revealIndex;
-        if (revealIndex < 0)
-            return false;
+    let revealIndex = this._activeEntryIndex - 1;
+    while (revealIndex >= 0 && !this._entries[revealIndex].valid())
+      --revealIndex;
+    if (revealIndex < 0)
+      return false;
 
-        this.readOnlyLock();
-        this._entries[revealIndex].reveal();
-        this.releaseReadOnlyLock();
+    this.readOnlyLock();
+    this._entries[revealIndex].reveal();
+    this.releaseReadOnlyLock();
 
-        this._activeEntryIndex = revealIndex;
-        return true;
-    },
+    this._activeEntryIndex = revealIndex;
+    return true;
+  }
 
-    /**
-     * @return {boolean}
-     */
-    rollover: function()
-    {
-        var revealIndex = this._activeEntryIndex + 1;
+  /**
+   * @return {boolean}
+   */
+  rollover() {
+    let revealIndex = this._activeEntryIndex + 1;
 
-        while (revealIndex < this._entries.length && !this._entries[revealIndex].valid())
-            ++revealIndex;
-        if (revealIndex >= this._entries.length)
-            return false;
+    while (revealIndex < this._entries.length && !this._entries[revealIndex].valid())
+      ++revealIndex;
+    if (revealIndex >= this._entries.length)
+      return false;
 
-        this.readOnlyLock();
-        this._entries[revealIndex].reveal();
-        this.releaseReadOnlyLock();
+    this.readOnlyLock();
+    this._entries[revealIndex].reveal();
+    this.releaseReadOnlyLock();
 
-        this._activeEntryIndex = revealIndex;
-        return true;
-    },
+    this._activeEntryIndex = revealIndex;
+    return true;
+  }
 };

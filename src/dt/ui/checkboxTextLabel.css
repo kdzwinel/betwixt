@@ -18,14 +18,16 @@ input {
     flex-shrink: 0;
 }
 
+input:focus {
+    outline: auto 5px -webkit-focus-ring-color;
+}
+
 input.dt-checkbox-themed {
     -webkit-appearance: none;
-    margin: 0 5px auto 2px;
+    margin: auto 5px auto 2px;
     border: 1px solid rgb(45, 45, 45);
     border-radius: 3px;
     background-color: rgb(102, 102, 102);
-    position: relative;
-    top: 1px;
 }
 
 input.dt-checkbox-themed:after {
@@ -43,14 +45,28 @@ input.dt-checkbox-themed:checked:after {
 }
 
 input.dt-checkbox-themed:after {
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs.png);
-    -webkit-mask-size: 352px 168px;
-    -webkit-mask-position: -128px -110px;
+    -webkit-mask-image: url(Images/checkboxCheckmark.png);
+    -webkit-mask-size: 11px 11px;
+    -webkit-mask-position: 0 0;
 }
 
-@media (-webkit-min-device-pixel-ratio: 1.5) {
+:host-context(.-theme-with-dark-background) input:not(.dt-checkbox-themed) {
+    filter: invert(80%);
+}
+
+@media (-webkit-min-device-pixel-ratio: 1.1) {
 input.dt-checkbox-themed:after {
-    -webkit-mask-image: url(Images/toolbarButtonGlyphs_2x.png);
+    -webkit-mask-image: url(Images/checkboxCheckmark_2x.png);
 }
 
 } /* media */
+
+.dt-checkbox-text {
+    margin-left: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dt-checkbox-subtitle {
+    color: gray;
+}

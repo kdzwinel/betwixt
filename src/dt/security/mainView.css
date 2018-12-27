@@ -7,148 +7,132 @@
     -webkit-user-select: text;
     overflow-x: hidden;
     overflow-y: auto;
-    background-color: #f9f9f9;
+    background-color: var(--toolbar-bg-color);
 }
 
 .security-main-view > div {
     flex-shrink: 0;
 }
 
-.security-summary {
-    background-color: #fff;
-}
-
 .security-summary-section-title {
-    font-size: 14px;
-    margin: 12px 24px;
+    font-size: 15px;
+    margin: 12px 16px;
 }
 
 .lock-spectrum {
-    min-width: 180px;
-    max-width: 240px;
-    margin: 6px 12px;
+    margin: 8px 16px;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
 }
 
 .security-summary .lock-icon {
     flex: none;
-    width: 32px;
-    height: 32px;
-    margin: 0 12px;
-    background-position: center center;
-
-    /* Defaults for dynamic properties. */
-    opacity: 0.5;
+    width: 16px;
+    height: 16px;
+    margin: 0 0;
 }
 
-/* Shrink the margin for the page lock icon. */
+/* Separate the middle icon from the other two. */
 .security-summary .lock-icon-neutral {
-    margin: 0 6px;
+    margin: 0 16px;
 }
 
-.security-summary-secure .lock-icon-secure,
-.security-summary-neutral .lock-icon-neutral,
-.security-summary-insecure .lock-icon-insecure {
-    opacity: 1;
-}
-
-.security-summary-lock-spacer {
-    flex: 1 1 auto;
-    height: 1px;
-    background: rgb(217, 217, 217);
+.security-summary:not(.security-summary-secure) .lock-icon-secure,
+.security-summary:not(.security-summary-neutral) .lock-icon-neutral,
+.security-summary:not(.security-summary-insecure) .lock-icon-insecure {
+    background-color: rgba(90, 90, 90, 0.25);
 }
 
 .triangle-pointer-container {
-    /* Let (lock width) = (horizonal width of 1 lock icon, including both margins) */
-    /* Horizontal margin is (lock width)/2 + (lock-spectrum horizontal margin) */
-    margin: 8px 40px 0px;
-    /* Width is (lock spectrum width) - (lock width) */
-    min-width: 124px;
-    max-width: 184px;
+    margin: 8px 24px 0;
+    padding: 0 0;
 }
 
 .triangle-pointer-wrapper {
     /* Defaults for dynamic properties. */
-    transform: translateX(50%);
+    transform: translateX(0);
     transition: transform 0.3s;
 }
 
 .triangle-pointer {
-    width:  12px;
-    height:  12px;
+    width: 12px;
+    height: 12px;
     margin-bottom: -6px;
     margin-left: -6px;
     transform: rotate(-45deg);
     border-style: solid;
     border-width: 1px 1px 0 0;
 
-    /* Defaults for dynamic properties. */
-    background: rgb(243, 243, 243);
+    background: #fff;
     border-color: rgb(217, 217, 217);
 }
 
 .security-summary-secure .triangle-pointer-wrapper {
-    transform: translateX(0%);
+    transform: translateX(0px);
 }
 
 .security-summary-neutral .triangle-pointer-wrapper {
-    transform: translateX(50%);
+    transform: translateX(32px);
 }
 
 .security-summary-insecure .triangle-pointer-wrapper {
-    transform: translateX(100%);
+    transform: translateX(64px);
 }
 
 .security-summary-text {
-    padding: 12px 24px;
+    padding: 16px 24px;
     border-style: solid;
     border-width: 1px 0;
+    font-size: 15px;
 
-    /* Defaults for dynamic properties. */
-    background: rgb(243, 243, 243);
+    background: #fff;
     border-color: rgb(217, 217, 217);
-    color: rgb(127, 127, 127);
 }
 
 .security-summary-secure .triangle-pointer,
-.security-summary-secure .security-summary-text {
-    background: rgb(243, 252, 244);
-    border-color: rgb(137, 222, 144);
-    color: rgb(42, 194, 57);
-}
-
-.security-summary-neutral .triangle-pointer,
-.security-summary-neutral .security-summary-text {
-    background: rgb(255, 251, 243);
-    border-color: rgb(253, 214, 129);
-    color: rgb(253, 177, 48);
+.security-summary-secure .security-summary-text,
+.security-explanation-title-secure {
+    color: #0b8043;
 }
 
 .security-summary-insecure .triangle-pointer,
-.security-summary-insecure .security-summary-text {
-    background: rgb(253, 245, 245);
-    border-color: rgb(243, 157, 151);
-    color: rgb(216, 70, 60);
+.security-summary-insecure .security-summary-text,
+.security-explanation-title-neutral,
+.security-explanation-title-insecure {
+    color: #cb3626;
+}
+
+.security-explanation-list {
+    padding-bottom: 16px;
+}
+
+.security-explanation-list:empty {
+    border-bottom: none;
+    padding: 0px;
+}
+
+.security-explanations-main {
+    margin-top: -5px;
+    background-color: #fff;
+    border-bottom: 1px solid rgb(230, 230, 230);
+}
+
+.security-explanations-extra {
+    background-color: transparent;
 }
 
 .security-explanation {
-    padding: 12px;
-    border-bottom: 1px solid rgb(230, 230, 230);
-    background-color: #fff;
-
+    padding: 11px;
     display: flex;
     white-space: nowrap;
+    border: none;
+    color: rgb(90, 90, 90);
 }
 
 .security-explanation-text {
     flex: auto;
     white-space: normal;
-}
-
-.security-explanation-info {
-    border-bottom: none;
-    background-color: transparent;
+    max-width: 400px;
 }
 
 .security-certificate-button {
@@ -157,14 +141,13 @@
 
 .security-explanation .security-property {
     flex: none;
-    width: 18px;
-    height: 18px;
-    margin-left: 10px;
-    margin-right: 18px;
+    width: 16px;
+    height: 16px;
+    margin-right: 16px;
 }
 
 .security-explanation-title {
-    color: rgb(90, 90, 90);
+    color: rgb(48, 57, 66);
     margin-top: 1px;
     margin-bottom: 8px;
 }
@@ -172,7 +155,7 @@
 .security-explanation-neutral .security-section-title,
 .security-explanation-warning .security-section-title
 {
-    color: rgb(253, 177, 48);
+    color: #cb3626;
     font-weight: bold;
 }
 .security-explanation-insecure .security-section-title
@@ -183,4 +166,12 @@
 
 .security-mixed-content {
     margin-top: 8px;
+}
+
+.security-explanation-recommendations {
+    padding-inline-start: 16px;
+}
+
+.security-explanation-recommendations > li {
+    margin-bottom: 4px;
 }

@@ -1,5 +1,5 @@
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
-// Distributed under an MIT license: http://codemirror.net/LICENSE
+// Distributed under an MIT license: https://codemirror.net/LICENSE
 
 /**
  * Link to the project's GitHub page:
@@ -10,7 +10,7 @@
   if (typeof exports == "object" && typeof module == "object") // CommonJS
     mod(require("../../lib/codemirror"));
   else if (typeof define == "function" && define.amd) // AMD
-    define(["../../src/lib/codemirror"], mod);
+    define(["../../lib/codemirror"], mod);
   else // Plain browser env
     mod(CodeMirror);
 })(function(CodeMirror) {
@@ -50,7 +50,7 @@
       startState: function(){
         return {
           next: 'start',
-          lastToken: null
+          lastToken: {style: null, indent: 0, content: ""}
         };
       },
       token: function(stream, state){

@@ -1,0 +1,15 @@
+{
+    "extensions": [
+        {
+            "type": "view",
+            "location": "panel",
+            "id": "js_profiler",
+            "title": "Profiler",
+            "order": 65,
+            "className": "Profiler.JSProfilerPanel"
+        }
+    ],
+    "dependencies": [
+        "profiler"
+    ]
+}

@@ -4,20 +4,13 @@
  * found in the LICENSE file.
  */
 
-.help-window-main {
+.settings-window-main {
     color: rgb(48, 57, 66);
     background-color: white;
     padding: 11px 0 0 0;
 }
 
-.help-window-caption {
-    border-bottom: solid 1px rgb(153, 153, 153);
-    margin: 0 8px;
-    padding: 0 2px;
-    line-height: 28px;
-}
-
-.help-content {
+.settings-content {
     overflow-y: auto;
     overflow-x: hidden;
     margin: 8px 8px 8px 0;
@@ -25,59 +18,29 @@
     flex: auto;
 }
 
-.help-footnote {
+.settings-footnote {
     border-top: 1px solid #EEEEEE;
     margin: 0;
     padding: 12px;
 }
 
-.help-window-main .help-container-wrapper::-webkit-scrollbar {
-    width: 11px;
-}
-
-.help-window-main .help-container-wrapper::-webkit-scrollbar-corner,
-.help-window-main .help-container-wrapper::-webkit-resizer {
-    display: none;
-}
-
-.help-window-main .help-container-wrapper::-webkit-scrollbar-thumb:vertical {
-    background: linear-gradient(to right, rgb(128, 128, 128), rgb(96, 96, 96) 40%, rgb(128, 128, 128));
-    border-radius: 5px;
-    min-height: 20px;
-}
-
-.help-window-main .help-container-wrapper::-webkit-scrollbar-thumb:vertical:hover,
-.help-window-main .help-container-wrapper::-webkit-scrollbar-thumb:vertical:active {
-    background: linear-gradient(to right, rgb(176, 176, 176), rgb(144, 144, 144) 40%, rgb(176, 176, 176));
-}
-
-.help-window-main .help-container-wrapper::-webkit-scrollbar-track:vertical {
-    background: linear-gradient(to right, rgb(10, 10, 10), rgb(32, 32, 32) 25%, rgb(32, 32, 32));
-    border-radius: 5px;
-}
-
-.help-container {
+.settings-container {
     width: 100%;
-    -webkit-user-select: auto;
     -webkit-column-width: 288px;
 }
 
-.help-no-columns {
-    -webkit-column-width: initial !important;
-}
-
-.help-block {
+.settings-block {
     display: block;
     padding-bottom: 9px;
     width: 288px;
     -webkit-column-break-inside: avoid;
 }
 
-.settings-tab.help-container {
+.settings-tab.settings-container {
     -webkit-column-width: 308px;
 }
 
-.settings-tab .help-block {
+.settings-tab .settings-block {
     margin-left: 20px;
 }
 
@@ -86,12 +49,12 @@
     height: 0; /* Avoid changing element height when content is set. */
 }
 
-.help-line {
+.settings-line {
     padding-bottom: 5px;
     margin-bottom: 5px;
 }
 
-.help-key-cell {
+.settings-key-cell {
     display: inline-block;
     width: 153px;
     white-space: nowrap;
@@ -100,18 +63,18 @@
     padding-right: 6px;
 }
 
-.help-cell {
+.settings-cell {
     display: inline-block;
     width: 135px;
     vertical-align: middle;
 }
 
-.help-section-title {
+.settings-section-title {
     font-size: 120%;
     text-align: left;
 }
 
-.help-key {
+.settings-key {
     padding: 0.1em 0.6em;
     border: 1px solid #ccc;
     font-size: 11px;
@@ -124,19 +87,18 @@
     text-shadow: 0 1px 0 #fff;
     line-height: 1.5;
     white-space: nowrap;
-    font-family: Lucida Grande, sans-serif;
 }
 
-.help-combine-keys,
-.help-key-delimiter {
+.settings-combine-keys,
+.settings-key-delimiter {
     font-size: 9px;
 }
 
-.help-combine-keys {
+.settings-combine-keys {
     margin: 0 0.3em;
 }
 
-.help-key-delimiter {
+.settings-key-delimiter {
     margin: 0 0.5em;
     display: none;
 }
@@ -150,17 +112,18 @@ fieldset {
 .settings-tab label {
     padding-right: 4px;
     display: inline-flex;
+    flex-shrink: 0;
 }
 
-#general-tab-content .help-block fieldset legend {
+#general-tab-content .settings-block fieldset legend {
     font-size: 14px;
 }
 
-.help-block p p {
+.settings-block p p {
     padding-left: 30px;
 }
 
-.help-content p.help-section {
+.settings-content p.settings-section {
     margin: 0 0 15px 0;
 }
 
@@ -172,41 +135,29 @@ fieldset {
     color: inherit;
 }
 
-.help-content input[type=checkbox] {
+.settings-content input[type=checkbox] {
     margin: 1px 7px 1px 2px;
 }
 
-.help-content option {
-    background-color: #EEEEEE;
-    color: #222;
-}
-
-.help-window-label {
+.settings-window-title {
     font-size: 18px;
-    color: inherit;
-    padding: 1px 0 15px 17px;
+    color: rgb(48, 57, 66);
+    padding: 0 0 5px 13px;
 }
 
-.help-container-wrapper {
+.settings-container-wrapper {
     position: absolute;
-    top: 40px;
+    top: 31px;
     left: 0px;
     right: 0;
     bottom: 0;
     overflow: auto;
+    padding-top: 9px;
 }
 
-.settings-tab.help-content {
+.settings-tab.settings-content {
     margin: 0;
     padding: 0;
-}
-
-.settings-tab input:not([type]),
-.settings-tab input[type="text"] {
-    border: 1px solid rgb(213, 213, 213);
-    border-radius: 2px;
-    color: #444444;
-    padding: 3px;
 }
 
 .settings-tab input.numeric {
@@ -223,11 +174,11 @@ fieldset {
     border-bottom: 1px solid #EEEEEE;
 }
 
-#experiments-tab-content .help-container {
+#experiments-tab-content .settings-container {
     -webkit-column-width: 470px;
 }
 
-#experiments-tab-content .help-block {
+#experiments-tab-content .settings-block {
     width: 470px;
     margin-left: 0;
 }
@@ -239,16 +190,16 @@ fieldset {
     padding-bottom: 3px;
 }
 
-.settings-tab .help-section-title {
+.settings-tab .settings-section-title {
     margin-left: -20px;
     color: #222;
 }
 
-.settings-tab .help-block fieldset:disabled label:hover {
+.settings-tab .settings-block fieldset:disabled label:hover {
     color: inherit;
 }
 
-.settings-tab .help-block label:hover {
+.settings-tab .settings-block label:hover {
     color: #222;
 }
 
@@ -260,69 +211,7 @@ fieldset {
     margin-left: 10px;
 }
 
-#workspace-tab-content .settings-tab.help-content.help-container {
-    -webkit-column-width: initial;
-    overflow: hidden;
-}
-
-
-#workspace-tab-content .button:hover {
-    opacity: 1.0 !important;
-}
-
-#workspace-tab-content .help-block {
-    width: auto;
-    margin-right: 20px;
-}
-
-p.folder-exclude-pattern {
-    margin-top: 0 !important;
-}
-
-.folder-exclude-pattern input {
-    margin-top: 10px;
-}
-
-.file-system-mapping-view {
-    margin-left: 30px;
-    margin-right: 10px;
-}
-
-.settings-tab .file-system-container {
-    margin-bottom: 18px;
-    padding: 0 8px;
-    border-left: 1px solid hsl(0, 0%, 90%);
-}
-
-.settings-tab .file-system-header {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-}
-
-.settings-tab .file-system-name {
-    font-weight: bold;
-    flex: none;
-    margin-right: 10px;
-    font-size: 15px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 70%;
-}
-
-.settings-tab .file-system-path {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: auto;
-}
-
-.settings-tab .file-system-remove {
-    flex: none;
-    margin-left: 10px;
-}
-
-.help-indent-labels label {
+.settings-indent-labels label {
     padding-left: 10px;
 }
 

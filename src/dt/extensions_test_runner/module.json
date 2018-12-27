@@ -1,0 +1,14 @@
+{
+  "dependencies": [
+    "test_runner",
+    "extensions"
+  ],
+  "scripts": [
+    "ExtensionsNetworkTestRunner.js",
+    "ExtensionsTestRunner.js"
+  ],
+  "skip_compilation": [
+    "ExtensionsNetworkTestRunner.js",
+    "ExtensionsTestRunner.js"
+  ]
+}

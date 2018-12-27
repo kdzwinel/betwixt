@@ -4,44 +4,45 @@
  * found in the LICENSE file.
  */
 
+:host {
+    overflow: hidden;
+}
+
 .animation-node-row {
     width: 100%;
     display: flex;
-    border-bottom: 1px dashed #ccc;
-}
-
-.animation-node-row:first-child > .animation-node-description {
-    line-height: 45px;
-}
-
-.animation-node-row:first-child > .animation-node-timeline {
-    padding-top: 5px;
+    border-bottom: 1px dashed hsla(0,0%,94%,1);
 }
 
 .animation-node-description {
-    display: inline-block;
-    min-width: 200px;
-    max-width: 200px;
-    padding-left: 15px;
+    width: 150px;
+    padding-left: 8px;
     overflow: hidden;
     position: relative;
     transform-style: preserve-3d;
-    line-height: 40px;
     border-bottom: 1px solid hsl(0, 0%, 90%);
     margin-bottom: -1px;
-    margin-right: 30px;
     background-color: hsl(0, 0%, 98%);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    flex: 0 0 150px;
+}
+
+.animation-node-description > * {
+    flex: 0 0 auto;
 }
 
 .animation-timeline-row {
-    height: 40px;
+    height: 32px;
     position: relative;
 }
 
 path.animation-keyframe {
-    fill-opacity: 0.3;
+    fill-opacity: 0.2;
+}
+
+svg.animation-ui g:first-child:hover path.animation-keyframe {
+    fill-opacity: 0.4;
 }
 
 .animation-node-selected path.animation-keyframe {
@@ -59,10 +60,15 @@ line.animation-delay-line {
     stroke-dasharray: 6, 4;
 }
 
+line.animation-delay-line.animation-fill {
+    stroke-dasharray: none;
+}
+
 circle.animation-endpoint, circle.animation-keyframe-point {
     stroke-width: 2px;
     transition: transform 100ms cubic-bezier(0, 0, 0.2, 1);
     transform: scale(1);
+    transform-box: fill-box;
     transform-origin: 50% 50%;
 }
 
@@ -80,18 +86,26 @@ circle.animation-keyframe-point {
 
 .animation-name {
     position: absolute;
-    top: 15px;
+    top: 8px;
     color: #333;
     text-align: center;
     margin-left: -8px;
-    text-overflow: ellipsis;
-    overflow: hidden;
     white-space: nowrap;
-    min-width: 50px;
+}
+
+.animation-timeline-toolbar-container {
+    display: flex;
+    background-color: var(--toolbar-bg-color);
+    border-bottom: var(--divider-border);
+    flex: 0 0 auto;
+}
+
+.animation-timeline-toolbar {
+    display: inline-block;
 }
 
 .animation-timeline-header {
-    height: 44px;
+    height: 28px;
     border-bottom: 1px solid #ccc;
     flex-shrink: 0;
     display: flex;
@@ -99,30 +113,49 @@ circle.animation-keyframe-point {
 
 .animation-timeline-header:after {
     content: "";
-    height: 100%;
+    height: calc(100% - 48px - 28px);
     position: absolute;
-    width: 200px;
+    width: 150px;
     left: 0;
+    margin-top: 28px;
     background-color: hsl(0, 0%, 98%);
-    z-index: -1;
+    z-index: 0;
     border-right: 1px solid hsl(0, 0%, 90%);
 }
 
 .animation-controls {
-    flex: 0 0 200px;
-    padding: 10px;
-    height: 100%;
-    line-height: 22px;
-    background-color: hsl(0, 0%, 98%);
-    border-right: 1px solid hsl(0, 0%, 90%);
+    flex: 0 0 150px;
+    position: relative;
+    display: flex;
+    justify-content: flex-end;
+    padding-right: 8px;
 }
 
-.animation-timeline-buffer {
-    height: 100%;
-    flex-grow: 1;
-    border-left: 1px solid #ccc;
+.animation-timeline-current-time {flex: 0 0 auto;line-height: 28px;margin-right: 5px;}
+.animation-grid-header {
+    flex: 1 0 auto;
+    z-index: 1;
+    cursor: text;
+}
+
+.animation-timeline-buffer, .animation-timeline-buffer-hint {
+    height: 48px;
+    flex: 0 0 auto;
+    border-bottom: 1px solid #ccc;
     display: flex;
     padding: 0 2px;
+}
+
+.animation-timeline-buffer:empty, .animation-timeline-buffer-hint {
+    display: none;
+}
+
+.animation-timeline-buffer:empty ~ .animation-timeline-buffer-hint {
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    z-index: 101;
+    display: flex;
 }
 
 .animation-time-overlay {
@@ -131,137 +164,54 @@ circle.animation-keyframe-point {
     position: absolute;
     height: 100%;
     width: 100%;
+    z-index: -1;
 }
 
 .animation-timeline-end > .animation-time-overlay {
     visibility: hidden;
 }
 
-input.animation-playback-slider {
-    width: 93px;
-    margin-left: 12px;
-    -webkit-appearance: none;
-    position: absolute;
-    top: 7px;
-    background: none;
-}
-
-input[type=range].animation-playback-slider::-webkit-slider-runnable-track {
-    height: 4px;
-    margin: 10px 0;
-    border-radius: 2px;
-    cursor: pointer;
-    background: #c8c8c8;
-}
-
-input[type=range].animation-playback-slider:focus::-webkit-slider-runnable-track {
-    background: #b8b8b8;
-}
-
-input[type=range].animation-playback-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    cursor: pointer;
-    margin-top: -4px;
-    cursor: pointer;
-    width: 12px;
-    height: 12px;
-    border-radius: 12px;
-    background-color: rgb(248, 248, 248);
-    border: 1px solid #999;
-    box-shadow: 0 1px 1px 0 rgba(0, 0, 0, 0.24);
-}
-
-.animation-playback-label {
-    display: inline-block;
-    width: 40px;
-    height: 22px;
-    overflow: hidden;
-    text-align: center;
-    border: 1px solid #dadada;
-    border-radius: 2px;
-    line-height: 20px;
-    font-size: 11px;
-    padding: 0;
-    color: #333;
-    white-space: nowrap;
-    overflow: hidden;
-    -webkit-user-modify: read-write-plaintext-only;
-}
-
 .animation-scrubber {
     opacity: 1;
     position: absolute;
-    left: 230px;
-    height: calc(100% - 43px);
-    width: calc(100% - 200px);
-    top: 43px;
-    border-left: 1px solid rgba(0,0,0,0.5);
+    left: 150px;
+    height: calc(100% - 103px);
+    width: calc(100% - 150px);
+    top: 103px;
+    border-left: 1px solid hsla(4,90%,58%,1);
+    z-index: 1;
 }
 
-.animation-scrubber.animation-timeline-end {
-    border: none;
+.animation-scrubber-line {
+    width: 11px;
+    background: linear-gradient(to right, transparent 5px, hsla(4,90%,58%,1) 5px, hsla(4,90%,58%,1) 6px, transparent 6px);
+    position: absolute;
+    top: -28px;
+    height: 28px;
+    left: -6px;
+    padding: 0 5px;
+    z-index: 2;
 }
 
 .animation-scrubber-head {
-    background-color: rgba(0, 0, 0, 0.7);
-    width: 60px;
-    height: 23px;
-    color: white;
-    line-height: 23px;
-    text-align: center;
-    border-radius: 5px;
-    position: relative;
-    top: -29px;
-    left: -30px;
-    font-size: 10px;
-    visibility: visible;
-}
-
-.animation-scrubber-head:before, .animation-scrubber-head:after {
-    content: "||";
+    width: 7px;
+    height: 7px;
+    transform: rotate(45deg);
+    background: red;
     position: absolute;
-    color: #999;
-    font-size: 8px;
-}
-
-.animation-scrubber-head:before {
-    left: 3px;
-}
-
-.animation-scrubber-head:after {
-    right: 3px;
-}
-
-.animation-timeline-end > .animation-scrubber-head {
-    visibility: visible;
-}
-
-.animation-timeline-end > .animation-scrubber-arrow {
-    visibility: hidden;
-}
-
-.animation-scrubber-arrow {
-    width: 21px;
-    height: 25px;
-    position: absolute;
-    top: -6px;
-    left: -7px;
-    -webkit-clip-path: polygon(0 0, 6px 6px, 12px 0px, 0px 0px);
-    background-color: rgba(0, 0, 0, 0.7);
-}
-
-.animation-timeline-end > .animation-timeline-timer {
-    visibility: hidden;
+    left: 2px;
+    top: 1px;
 }
 
 svg.animation-timeline-grid {
     position: absolute;
-    left: 230px;
-    top: 43px;
+    left: 140px;
+    top: 76px;
+    z-index: 0;
 }
 
 rect.animation-timeline-grid-line {
-    fill: hsl(0, 0%, 90%);
+    fill: hsla(0,0%,93%,1);
 }
 
 .animation-timeline-row > svg.animation-ui {
@@ -279,8 +229,9 @@ rect.animation-timeline-grid-line {
     max-height: 100%;
 }
 
-.animation-node-row.animation-node-removed {
-    background-color: hsla(0, 100%, 50%, 0.1);
+.animation-node-removed {
+    -webkit-filter: saturate(0);
+    cursor: not-allowed;
 }
 
 svg.animation-ui g:first-child {
@@ -298,18 +249,36 @@ svg.animation-ui g:first-child {
 
 text.animation-timeline-grid-label {
     font-size: 10px;
-    fill: #999;
+    fill: #5a5a5a;
+    text-anchor: middle;
 }
 
-.animation-timeline-rows {
+.animation-timeline-rows, .animation-timeline-rows-hint {
     flex-grow: 1;
     overflow-y: auto;
     z-index: 1;
     overflow-x: hidden;
 }
 
+.animation-timeline-rows-hint {
+    display: none;
+}
+
+.animation-timeline-buffer:not(:empty) ~ .animation-timeline-rows:empty {
+    flex-grow: 0;
+}
+
+.animation-timeline-buffer:not(:empty) ~ .animation-timeline-rows:empty ~ .animation-timeline-rows-hint {
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 150px;
+    padding: 10px;
+}
+
 .toolbar.animation-controls-toolbar {
-    float: right;
+    flex: 0 0 auto;
 }
 
 .animation-node-row.animation-node-selected {
@@ -334,20 +303,141 @@ text.animation-timeline-grid-label {
 }
 
 .animation-buffer-preview {
-    height: 35px;
+    height: 40px;
     margin: 4px 2px;
-    background-color: #F3F3F3;
+    background-color: var(--toolbar-bg-color);
     border-radius: 2px;
     flex: 1 1;
     padding: 4px;
     max-width: 100px;
+    animation: newGroupAnim 200ms;
+    position: relative;
 }
+
+.animation-buffer-preview-animation {
+    width: 100%;
+    height: 100%;
+    border-radius: 2px 0 0 2px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: hsla(219, 100%, 66%, 0.27);
+    opacity: 0;
+    border-right: 1px solid #A7A7A7;
+    cursor: pointer;
+}
+
+.animation-buffer-preview:not(.selected):hover {
+    background-color: hsla(217,90%,92%,1);
+}
+
 .animation-buffer-preview.selected {
-    background-color: hsl(217, 89%, 61%);
+    background-color: var(--selection-bg-color);
 }
+
+.animation-paused {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: hsla(0,0%,70%,0.5);
+    display: none;
+}
+
+.animation-paused:before, .animation-paused:after {
+    content: "";
+    background: hsl(0, 100%, 100%);
+    width: 7px;
+    height: 20px;
+    border-radius: 2px;
+    margin: 2px;
+    border: 1px solid #ccc;
+}
+
+.animation-buffer-preview.paused .animation-paused {
+    display: flex;
+}
+
 .animation-buffer-preview.selected > svg > line {
     stroke: white !important;
 }
+
 .animation-buffer-preview > svg > line {
     stroke-width: 1px;
+}
+
+@keyframes newGroupAnim {
+    from {
+        -webkit-clip-path: polygon(0% 0%, 0% 100%, 0% 100%, 0% 0%);
+    }
+    to {
+        -webkit-clip-path: polygon(0% 0%, 0% 100%, 100% 100%, 100% 0%);
+    }
+}
+
+.animation-playback-rate-control {
+    margin: 4px 0 4px 2px;
+    display: flex;
+    width: 120px;
+}
+
+.animation-playback-rate-button:first-child {
+    border-radius: 4px 0 0 4px;
+}
+
+.animation-playback-rate-button:last-child {
+    border-radius: 0 4px 4px 0;
+}
+
+.animation-playback-rate-button {
+    border: 1px solid #ccc;
+    display: inline-block;
+    margin-right: -1px;
+    padding: 1px 4px;
+    background: white;
+    flex: 1 0 auto;
+    text-align: center;
+    cursor: pointer;
+}
+
+.animation-playback-rate-button:not(.selected):hover {
+    background: hsl(211, 100%, 95%);
+}
+
+.animation-playback-rate-button.selected {
+    color: hsl(0, 100%, 100%);
+    background-color: var(--selection-bg-color);
+    border-color: var(--selection-bg-color);
+    z-index: 1;
+}
+
+.animation-playback-rate-button.selected:first-child {
+    color: var(--selection-bg-color);
+    background-color: hsl(217, 89%, 100%);
+}
+
+.animation-remove-button, -theme-preserve {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    background: #7B7B7B;
+    border-radius: 12px;
+    height: 16px;
+    width: 16px;
+    align-items: center;
+    font-size: 10px;
+    justify-content: center;
+    box-shadow: 0 1px 4px 0 rgb(185, 185, 185);
+    z-index: 100;
+    display: none;
+    cursor: pointer;
+    font-weight: 700;
+    color: white;
+}
+
+.animation-remove-button:hover {
+    background: #585858;
+}
+
+.animation-buffer-preview:hover .animation-remove-button {
+    display: flex;
 }

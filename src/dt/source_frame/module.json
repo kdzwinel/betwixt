@@ -1,14 +1,6 @@
 {
     "extensions": [
         {
-            "type": "@WebInspector.InplaceEditor",
-            "className": "WebInspector.CodeMirrorUtils"
-        },
-        {
-            "type": "@WebInspector.TokenizerFactory",
-            "className": "WebInspector.CodeMirrorUtils.TokenizerFactory"
-        },
-        {
             "type": "setting",
             "category": "Sources",
             "title": "Default indentation:",
@@ -16,61 +8,56 @@
             "settingType": "enum",
             "defaultValue": "    ",
             "options": [
-                ["2 spaces", "  "],
-                ["4 spaces", "    "],
-                ["8 spaces", "        "],
-                ["Tab character", "\t"]
+                {
+                    "title": "Set indentation to 2 spaces",
+                    "text": "2 spaces",
+                    "value": "  "
+                },
+                {
+                    "title": "Set indentation to 4 spaces",
+                    "text": "4 spaces",
+                    "value": "    "
+                },
+                {
+                    "title": "Set indentation to 8 spaces",
+                    "text": "8 spaces",
+                    "value": "        "
+                },
+                {
+                    "title": "Set indentation to tab character",
+                    "text": "Tab character",
+                    "value": "\t"
+                }
             ]
         }
     ],
     "dependencies": [
-        "components"
+        "text_editor",
+        "ui",
+        "platform",
+        "persistence",
+        "formatter",
+        "object_ui",
+        "workspace_diff"
     ],
     "scripts": [
-        "../cm/codemirror.js",
-        "../cm/css.js",
-        "../cm/javascript.js",
-        "../cm/simple.js",
-        "../cm/xml.js",
-        "../cm/htmlmixed.js",
-        "../cm/htmlembedded.js",
-
-        "../cm/matchbrackets.js",
-        "../cm/closebrackets.js",
-        "../cm/markselection.js",
-        "../cm/comment.js",
-        "../cm/overlay.js",
-        "../cm/activeline.js",
-
-        "CodeMirrorUtils.js",
-        "CodeMirrorDictionary.js",
-        "TextEditorAutocompleteController.js",
-        "CodeMirrorTextEditor.js",
+        "SourcesTextEditor.js",
         "FontView.js",
         "ImageView.js",
         "SourceFrame.js",
-        "ResourceSourceFrame.js"
-    ],
-    "skip_compilation": [
-        "../cm/codemirror.js",
-        "../cm/css.js",
-        "../cm/javascript.js",
-        "../cm/simple.js",
-        "../cm/xml.js",
-        "../cm/htmlmixed.js",
-        "../cm/htmlembedded.js",
-
-        "../cm/matchbrackets.js",
-        "../cm/closebrackets.js",
-        "../cm/markselection.js",
-        "../cm/comment.js",
-        "../cm/overlay.js",
-        "../cm/activeline.js"
+        "ResourceSourceFrame.js",
+        "JSONView.js",
+        "XMLView.js",
+        "PreviewFactory.js",
+        "SourceCodeDiff.js"
     ],
     "resources": [
-        "../cm/codemirror.css",
-        "cmdevtools.css",
         "fontView.css",
-        "imageView.css"
+        "imageView.css",
+        "jsonView.css",
+        "messagesPopover.css",
+        "xmlTree.css",
+        "xmlView.css",
+        "resourceSourceFrame.css"
     ]
 }

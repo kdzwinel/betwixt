@@ -5,126 +5,148 @@
 /**
  * @interface
  */
-WebInspector.Renderer = function()
-{
-}
-
-WebInspector.Renderer.prototype = {
-    /**
-     * @param {!Object} object
-     * @return {!Promise.<!Element>}
-     */
-    render: function(object) {}
-}
-
-/**
- * @param {!Object} object
- * @return {!Promise.<!Element>}
- */
-WebInspector.Renderer.renderPromise = function(object)
-{
-    if (!object)
-        return Promise.reject(new Error("Can't render " + object));
-
-    return self.runtime.instancePromise(WebInspector.Renderer, object).then(render);
-
-    /**
-     * @param {!WebInspector.Renderer} renderer
-     */
-    function render(renderer)
-    {
-        return renderer.render(object);
-    }
-}
-
-/**
- * @interface
- */
-WebInspector.Revealer = function()
-{
-}
+Common.Revealer = function() {};
 
 /**
  * @param {?Object} revealable
- * @param {number=} lineNumber
- */
-WebInspector.Revealer.reveal = function(revealable, lineNumber)
-{
-    WebInspector.Revealer.revealPromise(revealable, lineNumber);
-}
-
-/**
- * @param {?Object} revealable
- * @param {number=} lineNumber
+ * @param {boolean=} omitFocus
  * @return {!Promise.<undefined>}
  */
-WebInspector.Revealer.revealPromise = function(revealable, lineNumber)
-{
-    if (!revealable)
-        return Promise.reject(new Error("Can't reveal " + revealable));
-    return self.runtime.instancesPromise(WebInspector.Revealer, revealable).then(reveal);
+Common.Revealer.reveal = function(revealable, omitFocus) {
+  if (!revealable)
+    return Promise.reject(new Error('Can\'t reveal ' + revealable));
+  return self.runtime.allInstances(Common.Revealer, revealable).then(reveal);
 
-    /**
-     * @param {!Array.<!WebInspector.Revealer>} revealers
-     * @return {!Promise.<undefined>}
-     */
-    function reveal(revealers)
-    {
-        var promises = [];
-        for (var i = 0; i < revealers.length; ++i)
-            promises.push(revealers[i].reveal(/** @type {!Object} */ (revealable), lineNumber));
-        return Promise.race(promises);
-    }
-}
+  /**
+   * @param {!Array.<!Common.Revealer>} revealers
+   * @return {!Promise.<undefined>}
+   */
+  function reveal(revealers) {
+    const promises = [];
+    for (let i = 0; i < revealers.length; ++i)
+      promises.push(revealers[i].reveal(/** @type {!Object} */ (revealable), omitFocus));
+    return Promise.race(promises);
+  }
+};
 
-WebInspector.Revealer.prototype = {
-    /**
-     * @param {!Object} object
-     * @param {number=} lineNumber
-     * @return {!Promise}
-     */
-    reveal: function(object, lineNumber) {}
-}
+/**
+ * @param {?Object} revealable
+ * @return {?string}
+ */
+Common.Revealer.revealDestination = function(revealable) {
+  const extension = self.runtime.extension(Common.Revealer, revealable);
+  if (!extension)
+    return null;
+  return extension.descriptor()['destination'];
+};
+
+Common.Revealer.prototype = {
+  /**
+   * @param {!Object} object
+   * @param {boolean=} omitFocus
+   * @return {!Promise}
+   */
+  reveal(object, omitFocus) {}
+};
 
 /**
  * @interface
  */
-WebInspector.App = function()
-{
-}
+Common.App = function() {};
 
-WebInspector.App.prototype = {
-    /**
-     * @param {!Document} document
-     * @param {function()} callback
-     */
-    presentUI: function(document, callback) { }
-}
+Common.App.prototype = {
+  /**
+   * @param {!Document} document
+   */
+  presentUI(document) {}
+};
 
 /**
  * @interface
  */
-WebInspector.AppProvider = function()
-{
-}
+Common.AppProvider = function() {};
 
-WebInspector.AppProvider.prototype = {
-    /**
-     * @return {!WebInspector.App}
-     */
-    createApp: function() { }
-}
+Common.AppProvider.prototype = {
+  /**
+   * @return {!Common.App}
+   */
+  createApp() {}
+};
 
 /**
  * @interface
  */
-WebInspector.QueryParamHandler = function()
-{
-}
+Common.QueryParamHandler = function() {};
 
-WebInspector.QueryParamHandler.prototype = {
-    /**
-     * @param {string} value
-     */
-    handleQueryParam: function(value) { }
-}
+Common.QueryParamHandler.prototype = {
+  /**
+   * @param {string} value
+   */
+  handleQueryParam(value) {}
+};
+
+/**
+ * @interface
+ */
+Common.Runnable = function() {};
+
+Common.Runnable.prototype = {
+  run() {}
+};
+
+/**
+ * @interface
+ */
+Common.Linkifier = function() {};
+
+Common.Linkifier.prototype = {
+  /**
+   * @param {!Object} object
+   * @param {!Common.Linkifier.Options=} options
+   * @return {!Node}
+   */
+  linkify(object, options) {}
+};
+
+/**
+ * @param {?Object} object
+ * @param {!Common.Linkifier.Options=} options
+ * @return {!Promise<!Node>}
+ */
+Common.Linkifier.linkify = function(object, options) {
+  if (!object)
+    return Promise.reject(new Error('Can\'t linkify ' + object));
+  return self.runtime.extension(Common.Linkifier, object)
+      .instance()
+      .then(linkifier => linkifier.linkify(object, options));
+};
+
+/** @typedef {{tooltip: string}} */
+Common.Linkifier.Options;
+
+/**
+ * @interface
+ */
+Common.JavaScriptMetadata = function() {};
+Common.JavaScriptMetadata.prototype = {
+
+  /**
+   * @param {string} name
+   * @return {?Array<!Array<string>>}
+   */
+  signaturesForNativeFunction(name) {},
+
+  /**
+   * @param {string} name
+   * @param {string} receiverClassName
+   * @return {?Array<!Array<string>>}
+   */
+  signaturesForInstanceMethod(name, receiverClassName) {},
+
+  /**
+   * @param {string} name
+   * @param {string} receiverConstructorName
+   * @return {?Array<!Array<string>>}
+   */
+  signaturesForStaticMethod(name, receiverConstructorName) {}
+};

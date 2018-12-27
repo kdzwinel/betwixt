@@ -24,193 +24,175 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.VBox}
+ * @unrestricted
  */
-WebInspector.DatabaseQueryView = function(database)
-{
-    WebInspector.VBox.call(this);
+Resources.DatabaseQueryView = class extends UI.VBox {
+  constructor(database) {
+    super();
 
     this.database = database;
 
-    this.element.classList.add("storage-view", "query", "monospace");
-    this.element.addEventListener("selectstart", this._selectStart.bind(this), false);
+    this.element.classList.add('storage-view', 'query', 'monospace');
+    this.element.addEventListener('selectstart', this._selectStart.bind(this), false);
 
-    this._promptElement = createElement("div");
-    this._promptElement.className = "database-query-prompt";
-    this._promptElement.appendChild(createElement("br"));
-    this._promptElement.addEventListener("keydown", this._promptKeyDown.bind(this), true);
-    this.element.appendChild(this._promptElement);
+    this._promptContainer = this.element.createChild('div', 'database-query-prompt-container');
+    this._promptContainer.appendChild(UI.Icon.create('smallicon-text-prompt', 'prompt-icon'));
+    this._promptElement = this._promptContainer.createChild('div');
+    this._promptElement.className = 'database-query-prompt';
+    this._promptElement.addEventListener('keydown', this._promptKeyDown.bind(this));
 
-    this._prompt = new WebInspector.TextPromptWithHistory(this.completions.bind(this), " ");
+    this._prompt = new UI.TextPrompt();
+    this._prompt.initialize(this.completions.bind(this), ' ');
     this._proxyElement = this._prompt.attach(this._promptElement);
 
-    this.element.addEventListener("click", this._messagesClicked.bind(this), true);
-}
+    this.element.addEventListener('click', this._messagesClicked.bind(this), true);
+    this.element.tabIndex = 0;
+    this.element.addEventListener('focus', this._prompt.focus.bind(this._prompt));
+  }
 
-WebInspector.DatabaseQueryView.Events = {
-    SchemaUpdated: "SchemaUpdated"
-}
+  _messagesClicked() {
+    if (!this._prompt.isCaretInsidePrompt() && !this.element.hasSelection())
+      this._prompt.moveCaretToEndOfPrompt();
+  }
 
-WebInspector.DatabaseQueryView.prototype = {
-    /**
-     * @return {!Array.<!WebInspector.ToolbarItem>}
-     */
-    toolbarItems: function()
-    {
-        return [];
-    },
+  /**
+   * @param {string} expression
+   * @param {string} prefix
+   * @param {boolean=} force
+   * @return {!Promise<!UI.SuggestBox.Suggestions>}
+   */
+  async completions(expression, prefix, force) {
+    if (!prefix)
+      return [];
 
-    _messagesClicked: function()
-    {
-        if (!this._prompt.isCaretInsidePrompt() && this.element.isComponentSelectionCollapsed())
-            this._prompt.moveCaretToEndOfPrompt();
-    },
+    prefix = prefix.toLowerCase();
+    const tableNames = await this.database.tableNames();
+    return tableNames.map(name => name + ' ')
+        .concat(Resources.DatabaseQueryView._SQL_BUILT_INS)
+        .filter(proposal => proposal.toLowerCase().startsWith(prefix))
+        .map(completion => ({text: completion}));
+  }
 
-    /**
-     * @param {!Element} proxyElement
-     * @param {string} text
-     * @param {number} cursorOffset
-     * @param {!Range} wordRange
-     * @param {boolean} force
-     * @param {function(!Array.<string>, number=)} completionsReadyCallback
-     */
-    completions: function(proxyElement, text, cursorOffset, wordRange, force, completionsReadyCallback)
-    {
-        var prefix = wordRange.toString().toLowerCase();
-        if (!prefix)
-            return;
-        var results = [];
+  _selectStart(event) {
+    if (this._selectionTimeout)
+      clearTimeout(this._selectionTimeout);
 
-        function accumulateMatches(textArray)
-        {
-            for (var i = 0; i < textArray.length; ++i) {
-                var text = textArray[i].toLowerCase();
-                if (text.length < prefix.length)
-                    continue;
-                if (!text.startsWith(prefix))
-                    continue;
-                results.push(textArray[i]);
-            }
-        }
-
-        function tableNamesCallback(tableNames)
-        {
-            accumulateMatches(tableNames.map(function(name) { return name + " "; }));
-            accumulateMatches(["SELECT ", "FROM ", "WHERE ", "LIMIT ", "DELETE FROM ", "CREATE ", "DROP ", "TABLE ", "INDEX ", "UPDATE ", "INSERT INTO ", "VALUES ("]);
-
-            completionsReadyCallback(results);
-        }
-        this.database.getTableNames(tableNamesCallback);
-    },
-
-    _selectStart: function(event)
-    {
-        if (this._selectionTimeout)
-            clearTimeout(this._selectionTimeout);
-
-        this._prompt.clearAutoComplete();
-
-        /**
-         * @this {WebInspector.DatabaseQueryView}
-         */
-        function moveBackIfOutside()
-        {
-            delete this._selectionTimeout;
-            if (!this._prompt.isCaretInsidePrompt() && this.element.isComponentSelectionCollapsed())
-                this._prompt.moveCaretToEndOfPrompt();
-            this._prompt.autoCompleteSoon();
-        }
-
-        this._selectionTimeout = setTimeout(moveBackIfOutside.bind(this), 100);
-    },
-
-    _promptKeyDown: function(event)
-    {
-        if (isEnterKey(event)) {
-            this._enterKeyPressed(event);
-            return;
-        }
-    },
-
-    _enterKeyPressed: function(event)
-    {
-        event.consume(true);
-
-        this._prompt.clearAutoComplete(true);
-
-        var query = this._prompt.text();
-        if (!query.length)
-            return;
-
-        this._prompt.pushHistoryItem(query);
-        this._prompt.setText("");
-
-        this.database.executeSql(query, this._queryFinished.bind(this, query), this._queryError.bind(this, query));
-    },
-
-    _queryFinished: function(query, columnNames, values)
-    {
-        var dataGrid = WebInspector.SortableDataGrid.create(columnNames, values);
-        var trimmedQuery = query.trim();
-
-        if (dataGrid) {
-            dataGrid.renderInline();
-            var dataGridContainer = new WebInspector.DataGridContainerWidget();
-            dataGridContainer.appendDataGrid(dataGrid);
-            this._appendViewQueryResult(trimmedQuery, dataGridContainer);
-            dataGrid.autoSizeColumns(5);
-        }
-
-        if (trimmedQuery.match(/^create /i) || trimmedQuery.match(/^drop table /i))
-            this.dispatchEventToListeners(WebInspector.DatabaseQueryView.Events.SchemaUpdated, this.database);
-    },
-
-    _queryError: function(query, errorMessage)
-    {
-        this._appendErrorQueryResult(query, errorMessage);
-    },
+    this._prompt.clearAutocomplete();
 
     /**
-     * @param {string} query
-     * @param {!WebInspector.Widget} view
+     * @this {Resources.DatabaseQueryView}
      */
-    _appendViewQueryResult: function(query, view)
-    {
-        var resultElement = this._appendQueryResult(query);
-        view.show(resultElement);
-        this._promptElement.scrollIntoView(false);
-    },
+    function moveBackIfOutside() {
+      delete this._selectionTimeout;
+      if (!this._prompt.isCaretInsidePrompt() && !this.element.hasSelection())
+        this._prompt.moveCaretToEndOfPrompt();
+      this._prompt.autoCompleteSoon();
+    }
 
-    /**
-     * @param {string} query
-     * @param {string} errorText
-     */
-    _appendErrorQueryResult: function(query, errorText)
-    {
-        var resultElement = this._appendQueryResult(query);
-        resultElement.classList.add("error");
-        resultElement.textContent = errorText;
+    this._selectionTimeout = setTimeout(moveBackIfOutside.bind(this), 100);
+  }
 
-        this._promptElement.scrollIntoView(false);
-    },
+  _promptKeyDown(event) {
+    if (isEnterKey(event)) {
+      this._enterKeyPressed(event);
+      return;
+    }
+  }
 
-    _appendQueryResult: function(query)
-    {
-        var element = createElement("div");
-        element.className = "database-user-query";
-        this.element.insertBefore(element, this._proxyElement);
+  async _enterKeyPressed(event) {
+    event.consume(true);
 
-        var commandTextElement = createElement("span");
-        commandTextElement.className = "database-query-text";
-        commandTextElement.textContent = query;
-        element.appendChild(commandTextElement);
+    const query = this._prompt.textWithCurrentSuggestion();
+    this._prompt.clearAutocomplete();
 
-        var resultElement = createElement("div");
-        resultElement.className = "database-query-result";
-        element.appendChild(resultElement);
-        return resultElement;
-    },
+    if (!query.length)
+      return;
 
-    __proto__: WebInspector.VBox.prototype
-}
+    this._prompt.setEnabled(false);
+    try {
+      const result = await new Promise((resolve, reject) => {
+        this.database.executeSql(
+            query, (columnNames, values) => resolve({columnNames, values}), errorText => reject(errorText));
+      });
+      this._queryFinished(query, result.columnNames, result.values);
+    } catch (e) {
+      this._appendErrorQueryResult(query, e);
+    }
+    this._prompt.setEnabled(true);
+    this._prompt.setText('');
+    this._prompt.focus();
+  }
+
+  _queryFinished(query, columnNames, values) {
+    const dataGrid = DataGrid.SortableDataGrid.create(columnNames, values);
+    const trimmedQuery = query.trim();
+
+    let view = null;
+    if (dataGrid) {
+      dataGrid.setStriped(true);
+      dataGrid.renderInline();
+      dataGrid.autoSizeColumns(5);
+      view = dataGrid.asWidget();
+    }
+    this._appendViewQueryResult(trimmedQuery, view);
+
+    if (trimmedQuery.match(/^create /i) || trimmedQuery.match(/^drop table /i))
+      this.dispatchEventToListeners(Resources.DatabaseQueryView.Events.SchemaUpdated, this.database);
+  }
+
+  /**
+   * @param {string} query
+   * @param {?UI.Widget} view
+   */
+  _appendViewQueryResult(query, view) {
+    const resultElement = this._appendQueryResult(query);
+    if (view)
+      view.show(resultElement);
+    else
+      resultElement.remove();
+    this._promptElement.scrollIntoView(false);
+  }
+
+  /**
+   * @param {string} query
+   * @param {string} errorText
+   */
+  _appendErrorQueryResult(query, errorText) {
+    const resultElement = this._appendQueryResult(query);
+    resultElement.classList.add('error');
+    resultElement.appendChild(UI.Icon.create('smallicon-error', 'prompt-icon'));
+    resultElement.createTextChild(errorText);
+
+    this._promptElement.scrollIntoView(false);
+  }
+
+  /**
+   * @param {string} query
+   */
+  _appendQueryResult(query) {
+    const element = createElement('div');
+    element.className = 'database-user-query';
+    element.appendChild(UI.Icon.create('smallicon-user-command', 'prompt-icon'));
+    this.element.insertBefore(element, this._promptContainer);
+
+    const commandTextElement = createElement('span');
+    commandTextElement.className = 'database-query-text';
+    commandTextElement.textContent = query;
+    element.appendChild(commandTextElement);
+
+    const resultElement = createElement('div');
+    resultElement.className = 'database-query-result';
+    element.appendChild(resultElement);
+    return resultElement;
+  }
+};
+
+/** @enum {symbol} */
+Resources.DatabaseQueryView.Events = {
+  SchemaUpdated: Symbol('SchemaUpdated')
+};
+
+Resources.DatabaseQueryView._SQL_BUILT_INS = [
+  'SELECT ', 'FROM ', 'WHERE ', 'LIMIT ', 'DELETE FROM ', 'CREATE ', 'DROP ', 'TABLE ', 'INDEX ', 'UPDATE ',
+  'INSERT INTO ', 'VALUES ('
+];

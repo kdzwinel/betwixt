@@ -1,0 +1,23 @@
+{
+  "dependencies": [
+    "test_runner",
+    "workspace",
+    "diff",
+    "bindings",
+    "persistence"
+  ],
+  "scripts": [
+    "BindingsTestRunner.js",
+    "IsolatedFilesystemTestRunner.js",
+    "AutomappingTestRunner.js",
+    "PersistenceTestRunner.js",
+    "OverridesTestRunner.js"
+  ],
+  "skip_compilation": [
+    "BindingsTestRunner.js",
+    "IsolatedFilesystemTestRunner.js",
+    "AutomappingTestRunner.js",
+    "PersistenceTestRunner.js",
+    "OverridesTestRunner.js"
+  ]
+}

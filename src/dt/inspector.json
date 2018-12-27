@@ -1,17 +1,7 @@
-[
-    { "name": "platform", "type": "autostart" },
-    { "name": "main", "type": "autostart" },
-    { "name": "components", "type": "autostart" },
-    { "name": "ui", "type": "autostart" },
-    { "name": "sdk", "type": "autostart" },
-    { "name": "host", "type": "autostart" },
-    { "name": "common", "type": "autostart" },
-    { "name": "emulation", "type": "autostart" },
-    { "name": "workspace", "type": "autostart" },
-    { "name": "bindings", "type": "autostart" },
-    { "name": "extensions", "type": "autostart" },
-    { "name": "ui_lazy" },
-    { "name": "components_lazy" },
-    { "name": "network" },
-    { "name": "source_frame" }
-]
+{
+  "modules" : [
+    { "name": "screencast", "type": "autostart" }
+  ],
+  "extends": "devtools_app",
+  "has_html": true
+}

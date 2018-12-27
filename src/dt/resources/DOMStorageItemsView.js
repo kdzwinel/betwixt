@@ -24,240 +24,263 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/**
- * @constructor
- * @extends {WebInspector.DataGridContainerWidget}
- */
-WebInspector.DOMStorageItemsView = function(domStorage)
-{
-    WebInspector.DataGridContainerWidget.call(this);
+Resources.DOMStorageItemsView = class extends Resources.StorageItemsView {
+  /**
+   * @param {!Resources.DOMStorage} domStorage
+   */
+  constructor(domStorage) {
+    super(Common.UIString('DOM Storage'), 'domStoragePanel');
 
-    this.domStorage = domStorage;
+    this._domStorage = domStorage;
 
-    this.element.classList.add("storage-view", "table");
+    this.element.classList.add('storage-view', 'table');
 
-    this.deleteButton = new WebInspector.ToolbarButton(WebInspector.UIString("Delete"), "delete-toolbar-item");
-    this.deleteButton.setVisible(false);
-    this.deleteButton.addEventListener("click", this._deleteButtonClicked, this);
+    const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([
+      {id: 'key', title: Common.UIString('Key'), sortable: false, editable: true, longText: true, weight: 50},
+      {id: 'value', title: Common.UIString('Value'), sortable: false, editable: true, longText: true, weight: 50}
+    ]);
+    this._dataGrid = new DataGrid.DataGrid(columns, this._editingCallback.bind(this), this._deleteCallback.bind(this));
+    this._dataGrid.addEventListener(
+        DataGrid.DataGrid.Events.SelectedNode,
+        event => this._previewEntry(/** @type {!DataGrid.DataGridNode} */ (event.data)));
+    this._dataGrid.addEventListener(DataGrid.DataGrid.Events.DeselectedNode, event => this._previewEntry(null));
+    this._dataGrid.setStriped(true);
+    this._dataGrid.setName('DOMStorageItemsView');
 
-    this.refreshButton = new WebInspector.ToolbarButton(WebInspector.UIString("Refresh"), "refresh-toolbar-item");
-    this.refreshButton.addEventListener("click", this._refreshButtonClicked, this);
+    this._splitWidget = new UI.SplitWidget(false, false);
+    this._splitWidget.show(this.element);
+    this._splitWidget.setSecondIsSidebar(true);
 
-    this.domStorage.addEventListener(WebInspector.DOMStorage.Events.DOMStorageItemsCleared, this._domStorageItemsCleared, this);
-    this.domStorage.addEventListener(WebInspector.DOMStorage.Events.DOMStorageItemRemoved, this._domStorageItemRemoved, this);
-    this.domStorage.addEventListener(WebInspector.DOMStorage.Events.DOMStorageItemAdded, this._domStorageItemAdded, this);
-    this.domStorage.addEventListener(WebInspector.DOMStorage.Events.DOMStorageItemUpdated, this._domStorageItemUpdated, this);
-}
+    this._previewPanel = new UI.VBox();
+    const resizer = this._previewPanel.element.createChild('div', 'preview-panel-resizer');
+    const dataGridWidget = this._dataGrid.asWidget();
+    dataGridWidget.setMinimumSize(0, 50);
+    this._splitWidget.setMainWidget(dataGridWidget);
+    this._splitWidget.setSidebarWidget(this._previewPanel);
+    this._splitWidget.installResizer(resizer);
 
-WebInspector.DOMStorageItemsView.prototype = {
-    /**
-     * @return {!Array.<!WebInspector.ToolbarItem>}
-     */
-    toolbarItems: function()
-    {
-        return [this.refreshButton, this.deleteButton];
-    },
+    /** @type {?UI.Widget} */
+    this._preview = null;
+    /** @type {?string} */
+    this._previewValue = null;
 
-    wasShown: function()
-    {
-        this._update();
-    },
+    this._showPreview(null, null);
 
-    willHide: function()
-    {
-        this.deleteButton.setVisible(false);
-    },
+    this._eventListeners = [];
+    this.setStorage(domStorage);
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _domStorageItemsCleared: function(event)
-    {
-        if (!this.isShowing() || !this._dataGrid)
-            return;
+  /**
+   * @param {!Resources.DOMStorage} domStorage
+   */
+  setStorage(domStorage) {
+    Common.EventTarget.removeEventListeners(this._eventListeners);
+    this._domStorage = domStorage;
+    this._eventListeners = [
+      this._domStorage.addEventListener(
+          Resources.DOMStorage.Events.DOMStorageItemsCleared, this._domStorageItemsCleared, this),
+      this._domStorage.addEventListener(
+          Resources.DOMStorage.Events.DOMStorageItemRemoved, this._domStorageItemRemoved, this),
+      this._domStorage.addEventListener(
+          Resources.DOMStorage.Events.DOMStorageItemAdded, this._domStorageItemAdded, this),
+      this._domStorage.addEventListener(
+          Resources.DOMStorage.Events.DOMStorageItemUpdated, this._domStorageItemUpdated, this),
+    ];
+    this.refreshItems();
+  }
 
-        this._dataGrid.rootNode().removeChildren();
-        this._dataGrid.addCreationNode(false);
-        this.deleteButton.setVisible(false);
-        event.consume(true);
-    },
+  _domStorageItemsCleared() {
+    if (!this.isShowing() || !this._dataGrid)
+      return;
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _domStorageItemRemoved: function(event)
-    {
-        if (!this.isShowing() || !this._dataGrid)
-            return;
+    this._dataGrid.rootNode().removeChildren();
+    this._dataGrid.addCreationNode(false);
+    this.setCanDeleteSelected(false);
+  }
 
-        var storageData = event.data;
-        var rootNode = this._dataGrid.rootNode();
-        var children = rootNode.children;
+  /**
+   * @param {!Common.Event} event
+   */
+  _domStorageItemRemoved(event) {
+    if (!this.isShowing() || !this._dataGrid)
+      return;
 
-        event.consume(true);
+    const storageData = event.data;
+    const rootNode = this._dataGrid.rootNode();
+    const children = rootNode.children;
 
-        for (var i = 0; i < children.length; ++i) {
-            var childNode = children[i];
-            if (childNode.data.key === storageData.key) {
-                rootNode.removeChild(childNode);
-                this.deleteButton.setVisible(children.length > 1);
-                return;
-            }
-        }
-    },
+    for (let i = 0; i < children.length; ++i) {
+      const childNode = children[i];
+      if (childNode.data.key === storageData.key) {
+        rootNode.removeChild(childNode);
+        this.setCanDeleteSelected(children.length > 1);
+        return;
+      }
+    }
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _domStorageItemAdded: function(event)
-    {
-        if (!this.isShowing() || !this._dataGrid)
-            return;
+  /**
+   * @param {!Common.Event} event
+   */
+  _domStorageItemAdded(event) {
+    if (!this.isShowing() || !this._dataGrid)
+      return;
 
-        var storageData = event.data;
-        var rootNode = this._dataGrid.rootNode();
-        var children = rootNode.children;
+    const storageData = event.data;
+    const rootNode = this._dataGrid.rootNode();
+    const children = rootNode.children;
 
-        event.consume(true);
-        this.deleteButton.setVisible(true);
+    for (let i = 0; i < children.length; ++i) {
+      if (children[i].data.key === storageData.key)
+        return;
+    }
 
-        for (var i = 0; i < children.length; ++i)
-            if (children[i].data.key === storageData.key)
-                return;
+    const childNode = new DataGrid.DataGridNode({key: storageData.key, value: storageData.value}, false);
+    rootNode.insertChild(childNode, children.length - 1);
+  }
 
-        var childNode = new WebInspector.DataGridNode({key: storageData.key, value: storageData.value}, false);
-        rootNode.insertChild(childNode, children.length - 1);
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _domStorageItemUpdated(event) {
+    if (!this.isShowing() || !this._dataGrid)
+      return;
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _domStorageItemUpdated: function(event)
-    {
-        if (!this.isShowing() || !this._dataGrid)
-            return;
+    const storageData = event.data;
+    const childNode = this._dataGrid.rootNode().children.find(child => child.data.key === storageData.key);
+    if (!childNode || childNode.data.value === storageData.value)
+      return;
 
-        var storageData = event.data;
-        var rootNode = this._dataGrid.rootNode();
-        var children = rootNode.children;
+    childNode.data.value = storageData.value;
+    childNode.refresh();
+    if (!childNode.selected)
+      return;
+    this._previewEntry(childNode);
+    this.setCanDeleteSelected(true);
+  }
 
-        event.consume(true);
+  /**
+   * @param {!Array<!Array<string>>} items
+   */
+  _showDOMStorageItems(items) {
+    const rootNode = this._dataGrid.rootNode();
+    let selectedKey = null;
+    for (const node of rootNode.children) {
+      if (!node.selected)
+        continue;
+      selectedKey = node.data.key;
+      break;
+    }
+    rootNode.removeChildren();
+    let selectedNode = null;
+    const filteredItems = item => `${item[0]} ${item[1]}`;
+    for (const item of this.filter(items, filteredItems)) {
+      const key = item[0];
+      const value = item[1];
+      const node = new DataGrid.DataGridNode({key: key, value: value}, false);
+      node.selectable = true;
+      rootNode.appendChild(node);
+      if (!selectedNode || key === selectedKey)
+        selectedNode = node;
+    }
+    if (selectedNode)
+      selectedNode.selected = true;
+    this._dataGrid.addCreationNode(false);
+    this.setCanDeleteSelected(!!selectedNode);
+  }
 
-        var keyFound = false;
-        for (var i = 0; i < children.length; ++i) {
-            var childNode = children[i];
-            if (childNode.data.key === storageData.key) {
-                if (keyFound) {
-                    rootNode.removeChild(childNode);
-                    return;
-                }
-                keyFound = true;
-                if (childNode.data.value !== storageData.value) {
-                    childNode.data.value = storageData.value;
-                    childNode.refresh();
-                    childNode.select();
-                    childNode.reveal();
-                }
-                this.deleteButton.setVisible(true);
-            }
-        }
-    },
+  /**
+   * @override
+   */
+  deleteSelectedItem() {
+    if (!this._dataGrid || !this._dataGrid.selectedNode)
+      return;
 
-    _update: function()
-    {
-        this.detachChildWidgets();
-        this.domStorage.getItems(this._showDOMStorageItems.bind(this));
-    },
+    this._deleteCallback(this._dataGrid.selectedNode);
+  }
 
-    _showDOMStorageItems: function(error, items)
-    {
-        if (error)
-            return;
+  /**
+   * @override
+   */
+  refreshItems() {
+    this._domStorage.getItems().then(items => items && this._showDOMStorageItems(items));
+  }
 
-        this._dataGrid = this._dataGridForDOMStorageItems(items);
-        this.appendDataGrid(this._dataGrid);
-        this.deleteButton.setVisible(this._dataGrid.rootNode().children.length > 1);
-    },
+  /**
+   * @override
+   */
+  deleteAllItems() {
+    this._domStorage.clear();
+    // explicitly clear the view because the event won't be fired when it has no items
+    this._domStorageItemsCleared();
+  }
 
-    _dataGridForDOMStorageItems: function(items)
-    {
-        var columns = [
-            {id: "key", title: WebInspector.UIString("Key"), editable: true, weight: 50},
-            {id: "value", title: WebInspector.UIString("Value"), editable: true, weight: 50}
-        ];
+  _editingCallback(editingNode, columnIdentifier, oldText, newText) {
+    const domStorage = this._domStorage;
+    if (columnIdentifier === 'key') {
+      if (typeof oldText === 'string')
+        domStorage.removeItem(oldText);
+      domStorage.setItem(newText, editingNode.data.value || '');
+      this._removeDupes(editingNode);
+    } else {
+      domStorage.setItem(editingNode.data.key || '', newText);
+    }
+  }
 
-        var nodes = [];
+  /**
+   * @param {!DataGrid.DataGridNode} masterNode
+   */
+  _removeDupes(masterNode) {
+    const rootNode = this._dataGrid.rootNode();
+    const children = rootNode.children;
+    for (let i = children.length - 1; i >= 0; --i) {
+      const childNode = children[i];
+      if ((childNode.data.key === masterNode.data.key) && (masterNode !== childNode))
+        rootNode.removeChild(childNode);
+    }
+  }
 
-        var keys = [];
-        var length = items.length;
-        for (var i = 0; i < items.length; i++) {
-            var key = items[i][0];
-            var value = items[i][1];
-            var node = new WebInspector.DataGridNode({key: key, value: value}, false);
-            node.selectable = true;
-            nodes.push(node);
-            keys.push(key);
-        }
+  _deleteCallback(node) {
+    if (!node || node.isCreationNode)
+      return;
 
-        var dataGrid = new WebInspector.DataGrid(columns, this._editingCallback.bind(this), this._deleteCallback.bind(this));
-        dataGrid.setName("DOMStorageItemsView");
-        length = nodes.length;
-        for (var i = 0; i < length; ++i)
-            dataGrid.rootNode().appendChild(nodes[i]);
-        dataGrid.addCreationNode(false);
-        if (length > 0)
-            nodes[0].selected = true;
-        return dataGrid;
-    },
+    if (this._domStorage)
+      this._domStorage.removeItem(node.data.key);
+  }
 
-    _deleteButtonClicked: function(event)
-    {
-        if (!this._dataGrid || !this._dataGrid.selectedNode)
-            return;
+  /**
+   * @param {?UI.Widget} preview
+   * @param {?string} value
+   */
+  _showPreview(preview, value) {
+    if (this._preview && this._previewValue === value)
+      return;
+    if (this._preview)
+      this._preview.detach();
+    if (!preview)
+      preview = new UI.EmptyWidget(Common.UIString('Select a value to preview'));
+    this._previewValue = value;
+    this._preview = preview;
+    preview.show(this._previewPanel.contentElement);
+  }
 
-        this._deleteCallback(this._dataGrid.selectedNode);
-        this._dataGrid.changeNodeAfterDeletion();
-    },
-
-    _refreshButtonClicked: function(event)
-    {
-        this._update();
-    },
-
-    _editingCallback: function(editingNode, columnIdentifier, oldText, newText)
-    {
-        var domStorage = this.domStorage;
-        if ("key" === columnIdentifier) {
-            if (typeof oldText === "string")
-                domStorage.removeItem(oldText);
-            domStorage.setItem(newText, editingNode.data.value || '');
-            this._removeDupes(editingNode);
-        } else
-            domStorage.setItem(editingNode.data.key || '', newText);
-    },
-
-    /**
-     * @param {!WebInspector.DataGridNode} masterNode
-     */
-    _removeDupes: function(masterNode)
-    {
-        var rootNode = this._dataGrid.rootNode();
-        var children = rootNode.children;
-        for (var i = children.length - 1; i >= 0; --i) {
-            var childNode = children[i];
-            if ((childNode.data.key === masterNode.data.key) && (masterNode !== childNode))
-                rootNode.removeChild(childNode);
-        }
-    },
-
-    _deleteCallback: function(node)
-    {
-        if (!node || node.isCreationNode)
-            return;
-
-        if (this.domStorage)
-            this.domStorage.removeItem(node.data.key);
-    },
-
-    __proto__: WebInspector.DataGridContainerWidget.prototype
-}
+  /**
+   * @param {?DataGrid.DataGridNode} entry
+   */
+  async _previewEntry(entry) {
+    const value = entry && entry.data && entry.data.value;
+    if (!value) {
+      this._showPreview(null, value);
+      return;
+    }
+    const protocol = this._domStorage.isLocalStorage ? 'localstorage' : 'sessionstorage';
+    const url = `${protocol}://${entry.key}`;
+    const provider =
+        Common.StaticContentProvider.fromString(url, Common.resourceTypes.XHR, /** @type {string} */ (value));
+    const preview = await SourceFrame.PreviewFactory.createPreview(provider, 'text/plain');
+    // Selection could've changed while the preview was loaded
+    if (!entry.selected)
+      return;
+    this._showPreview(preview, value);
+  }
+};
