@@ -30,84 +30,6 @@
         },
         {
             "type": "action",
-            "category": "Drawer",
-            "actionId": "inspector_main.focus-debuggee",
-            "className": "InspectorMain.FocusDebuggeeActionDelegate",
-            "order": 100,
-            "title": "Focus debuggee"
-        },
-        {
-            "type": "action",
-            "category": "Drawer",
-            "actionId": "main.toggle-drawer",
-            "className": "UI.InspectorView.ActionDelegate",
-            "order": 101,
-            "title": "Toggle drawer",
-            "bindings": [
-                {
-                    "shortcut": "Esc"
-                }
-            ]
-        },
-        {
-            "type": "action",
-            "actionId": "main.next-tab",
-            "className": "UI.InspectorView.ActionDelegate",
-            "bindings": [
-                {
-                    "platform": "windows,linux",
-                    "shortcut": "Ctrl+]"
-                },
-                {
-                    "platform": "mac",
-                    "shortcut": "Meta+]"
-                }
-            ]
-        },
-        {
-            "type": "action",
-            "actionId": "main.previous-tab",
-            "className": "UI.InspectorView.ActionDelegate",
-            "bindings": [
-                {
-                    "platform": "windows,linux",
-                    "shortcut": "Ctrl+["
-                },
-                {
-                    "platform": "mac",
-                    "shortcut": "Meta+["
-                }
-            ]
-        },
-        {
-            "type": "action",
-            "actionId": "main.debug-reload",
-            "className": "Main.ReloadActionDelegate",
-            "bindings": [
-                {
-                    "shortcut": "Alt+R"
-                }
-            ]
-        },
-        {
-            "type": "action",
-            "category": "DevTools",
-            "title": "Restore last dock position",
-            "actionId": "main.toggle-dock",
-            "className": "Components.DockController.ToggleDockActionDelegate",
-            "bindings": [
-                {
-                    "platform": "windows,linux",
-                    "shortcut": "Ctrl+Shift+D"
-                },
-                {
-                    "platform": "mac",
-                    "shortcut": "Meta+Shift+D"
-                }
-            ]
-        },
-        {
-            "type": "action",
             "actionId": "main.zoom-in",
             "className": "Main.Main.ZoomActionDelegate",
             "bindings": [
@@ -209,12 +131,6 @@
             "type": "@UI.ToolbarItem.Provider",
             "separator": true,
             "order": 98,
-            "location": "main-toolbar-right"
-        },
-        {
-            "type": "@UI.ToolbarItem.Provider",
-            "className": "Main.Main.MainMenuItem",
-            "order": 99,
             "location": "main-toolbar-right"
         },
         {

@@ -13,6 +13,14 @@ function init(webContents, options) {
     // this part is responsible for answering devtools requests
     frontEndConnection
         .on('message', (message) => {
+            if (typeof message === 'string') {
+                try {
+                    message = JSON.parse(message);
+                } catch(e) {
+                    console.log(chalk.red('FEConnection: ') + 'non-json message', message);
+                }
+            }
+
             if (message.method === 'Network.getResponseBody') {
                 let connectionId = parseInt(message.params.requestId, 10);
                 let connection = trafficInterceptor.getConnection(connectionId);

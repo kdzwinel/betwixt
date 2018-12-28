@@ -253,6 +253,61 @@ SDK.StubConnection = class {
   }
 };
 
+const { ipcRenderer } = require('electron');
+
+
+/**
+ * @implements {Protocol.Connection}
+ */
+SDK.ElectronConnection = class {
+  constructor() {
+    this._onMessage = null;
+    this._onDisconnect = null;
+
+    ipcRenderer.on('backend-message', (from, response) => {
+      if (this._onMessage) {
+        this._onMessage(response.data);
+      }
+    });
+  }
+
+  /**
+   * @override
+   * @param {function((!Object|string))} onMessage
+   */
+  setOnMessage(onMessage) {
+    this._onMessage = onMessage;
+  }
+
+  /**
+   * @override
+   * @param {function(string)} onDisconnect
+   */
+  setOnDisconnect(onDisconnect) {
+    this._onDisconnect = onDisconnect;
+  }
+
+  /**
+   * @override
+   * @param {string} message
+   */
+  sendRawMessage(message) {
+    ipcRenderer.send('frontend-message', message);
+  }
+
+  /**
+   * @override
+   * @return {!Promise}
+   */
+  disconnect() {
+    if (this._onDisconnect)
+      this._onDisconnect.call(null, 'force disconnect');
+    this._onDisconnect = null;
+    this._onMessage = null;
+    return Promise.resolve();
+  }
+};
+
 /**
  * @param {function()} createMainTarget
  * @param {function()} websocketConnectionLost
@@ -271,17 +326,19 @@ SDK.initMainConnection = async function(createMainTarget, websocketConnectionLos
  * @return {!Protocol.Connection}
  */
 SDK._createMainConnection = function() {
-  const wsParam = Runtime.queryParam('ws');
-  const wssParam = Runtime.queryParam('wss');
-  if (wsParam || wssParam) {
-    const ws = wsParam ? `ws://${wsParam}` : `wss://${wssParam}`;
-    SDK._mainConnection = new SDK.WebSocketConnection(ws, SDK._websocketConnectionLost);
-  } else if (InspectorFrontendHost.isHostedMode()) {
-    SDK._mainConnection = new SDK.StubConnection();
-  } else {
-    SDK._mainConnection = new SDK.MainConnection();
-  }
-  return SDK._mainConnection;
+  return new SDK.ElectronConnection();
+
+  // const wsParam = Runtime.queryParam('ws');
+  // const wssParam = Runtime.queryParam('wss');
+  // if (wsParam || wssParam) {
+  //   const ws = wsParam ? `ws://${wsParam}` : `wss://${wssParam}`;
+  //   SDK._mainConnection = new SDK.WebSocketConnection(ws, SDK._websocketConnectionLost);
+  // } else if (InspectorFrontendHost.isHostedMode()) {
+  //   SDK._mainConnection = new SDK.StubConnection();
+  // } else {
+  //   SDK._mainConnection = new SDK.MainConnection();
+  // }
+  // return SDK._mainConnection;
 };
 
 /** @type {!Protocol.Connection} */

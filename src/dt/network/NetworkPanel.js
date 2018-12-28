@@ -194,9 +194,9 @@ Network.NetworkPanel = class extends UI.Panel {
     clearButton.addEventListener(UI.ToolbarButton.Events.Click, () => SDK.networkLog.reset(), this);
     this._panelToolbar.appendToolbarItem(clearButton);
     this._panelToolbar.appendSeparator();
-    const recordFilmStripButton = new UI.ToolbarSettingToggle(
-        this._networkRecordFilmStripSetting, 'largeicon-camera', Common.UIString('Capture screenshots'));
-    this._panelToolbar.appendToolbarItem(recordFilmStripButton);
+    // const recordFilmStripButton = new UI.ToolbarSettingToggle(
+    //     this._networkRecordFilmStripSetting, 'largeicon-camera', Common.UIString('Capture screenshots'));
+    // this._panelToolbar.appendToolbarItem(recordFilmStripButton);
 
     this._panelToolbar.appendToolbarItem(this._filterBar.filterButton());
     updateSidebarToggle();
@@ -222,24 +222,24 @@ Network.NetworkPanel = class extends UI.Panel {
         Common.UIString('Hide overview'));
     this._panelToolbar.appendToolbarItem(showOverviewButton);
 
-    this._panelToolbar.appendToolbarItem(new UI.ToolbarSettingCheckbox(
-        Common.moduleSetting('network.group-by-frame'), '', Common.UIString('Group by frame')));
+    // this._panelToolbar.appendToolbarItem(new UI.ToolbarSettingCheckbox(
+    //     Common.moduleSetting('network.group-by-frame'), '', Common.UIString('Group by frame')));
 
-    this._panelToolbar.appendSeparator();
-    this._panelToolbar.appendToolbarItem(new UI.ToolbarSettingCheckbox(
-        this._preserveLogSetting, Common.UIString('Do not clear log on page reload / navigation'),
-        Common.UIString('Preserve log')));
+    // this._panelToolbar.appendSeparator();
+    // this._panelToolbar.appendToolbarItem(new UI.ToolbarSettingCheckbox(
+    //     this._preserveLogSetting, Common.UIString('Do not clear log on page reload / navigation'),
+    //     Common.UIString('Preserve log')));
 
-    const disableCacheCheckbox = new UI.ToolbarSettingCheckbox(
-        Common.moduleSetting('cacheDisabled'), Common.UIString('Disable cache (while DevTools is open)'),
-        Common.UIString('Disable cache'));
-    this._panelToolbar.appendToolbarItem(disableCacheCheckbox);
+    // const disableCacheCheckbox = new UI.ToolbarSettingCheckbox(
+    //     Common.moduleSetting('cacheDisabled'), Common.UIString('Disable cache (while DevTools is open)'),
+    //     Common.UIString('Disable cache'));
+    // this._panelToolbar.appendToolbarItem(disableCacheCheckbox);
 
-    this._panelToolbar.appendSeparator();
-    this._panelToolbar.appendToolbarItem(this._offlineCheckbox);
-    this._panelToolbar.appendToolbarItem(this._throttlingSelect);
+    // this._panelToolbar.appendSeparator();
+    // this._panelToolbar.appendToolbarItem(this._offlineCheckbox);
+    // this._panelToolbar.appendToolbarItem(this._throttlingSelect);
 
-    this._panelToolbar.appendToolbarItem(new UI.ToolbarItem(this._progressBarContainer));
+    // this._panelToolbar.appendToolbarItem(new UI.ToolbarItem(this._progressBarContainer));
   }
 
   /**

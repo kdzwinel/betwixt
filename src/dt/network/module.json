@@ -166,7 +166,140 @@
                     "shortcut": "Ctrl+F"
                 }
             ]
-        }
+        },
+        {
+          "type": "setting",
+          "category": "Sources",
+          "title": "Enable JavaScript source maps",
+          "settingName": "jsSourceMapsEnabled",
+          "settingType": "boolean",
+          "defaultValue": true,
+          "options": [
+              {
+                  "value": true,
+                  "title": "Enable JavaScript source maps"
+              },
+              {
+                  "value": false,
+                  "title": "Disable JavaScript source maps"
+              }
+          ]
+      },
+      {
+          "type": "setting",
+          "category": "Sources",
+          "title": "Enable CSS source maps",
+          "settingName": "cssSourceMapsEnabled",
+          "settingType": "boolean",
+          "defaultValue": true,
+          "options": [
+              {
+                  "value": true,
+                  "title": "Enable CSS source maps"
+              },
+              {
+                  "value": false,
+                  "title": "Disable CSS source maps"
+              }
+          ]
+      },
+      {
+          "type": "setting",
+          "category": "Sources",
+          "title": "Bracket matching",
+          "settingName": "textEditorBracketMatching",
+          "settingType": "boolean",
+          "defaultValue": true,
+          "options": [
+              {
+                  "value": true,
+                  "title": "Enable bracket matching"
+              },
+              {
+                  "value": false,
+                  "title": "Disable bracket matching"
+              }
+          ]
+      },
+      {
+        "type": "setting",
+        "category": "Sources",
+        "title": "Detect indentation",
+        "settingName": "textEditorAutoDetectIndent",
+        "settingType": "boolean",
+        "defaultValue": true,
+        "options": [
+            {
+                "value": true,
+                "title": "Detect indentation"
+            },
+            {
+                "value": false,
+                "title": "Do not detect indentation"
+            }
+        ]
+      },
+      {
+        "type": "setting",
+        "category": "Sources",
+        "title": "Show whitespace characters:",
+        "settingName": "showWhitespacesInEditor",
+        "settingType": "enum",
+        "defaultValue": "original",
+        "options": [
+            {
+                "title": "Do not show whitespace characters",
+                "text": "None",
+                "value": "none"
+            },
+            {
+                "title": "Show all whitespace characters",
+                "text": "All",
+                "value": "all"
+            },
+            {
+                "title": "Show trailing whitespace characters",
+                "text": "Trailing",
+                "value": "trailing"
+            }
+        ]
+      },
+      {
+        "type": "setting",
+        "category": "Sources",
+        "title": "Code folding",
+        "settingName": "textEditorCodeFolding",
+        "settingType": "boolean",
+        "defaultValue": false,
+        "options": [
+            {
+                "value": true,
+                "title": "Enable code folding"
+            },
+            {
+                "value": false,
+                "title": "Disable code folding"
+            }
+        ]
+      },
+      {
+        "type": "setting",
+        "category": "Sources",
+        "title": "Autocompletion",
+        "settingName": "textEditorAutocompletion",
+        "settingType": "boolean",
+        "defaultValue": true,
+        "options": [
+            {
+                "value": true,
+                "title": "Enable autocompletion"
+            },
+            {
+                "value": false,
+                "title": "Disable autocompletion"
+            }
+        ]
+      }
     ],
     "dependencies": [
         "search",
