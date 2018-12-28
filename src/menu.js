@@ -1,75 +1,73 @@
-'use strict';
-
-const shell = require('electron').shell;
+const { shell } = require('electron');
 const path = require('path');
 
 function buildMenu(app, options) {
-    const template = [
+  const template = [
+    {
+      label: 'Edit',
+      submenu: [
         {
-            label: 'Edit',
-            submenu: [
-                {
-                    label: 'Undo',
-                    accelerator: 'CmdOrCtrl+Z',
-                    role: 'undo'
-                },
-                {
-                    label: 'Redo',
-                    accelerator: 'Shift+CmdOrCtrl+Z',
-                    role: 'redo'
-                },
-                {
-                    type: 'separator'
-                },
-                {
-                    label: 'Cut',
-                    accelerator: 'CmdOrCtrl+X',
-                    role: 'cut'
-                },
-                {
-                    label: 'Copy',
-                    accelerator: 'CmdOrCtrl+C',
-                    role: 'copy'
-                },
-                {
-                    label: 'Paste',
-                    accelerator: 'CmdOrCtrl+V',
-                    role: 'paste'
-                },
-                {
-                    label: 'Select All',
-                    accelerator: 'CmdOrCtrl+A',
-                    role: 'selectall'
-                }
-            ]
+          label: 'Undo',
+          accelerator: 'CmdOrCtrl+Z',
+          role: 'undo',
         },
         {
-            label: 'Tools',
-            submenu: [
-                {
-                    label: 'Root Certificate',
-                    click: () => {
-                        shell.showItemInFolder(path.resolve(options.sslCaDir, 'certs', 'ca.pem'));
-                    }
-                }
-            ]
-        }
-    ];
+          label: 'Redo',
+          accelerator: 'Shift+CmdOrCtrl+Z',
+          role: 'redo',
+        },
+        {
+          type: 'separator',
+        },
+        {
+          label: 'Cut',
+          accelerator: 'CmdOrCtrl+X',
+          role: 'cut',
+        },
+        {
+          label: 'Copy',
+          accelerator: 'CmdOrCtrl+C',
+          role: 'copy',
+        },
+        {
+          label: 'Paste',
+          accelerator: 'CmdOrCtrl+V',
+          role: 'paste',
+        },
+        {
+          label: 'Select All',
+          accelerator: 'CmdOrCtrl+A',
+          role: 'selectall',
+        },
+      ],
+    },
+    {
+      label: 'Tools',
+      submenu: [
+        {
+          label: 'Root Certificate',
+          click: () => {
+            shell.showItemInFolder(path.resolve(options.sslCaDir, 'certs', 'ca.pem'));
+          },
+        },
+      ],
+    },
+  ];
 
-    if (process.platform === 'darwin') {
-        template.unshift({
-            label: app.getName(),
-            submenu: [
-                {
-                    label: 'Quit',
-                    accelerator: 'Command+Q',
-                    click: () => app.quit()
-                }
-            ]
-        });
-    }
+  if (process.platform === 'darwin') {
+    template.unshift({
+      label: app.getName(),
+      submenu: [
+        {
+          label: 'Quit',
+          accelerator: 'Command+Q',
+          click: () => app.quit(),
+        },
+      ],
+    });
+  }
 
-    return template;
+  return template;
 }
 
 module.exports = buildMenu;

@@ -1,246 +1,271 @@
-'use strict';
-
 const url = require('url');
 const zlib = require('zlib');
 const isTextOrBinary = require('istextorbinary');
 const getTime = require('./init-time');
 
 const generateConnectionId = (() => {
-    let id = 1;
-    return () => id++;
+  let id = 1;
+  return () => id++;
 })();
 
 /**
  * All information regarding request and corresponding response - includes timing information.
  */
 class CapturedConnection {
-    constructor() {
-        this._id = generateConnectionId();
-        this._timing = {
-            wallTime: Date.now() / 1000,
-            start: getTime()
-        };
-        this._chunks = [];
-        this._request = null;
-        this._response = null;
-        this._binary = null;
-        this._resourceType = 'Other';
-        this._encodedSize = null;
-        this._responseBody = null;
+  constructor() {
+    /**
+     * @type {number}
+     */
+    this._id = generateConnectionId();
+    /**
+     * @type {{wallTime: number, start: number, dataReceived?: number, responseReceived?: number, responseFinished?: number}}
+     */
+    this._timing = {
+      wallTime: Date.now() / 1000,
+      start: getTime(),
+    };
+    this._chunks = [];
+    /**
+     * @type {{url: string, method: ('GET'|'POST'|'HEAD'|'DELETE'|'PUT'), headers: object, postData: string}}
+     */
+    this._request = null;
+    /**
+     * @type {{url: string, statusCode: number, statusMessage: string, headers: object, rawHeaders: string, connectionId: number, remoteAddress: string, remotePort: number}}
+     */
+    this._response = null;
+    /**
+     * @type {boolean}
+     */
+    this._binary = null;
+    /**
+     * @type {('Document'|'Stylesheet'|'Image'|'Media'|'Font'|'Script'|'TextTrack'|'XHR'|'Fetch'|'EventSource'|'WebSocket'|'Manifest'|'SignedExchange'|'Ping'|'CSPViolationReport'|'Other')}
+     */
+    this._resourceType = 'Other';
+    /**
+     * @type {number}
+     */
+    this._encodedSize = null;
+    /**
+     * @type {string}
+     */
+    this._responseBody = null;
+  }
+
+  setRequest(req, isSSL, body) {
+    this._request = {
+      url: fullUrl(req, isSSL),
+      method: req.method,
+      headers: req.headers,
+      postData: body,
+    };
+  }
+
+  setResponse(res) {
+    this._response = {
+      url: res.url,
+      statusCode: res.statusCode,
+      statusMessage: res.statusMessage,
+      headers: flattenHeaders(res.headers),
+      rawHeaders: recreateRawResponseHeaders(res),
+      connectionId: res.connection.localPort,
+      remoteAddress: res.connection.remoteAddress,
+      remotePort: res.connection.remotePort,
+    };
+
+    this._resourceType = getResourceType(res.headers['content-type']);
+  }
+
+  getId() {
+    return this._id;
+  }
+
+  getTiming() {
+    return this._timing;
+  }
+
+  registerResponseReceived() {
+    this._timing.responseReceived = getTime();
+  }
+
+  registerDataReceived(data) {
+    if (!this._chunks) {
+      this._timing.dataReceived = getTime();
     }
 
-    setRequest(req, isSSL, body) {
-        this._request = {
-            url: fullUrl(req, isSSL),
-            method: req.method,
-            headers: req.headers,
-            postData: body
-        };
+    this._chunks.push(data);
+  }
+
+  registerResponseFinished() {
+    this._timing.responseFinished = getTime();
+
+    if (this._chunks.length) {
+      let buffer = Buffer.concat(this._chunks);
+      this._encodedSize = buffer.length;
+
+      if (this.isEncoded()) {
+        buffer = unpackBody(buffer, this._response.headers['content-encoding']);
+      }
+
+      this._binary = isBinary(this._response.headers['content-type'], buffer);
+      this._responseBody = this.isBinary() ? buffer.toString('base64') : buffer.toString('utf8');
+
+      this._chunks = [];
+    }
+  }
+
+  /**
+     * @returns {('Document'|'Stylesheet'|'Image'|'Media'|'Font'|'Script'|'TextTrack'|'XHR'|'Fetch'|'EventSource'|'WebSocket'|'Manifest'|'SignedExchange'|'Ping'|'CSPViolationReport'|'Other')}
+     */
+  getResourceType() {
+    return this._resourceType;
+  }
+
+  getEncodedSize() {
+    const encodedBodySize = this._encodedSize;
+
+    if (encodedBodySize !== null) {
+      const headerSize = this._response && this._response.rawHeaders.length;
+
+      return (headerSize + encodedBodySize);
     }
 
-    setResponse(res) {
-        this._response = {
-            url: res.url,
-            statusCode: res.statusCode,
-            statusMessage: res.statusMessage,
-            headers: flattenHeaders(res.headers),
-            rawHeaders: recreateRawResponseHeaders(res),
-            connectionId: res.connection.localPort,
-            remoteAddress: res.connection.remoteAddress,
-            remotePort: res.connection.remotePort
-        };
+    return Number.parseInt(this._response.headers['content-length'], 10);
+  }
 
-        this._resourceType = getResourceType(res.headers['content-type']);
-    }
+  getSize() {
+    return this._responseBody && this._responseBody.length;
+  }
 
-    getId() {
-        return this._id;
-    }
+  getRequest() {
+    return this._request;
+  }
 
-    getTiming() {
-        return this._timing;
-    }
+  getResponse() {
+    return this._response;
+  }
 
-    registerResponseReceived() {
-        this._timing.responseReceived = getTime();
-    }
+  isBinary() {
+    return this._binary;
+  }
 
-    registerDataReceived(data) {
-        if (!this._chunks) {
-            this._timing.dataReceived = getTime();
-        }
+  isEncoded() {
+    const contentEncoding = this._response && this._response.headers['content-encoding'];
 
-        this._chunks.push(data);
-    }
+    return (contentEncoding === 'gzip' || contentEncoding === 'deflate');
+  }
 
-    registerResponseFinished() {
-        this._timing.responseFinished = getTime();
-
-        if (this._chunks.length) {
-            let buffer = Buffer.concat(this._chunks);
-            this._encodedSize = buffer.length;
-
-            if (this.isEncoded()) {
-                buffer = unpackBody(buffer, this._response.headers['content-encoding']);
-            }
-
-            this._binary = isBinary(this._response.headers['content-type'], buffer);
-            this._responseBody = this.isBinary() ? buffer.toString('base64') : buffer.toString('utf8');
-
-            this._chunks = [];
-        }
-    }
-
-    getResourceType() {
-        return this._resourceType;
-    }
-
-    getEncodedSize() {
-        let encodedBodySize = this._encodedSize;
-
-        if (encodedBodySize !== null) {
-            let headerSize = this._response && this._response.rawHeaders.length;
-
-            return (headerSize + encodedBodySize);
-        }
-
-        return Number.parseInt(this._response.headers['content-length'], 10);
-    }
-
-    getSize() {
-        return this._responseBody && this._responseBody.length;
-    }
-
-    getRequest() {
-        return this._request;
-    }
-
-    getResponse() {
-        return this._response;
-    }
-
-    isBinary() {
-        return this._binary;
-    }
-
-    isEncoded() {
-        let contentEncoding = this._response && this._response.headers['content-encoding'];
-
-        return (contentEncoding === 'gzip' || contentEncoding === 'deflate');
-    }
-
-    getResponseBody() {
-        return this._responseBody;
-    }
+  getResponseBody() {
+    return this._responseBody;
+  }
 }
 
 function fullUrl(req, isSSL) {
-    let parsedUrl = url.parse(req.url);
-    parsedUrl.protocol = isSSL ? 'https' : 'http';
-    parsedUrl.host = req.headers.host;
+  const parsedUrl = url.parse(req.url);
+  parsedUrl.protocol = isSSL ? 'https' : 'http';
+  parsedUrl.host = req.headers.host;
 
-    return url.format(parsedUrl);
+  return url.format(parsedUrl);
 }
 
-//TODO should be async
+// TODO should be async
 function unpackBody(buffer, encoding) {
-    if (encoding === 'gzip') {
-        try {
-            return zlib.unzipSync(buffer);
-        } catch (e) {
-            return buffer;
-        }
-    } else if (encoding === 'deflate') {
-        try {
-            // differentiate whether encoding is zlib or raw deflate
-            // RFC 1950 Section 2.2
-            // CM field (least-significant 4 bits) must be 8
-            // FCHECK field ensures first 16-bit BE int is a multiple of 31
-            if (((buffer[0] & 0x0f) === 8) && (((buffer[0] << 8) + buffer[1]) % 31 === 0)) {
-                return zlib.inflateSync(buffer);
-            } else {
-                return zlib.inflateRawSync(buffer);
-            }
-        } catch (e) {
-            return buffer;
-        }
-    } else {
-        throw Error('unknown encoding');
+  if (encoding === 'gzip') {
+    try {
+      return zlib.unzipSync(buffer);
+    } catch (e) {
+      return buffer;
     }
+  } else if (encoding === 'deflate') {
+    try {
+      // differentiate whether encoding is zlib or raw deflate
+      // RFC 1950 Section 2.2
+      // CM field (least-significant 4 bits) must be 8
+      // FCHECK field ensures first 16-bit BE int is a multiple of 31
+      // eslint-disable-next-line no-bitwise
+      if (((buffer[0] & 0x0f) === 8) && (((buffer[0] << 8) + buffer[1]) % 31 === 0)) {
+        return zlib.inflateSync(buffer);
+      }
+      return zlib.inflateRawSync(buffer);
+    } catch (e) {
+      return buffer;
+    }
+  } else {
+    throw Error('unknown encoding');
+  }
 }
 
 function isBinary(contentType, buffer) {
-    let type = getResourceType(contentType);
+  const type = getResourceType(contentType);
 
-    //TODO Image is not always binary (SVG)
-    if (type === 'Image' || type === 'Media' || type === 'Font') {
-        return true;
-    }
+  // TODO Image is not always binary (SVG)
+  if (type === 'Image' || type === 'Media' || type === 'Font') {
+    return true;
+  }
 
-    if (type === 'Other' && isTextOrBinary.isBinarySync(null, buffer)) {
-        return true;
-    }
+  if (type === 'Other' && isTextOrBinary.isBinarySync(null, buffer)) {
+    return true;
+  }
 
-    return false;
+  return false;
 }
 
 // See https://chromedevtools.github.io/debugger-protocol-viewer/Page/#type-ResourceType
 // TODO steal more comprehensive solution from other library or... find a library for that
 function getResourceType(contentType) {
-    if (contentType && contentType.match) {
-        if (contentType.match('text/css')) {
-            return 'Stylesheet';
-        }
-        if (contentType.match('text/html')) {
-            return 'Document';
-        }
-        if (contentType.match('/(x-)?javascript')) {
-            return 'Script';
-        }
-        if (contentType.match('image/')) {
-            return 'Image';
-        }
-        if (contentType.match('video/')) {
-            return 'Media';
-        }
-        if (contentType.match('font/') || contentType.match('/(x-font-)?woff')) {
-            return 'Font';
-        }
-        if (contentType.match('/(json|xml)')) {
-            return 'XHR';
-        }
+  if (contentType && contentType.match) {
+    if (contentType.match('text/css')) {
+      return 'Stylesheet';
     }
+    if (contentType.match('text/html')) {
+      return 'Document';
+    }
+    if (contentType.match('/(x-)?javascript')) {
+      return 'Script';
+    }
+    if (contentType.match('image/')) {
+      return 'Image';
+    }
+    if (contentType.match('video/')) {
+      return 'Media';
+    }
+    if (contentType.match('font/') || contentType.match('/(x-font-)?woff')) {
+      return 'Font';
+    }
+    if (contentType.match('/(json|xml)')) {
+      return 'XHR';
+    }
+  }
 
-    return 'Other';
+  return 'Other';
 }
 
-//TODO try getting real raw response headers instead of this thing
+// TODO try getting real raw response headers instead of this thing
 function recreateRawResponseHeaders(res) {
-    let headerString = '';
+  let headerString = '';
 
-    for (let i = 0, l = res.rawHeaders.length; i < l; i += 2) {
-        headerString += res.rawHeaders[i] + ': ' + res.rawHeaders[i + 1] + '\n';
-    }
+  for (let i = 0, l = res.rawHeaders.length; i < l; i += 2) {
+    headerString += `${res.rawHeaders[i]}: ${res.rawHeaders[i + 1]}\n`;
+  }
 
-    return `HTTP/${res.httpVersion} ${res.statusCode} ${res.statusMessage}
+  return `HTTP/${res.httpVersion} ${res.statusCode} ${res.statusMessage}
 ${headerString}`;
 }
 
 // response object keeps some params (like cookies) in an array, devtools don't like that, they want a string
 function flattenHeaders(headers) {
-    let flatHeaders = {};
+  const flatHeaders = {};
 
-    for (let name in headers) {
-        let value = headers[name];
+  Object.keys(headers).forEach((name) => {
+    let value = headers[name];
 
-        if (Array.isArray(value)) {
-            value = value.join('\n');
-        }
-
-        flatHeaders[name] = value;
+    if (Array.isArray(value)) {
+      value = value.join('\n');
     }
 
-    return flatHeaders;
+    flatHeaders[name] = value;
+  });
+
+  return flatHeaders;
 }
 
 module.exports = CapturedConnection;

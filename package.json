@@ -5,7 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron src/main.js",
-    "test": "jshint src/lib/ src/*.js && jscs src/lib/ src/*.js"
+    "test": "eslint ."
   },
   "repository": {
     "type": "git",
@@ -25,13 +25,14 @@
   "homepage": "https://github.com/kdzwinel/betwixt",
   "dependencies": {
     "chalk": "^2.4.1",
+    "electron": "^4.0.0",
     "http-mitm-proxy": "^0.6.1",
     "istextorbinary": "^2.3.0",
     "minimist": "^1.2.0"
   },
   "devDependencies": {
-    "electron": "^4.0.0",
-    "jscs": "^3.0.7",
-    "jshint": "^2.9.7"
+    "eslint": "^5.11.1",
+    "eslint-config-airbnb-base": "^13.1.0",
+    "eslint-plugin-import": "^2.14.0"
   }
 }
