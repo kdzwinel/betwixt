@@ -44,7 +44,7 @@ Network.NetworkLogView = class extends UI.VBox {
 
     this.element.id = 'network-container';
 
-    this._networkHideDataURLSetting = Common.settings.createSetting('networkHideDataURL', false);
+    // this._networkHideDataURLSetting = Common.settings.createSetting('networkHideDataURL', false);
     this._networkResourceTypeFiltersSetting = Common.settings.createSetting('networkResourceTypeFilters', {});
 
     this._rawRowHeight = 0;
@@ -113,10 +113,10 @@ Network.NetworkLogView = class extends UI.VBox {
     this._textFilterUI.addEventListener(UI.FilterUI.Events.FilterChanged, this._filterChanged, this);
     filterBar.addFilter(this._textFilterUI);
 
-    this._dataURLFilterUI = new UI.CheckboxFilterUI(
-        'hide-data-url', Common.UIString('Hide data URLs'), true, this._networkHideDataURLSetting);
-    this._dataURLFilterUI.addEventListener(UI.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
-    filterBar.addFilter(this._dataURLFilterUI);
+    // this._dataURLFilterUI = new UI.CheckboxFilterUI(
+        // 'hide-data-url', Common.UIString('Hide data URLs'), true, this._networkHideDataURLSetting);
+    // this._dataURLFilterUI.addEventListener(UI.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
+    // filterBar.addFilter(this._dataURLFilterUI);
 
     const filterItems =
         Object.values(Common.resourceCategories)
@@ -1054,7 +1054,7 @@ Network.NetworkLogView = class extends UI.VBox {
    */
   setTextFilterValue(filterString) {
     this._textFilterUI.setValue(filterString);
-    this._dataURLFilterUI.setChecked(false);
+    // this._dataURLFilterUI.setChecked(false);
     this._resourceCategoryFilterUI.reset();
   }
 
@@ -1198,9 +1198,9 @@ Network.NetworkLogView = class extends UI.VBox {
 
     contextMenu.saveSection().appendItem(Common.UIString('Save all as HAR with content'), this._exportAll.bind(this));
 
-    contextMenu.editSection().appendItem(Common.UIString('Clear browser cache'), this._clearBrowserCache.bind(this));
-    contextMenu.editSection().appendItem(
-        Common.UIString('Clear browser cookies'), this._clearBrowserCookies.bind(this));
+    // contextMenu.editSection().appendItem(Common.UIString('Clear browser cache'), this._clearBrowserCache.bind(this));
+    // contextMenu.editSection().appendItem(
+        // Common.UIString('Clear browser cookies'), this._clearBrowserCookies.bind(this));
 
     if (request) {
       const maxBlockedURLLength = 20;
@@ -1208,24 +1208,24 @@ Network.NetworkLogView = class extends UI.VBox {
       let patterns = manager.blockedPatterns();
 
       const urlWithoutScheme = request.parsedURL.urlWithoutScheme();
-      if (urlWithoutScheme && !patterns.find(pattern => pattern.url === urlWithoutScheme)) {
-        contextMenu.debugSection().appendItem(
-            Common.UIString('Block request URL'), addBlockedURL.bind(null, urlWithoutScheme));
-      } else if (urlWithoutScheme) {
-        const croppedURL = urlWithoutScheme.trimMiddle(maxBlockedURLLength);
-        contextMenu.debugSection().appendItem(
-            Common.UIString('Unblock %s', croppedURL), removeBlockedURL.bind(null, urlWithoutScheme));
-      }
+      // if (urlWithoutScheme && !patterns.find(pattern => pattern.url === urlWithoutScheme)) {
+      //   contextMenu.debugSection().appendItem(
+      //       Common.UIString('Block request URL'), addBlockedURL.bind(null, urlWithoutScheme));
+      // } else if (urlWithoutScheme) {
+      //   const croppedURL = urlWithoutScheme.trimMiddle(maxBlockedURLLength);
+      //   contextMenu.debugSection().appendItem(
+      //       Common.UIString('Unblock %s', croppedURL), removeBlockedURL.bind(null, urlWithoutScheme));
+      // }
 
       const domain = request.parsedURL.domain();
-      if (domain && !patterns.find(pattern => pattern.url === domain)) {
-        contextMenu.debugSection().appendItem(
-            Common.UIString('Block request domain'), addBlockedURL.bind(null, domain));
-      } else if (domain) {
-        const croppedDomain = domain.trimMiddle(maxBlockedURLLength);
-        contextMenu.debugSection().appendItem(
-            Common.UIString('Unblock %s', croppedDomain), removeBlockedURL.bind(null, domain));
-      }
+      // if (domain && !patterns.find(pattern => pattern.url === domain)) {
+      //   contextMenu.debugSection().appendItem(
+      //       Common.UIString('Block request domain'), addBlockedURL.bind(null, domain));
+      // } else if (domain) {
+      //   const croppedDomain = domain.trimMiddle(maxBlockedURLLength);
+      //   contextMenu.debugSection().appendItem(
+      //       Common.UIString('Unblock %s', croppedDomain), removeBlockedURL.bind(null, domain));
+      // }
 
       if (SDK.NetworkManager.canReplayRequest(request)) {
         contextMenu.debugSection().appendItem(
@@ -1351,8 +1351,8 @@ Network.NetworkLogView = class extends UI.VBox {
     const categoryName = request.resourceType().category().title;
     if (!this._resourceCategoryFilterUI.accept(categoryName))
       return false;
-    if (this._dataURLFilterUI.checked() && request.parsedURL.isDataURL())
-      return false;
+    // if (this._dataURLFilterUI.checked() && request.parsedURL.isDataURL())
+      // return false;
     if (request.statusText === 'Service Worker Fallback Required')
       return false;
     for (let i = 0; i < this._filters.length; ++i) {
