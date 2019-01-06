@@ -10,16 +10,20 @@
     1. hide some network panel options in `network/NetworkPanel.js`
     1. create connection with electron backend in `sdk/Connections.js`
     1. move missing settings from `sources/module.json` to `network/module.json` 
+    1. implement context menu in `InspectorFrontendHost.js`
+    1. disable soft menu in `ContextMenu.js`
 
 TODO:
 - [ ] use real context menu ?
 - [ ] remove stuff from context menu (clear browser cache)
-- [ ] make save har work
-- [ ] make open in new tab use real browser
+- [x] make save har work
+- [x] make open in new tab use real browser
 - [ ] fix blocking requests
 - [ ] default view settings (network panel open)
 - [ ] welcome message
 - [ ] make searching work
-- [ ] 'protocol' - undefined
-- [ ] make 'stop recording' work
-- [ ] Cannot read property '_setIcon' of undefined
+- [x] 'protocol' - undefined
+- [x] make 'stop recording' work
+- [x] Cannot read property '_setIcon' of undefined
+- [ ] staled -> TTFB
+- [ ] https failures :(

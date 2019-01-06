@@ -317,5 +317,10 @@ InspectorFrontendHostAPI.prototype = {
   /**
    * @return {boolean}
    */
-  isHostedMode() {}
+  isHostedMode() {},
+
+  /**
+   * @return {boolean}
+   */
+  isElectron() {}
 };

@@ -27,6 +27,12 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+const electron = require("electron");
+const remote = electron.remote;
+const Menu = remote.Menu;
+const electronWindow = remote.getCurrentWindow();
+
 /**
  * @implements {InspectorFrontendHostAPI}
  * @unrestricted
@@ -452,8 +458,39 @@ Host.InspectorFrontendHostStub = class {
    * @param {!Array.<!InspectorFrontendHostAPI.ContextMenuDescriptor>} items
    * @param {!Document} document
    */
-  showContextMenuAtPoint(x, y, items, document) {
-    throw 'Soft context menu should be used';
+  showContextMenuAtPoint(x, y, items, document, callback) {
+    // throw 'Soft context menu should be used';
+
+    function dtItemToElectronItem(item) {
+      if (item.type === "separator") {
+        return {
+          type: "separator"
+        };
+      }
+
+      if (item.type.toLowerCase() === "submenu") {
+        return {
+          id: item.id,
+          label: item.label,
+          enabled: item.enabled,
+          submenu: item.subItems.map(dtItemToElectronItem.bind(null))
+        };
+      }
+
+      return {
+        id: item.id,
+        label: item.label,
+        enabled: item.enabled,
+        type: "normal",
+        click: callback.bind(null, item.id)
+      };
+    }
+
+    const menu = Menu.buildFromTemplate(items.map(dtItemToElectronItem));
+
+    menu.popup(electronWindow);
+
+    window.getSelection().removeAllRanges();
   }
 
   /**
@@ -461,6 +498,14 @@ Host.InspectorFrontendHostStub = class {
    * @return {boolean}
    */
   isHostedMode() {
+    return true;
+  }
+
+  /**
+   * @override
+   * @return {boolean}
+  */
+  isElectron() {
     return true;
   }
 };
