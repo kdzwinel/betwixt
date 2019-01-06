@@ -35,7 +35,7 @@ InspectorMain.InspectorMain = class extends Common.Object {
     }, Components.TargetDetachedDialog.webSocketConnectionLost);
 
     new InspectorMain.InspectedNodeRevealer();
-    new InspectorMain.SourcesPanelIndicator();
+    // new InspectorMain.SourcesPanelIndicator();
     new InspectorMain.BackendSettingsSync();
     new MobileThrottling.NetworkPanelIndicator();
 
