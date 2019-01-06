@@ -12,13 +12,16 @@
     1. move missing settings from `sources/module.json` to `network/module.json` 
     1. implement context menu in `InspectorFrontendHost.js`
     1. disable soft menu in `ContextMenu.js`
+    1. remove unwanted context menu items in `NetworkLogView.js`
+    1. remove dataURL filtering from `NetworkLogView.js`
+    1. remove ability to reload page from `/module.json`
 
 TODO:
-- [ ] use real context menu ?
-- [ ] remove stuff from context menu (clear browser cache)
+- [x] use real context menu
+- [x] remove stuff from context menu (clear browser cache)
 - [x] make save har work
 - [x] make open in new tab use real browser
-- [ ] fix blocking requests
+- [?] fix blocking requests
 - [ ] default view settings (network panel open)
 - [ ] welcome message
 - [ ] make searching work

@@ -468,22 +468,31 @@ Host.InspectorFrontendHostStub = class {
         };
       }
 
-      if (item.type.toLowerCase() === "submenu") {
-        return {
-          id: item.id,
-          label: item.label,
-          enabled: item.enabled,
-          submenu: item.subItems.map(dtItemToElectronItem.bind(null))
-        };
-      }
-
-      return {
+      const newItem = {
         id: item.id,
+        type: item.type,
         label: item.label,
         enabled: item.enabled,
-        type: "normal",
-        click: callback.bind(null, item.id)
       };
+
+      if (item.type.toLowerCase() === "submenu") {
+        newItem.type = "submenu";
+        newItem.submenu = item.subItems.map(dtItemToElectronItem.bind(null));
+
+        return newItem;
+      }
+
+      if (item.type === "radio" || item.type === "checkbox") {
+        newItem.checked = item.checked;
+        newItem.click = callback.bind(null, item.id);
+
+        return newItem;
+      }
+
+      newItem.type = "normal";
+      newItem.click = callback.bind(null, item.id);
+
+      return newItem;
     }
 
     const menu = Menu.buildFromTemplate(items.map(dtItemToElectronItem));
