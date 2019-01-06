@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, shell } = require('electron');
 const chalk = require('chalk');
 const path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
@@ -77,6 +77,10 @@ app.on('ready', () => {
     icon: 'gfx/icon.png',
     width: 800,
     height: 600,
+    webPreferences: {
+      nodeIntegration: true,
+      allowRunningInsecureContent: false,
+    },
   });
 
   init(mainWindow.webContents, options);
@@ -90,4 +94,17 @@ app.on('ready', () => {
   mainWindow.webContents.openDevTools();
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenu(app, options)));
+});
+
+app.on('web-contents-created', (e, contents) => {
+  // security - ask OS to open resources in the regular browser
+  contents.on('new-window', (event, navigationUrl) => {
+    event.preventDefault();
+    shell.openExternal(navigationUrl);
+  });
+
+  // security - prevent navigation
+  contents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
 });
