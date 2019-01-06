@@ -30,7 +30,7 @@ class CapturedConnection {
      */
     this._request = null;
     /**
-     * @type {{url: string, statusCode: number, statusMessage: string, headers: object, rawHeaders: string, connectionId: number, remoteAddress: string, remotePort: number}}
+     * @type {{url: string, statusCode: number, statusMessage: string, headers: object, rawHeaders: string, connectionId: number, remoteAddress: string, remotePort: number, protocol: string}}
      */
     this._response = null;
     /**
@@ -60,6 +60,9 @@ class CapturedConnection {
     };
   }
 
+  /**
+   * @param {import('http').IncomingMessage} res
+   */
   setResponse(res) {
     this._response = {
       url: res.url,
@@ -70,6 +73,7 @@ class CapturedConnection {
       connectionId: res.connection.localPort,
       remoteAddress: res.connection.remoteAddress,
       remotePort: res.connection.remotePort,
+      protocol: `http/${res.httpVersion}`,
     };
 
     this._resourceType = getResourceType(res.headers['content-type']);

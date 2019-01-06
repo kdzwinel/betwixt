@@ -33,6 +33,16 @@ function requestWillBeSent(connection) {
   };
 }
 
+function contentTypeToMimeType(contentType) {
+  let mimeType = '';
+
+  if (contentType) {
+    [mimeType] = contentType.split(';');
+  }
+
+  return mimeType;
+}
+
 /**
  * @param {CapturedConnection} connection
  */
@@ -47,11 +57,12 @@ function responseReceived(connection) {
     type: connection.getResourceType(),
     response: {
       url: response.url,
+      protocol: response.protocol,
       status: response.statusCode,
       statusText: response.statusMessage,
       headers: response.headers,
       headersText: response.rawHeaders,
-      mimeType: response.headers['content-type'] || '',
+      mimeType: contentTypeToMimeType(response.headers['content-type']),
       connectionReused: true,
       connectionId: response.connectionId,
       encodedDataLength: connection.getEncodedSize(),
@@ -76,6 +87,7 @@ function responseReceived(connection) {
       requestHeaders: connection.getRequest().headers,
       remoteIPAddress: response.remoteAddress,
       remotePort: response.remotePort,
+      securityState: 'neutral',
     },
   };
 }
