@@ -326,19 +326,20 @@ SDK.initMainConnection = async function(createMainTarget, websocketConnectionLos
  * @return {!Protocol.Connection}
  */
 SDK._createMainConnection = function() {
-  return new SDK.ElectronConnection();
+  const wsParam = Runtime.queryParam('ws');
+  const wssParam = Runtime.queryParam('wss');
 
-  // const wsParam = Runtime.queryParam('ws');
-  // const wssParam = Runtime.queryParam('wss');
-  // if (wsParam || wssParam) {
-  //   const ws = wsParam ? `ws://${wsParam}` : `wss://${wssParam}`;
-  //   SDK._mainConnection = new SDK.WebSocketConnection(ws, SDK._websocketConnectionLost);
-  // } else if (InspectorFrontendHost.isHostedMode()) {
-  //   SDK._mainConnection = new SDK.StubConnection();
-  // } else {
-  //   SDK._mainConnection = new SDK.MainConnection();
-  // }
-  // return SDK._mainConnection;
+  if(Runtime.queryParam('electron')) {
+    SDK._mainConnection = new SDK.ElectronConnection();
+  } else if (wsParam || wssParam) {
+    const ws = wsParam ? `ws://${wsParam}` : `wss://${wssParam}`;
+    SDK._mainConnection = new SDK.WebSocketConnection(ws, SDK._websocketConnectionLost);
+  } else if (InspectorFrontendHost.isHostedMode()) {
+    SDK._mainConnection = new SDK.StubConnection();
+  } else {
+    SDK._mainConnection = new SDK.MainConnection();
+  }
+  return SDK._mainConnection;
 };
 
 /** @type {!Protocol.Connection} */
