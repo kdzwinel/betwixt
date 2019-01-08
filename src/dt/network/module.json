@@ -299,6 +299,14 @@
                 "title": "Disable autocompletion"
             }
         ]
+      },
+      {
+        "type": "setting",
+        "category": "Console",
+        "title": "Log XMLHttpRequests",
+        "settingName": "monitoringXHREnabled",
+        "settingType": "boolean",
+        "defaultValue": false
       }
     ],
     "dependencies": [
