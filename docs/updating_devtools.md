@@ -9,12 +9,14 @@
     1. add conext menu, file saving and clipboard support in `host/InspectorFrontendHost.js`
     1. hide some network panel options in `network/NetworkPanel.js`
     1. create connection with electron backend in `sdk/Connections.js`
-    1. move missing settings from `sources/module.json` to `network/module.json` 
+    1. move missing settings from `sources/module.json` and `console/module.json` to `network/module.json` 
     1. implement context menu in `InspectorFrontendHost.js`
     1. disable soft menu in `ContextMenu.js`
     1. remove unwanted context menu items in `NetworkLogView.js`
     1. remove dataURL filtering from `NetworkLogView.js`
     1. remove ability to reload page from `/module.json`
+    1. hide the top toolbar via `rootView.css`
+    1. add welcome message to `NetworkLogView.js`
 
 TODO:
 - [x] use real context menu
@@ -22,11 +24,14 @@ TODO:
 - [x] make save har work
 - [x] make open in new tab use real browser
 - [?] fix blocking requests
-- [ ] default view settings (network panel open)
-- [ ] welcome message
+- [x] default view settings (network panel open) + clearing those settings
+- [x] welcome message
 - [ ] make searching work
 - [x] 'protocol' - undefined
 - [x] make 'stop recording' work
 - [x] Cannot read property '_setIcon' of undefined
-- [ ] staled -> TTFB
+- [x] staled -> TTFB
 - [ ] https failures :(
+- [x] hide tabs
+- [ ] autoupdate
+- [x] fix zooming
