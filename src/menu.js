@@ -1,7 +1,7 @@
 const { shell } = require('electron');
 const path = require('path');
 
-function buildMenu(app, options) {
+function buildMenu(app, mainWindow, options) {
   const template = [
     {
       label: 'Edit',
@@ -48,6 +48,19 @@ function buildMenu(app, options) {
           label: 'Root Certificate',
           click: () => {
             shell.showItemInFolder(path.resolve(options.sslCaDir, 'certs', 'ca.pem'));
+          },
+        },
+        {
+          label: 'Reset Settings',
+          click: () => {
+            mainWindow.webContents.session.clearStorageData();
+            mainWindow.reload();
+          },
+        },
+        {
+          label: 'Open DevTools',
+          click: () => {
+            mainWindow.webContents.openDevTools();
           },
         },
       ],

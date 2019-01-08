@@ -91,9 +91,7 @@ app.on('ready', () => {
     mainWindow = null;
   });
 
-  mainWindow.webContents.openDevTools();
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenu(app, options)));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenu(app, mainWindow, options)));
 });
 
 app.on('web-contents-created', (e, contents) => {
