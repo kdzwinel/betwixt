@@ -3,7 +3,6 @@
     { "name": "bindings", "type": "autostart" },
     { "name": "common", "type": "autostart" },
     { "name": "components", "type": "autostart"},
-    { "name": "console_counters", "type": "autostart" },
     { "name": "dom_extension", "type": "autostart" },
     { "name": "extensions", "type": "autostart" },
     { "name": "host", "type": "autostart" },
@@ -21,7 +20,6 @@
 
     { "name": "cm" },
     { "name": "cm_modes", "type": "remote" },
-    { "name": "console" },
     { "name": "data_grid" },
     { "name": "diff" },
     { "name": "formatter" },
@@ -29,12 +27,10 @@
     { "name": "javascript_metadata" },
     { "name": "object_ui" },
     { "name": "perf_ui" },
-    { "name": "quick_open" },
     { "name": "search" },
     { "name": "snippets" },
     { "name": "source_frame" },
     { "name": "text_editor" },
-    { "name": "workspace_diff" },
-    { "name": "protocol_monitor"}
+    { "name": "workspace_diff" }
   ]
 }

@@ -9,7 +9,7 @@
     overflow: hidden;
     position: absolute !important;
     left: 0;
-    top: 0;
+    top: -27px; /* hack to hide to top toolbar */
     right: 0;
     bottom: 0;
 }

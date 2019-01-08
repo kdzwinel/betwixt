@@ -36,10 +36,6 @@
     background: rgb(203, 203, 203);
 }
 
-.network-details-view-tall-header {
-    margin-top: 4px;
-}
-
 .network-item-view {
     display: flex;
     background: white;
