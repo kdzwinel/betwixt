@@ -618,6 +618,14 @@ Network.NetworkLogView = class extends UI.VBox {
         hintText.appendChild(UI.formatLocalized('Record (%s) to display network activity.', [recordNode]));
       }
     }
+
+    const recordingText = hintText.createChild("div");
+    recordingText.textContent = Common.UIString("Not sure how to start? ");
+
+    const docsLink = recordingText.createChild("a");
+    docsLink.target = '_blank';
+    docsLink.href = 'https://github.com/kdzwinel/betwixt/blob/master/README.md#setting-up';
+    docsLink.textContent = Common.UIString("Read the docs.");
   }
 
   _hideRecordingHint() {
