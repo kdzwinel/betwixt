@@ -42,6 +42,26 @@ function buildMenu(app, mainWindow, options) {
       ],
     },
     {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Actual Size',
+          accelerator: 'CmdOrCtrl+0',
+          role: 'resetZoom',
+        },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+=',
+          role: 'zoomIn',
+        },
+        {
+          label: 'Zoom Out',
+          accelerator: 'CmdOrCtrl+-',
+          role: 'zoomOut',
+        },
+      ],
+    },
+    {
       label: 'Tools',
       submenu: [
         {
@@ -51,14 +71,17 @@ function buildMenu(app, mainWindow, options) {
           },
         },
         {
-          label: 'Reset Settings',
+          type: 'separator',
+        },
+        {
+          label: 'Reset UI Settings',
           click: () => {
             mainWindow.webContents.session.clearStorageData();
             mainWindow.reload();
           },
         },
         {
-          label: 'Open DevTools',
+          label: 'Debug Betwixt',
           click: () => {
             mainWindow.webContents.openDevTools();
           },
