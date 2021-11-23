@@ -16,4 +16,4 @@ npm i --production
 cd ..
 
 :: build packages for all supported OS versions
-electron-packager ./build/ Betwixt --out ./bin/ --version=0.36.12 --platform=all --arch=all --icon=./gfx/icon
+node .\node_modules\electron-packager\cli.js ./build/ Betwixt --out ./bin/ --version=0.36.12 --platform=all --arch=all --icon=./gfx/icon
